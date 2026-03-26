@@ -10,13 +10,11 @@ st.write("※ 매월 말일 기준으로 계산되어 다음 달 1일에 자동 
 file_path = 'momentum_data.csv'
 
 if os.path.exists(file_path):
-    # 1. 데이터 읽기 (종목코드 앞의 0이 사라지지 않도록 문자로 읽어옴)
     df_momentum = pd.read_csv(file_path, dtype={'종목코드': str})
     
     base_date_str = df_momentum['기준일(월말)'].iloc[0]
     st.success(f"✅ 현재 데이터 기준일: **{base_date_str}**")
     
-    # 2. 시장 필터 생성
     market_filter = st.radio(
         "조회할 시장을 선택하세요:",
         ('전체 보기', 'KOSPI만 보기', 'KOSDAQ만 보기'),
@@ -30,31 +28,30 @@ if os.path.exists(file_path):
     else:
         df_display = df_momentum.copy()
         
-    # 3. 왼쪽 순위(인덱스)를 1부터 시작하도록 맞춤
     df_display.index = range(1, len(df_display) + 1)
-    
-    # 4. 종목코드 6자리 맞추기 (예: 5930 -> 005930)
     df_display['종목코드'] = df_display['종목코드'].str.zfill(6)
     
-    # 5. 종목명을 클릭 가능한 네이버 모바일 차트 링크로 변환 (꼼수 적용: URL#종목명)
     def make_link(row):
         return f"https://m.stock.naver.com/fchart/domestic/stock/{row['종목코드']}#{row['종목명']}"
         
     df_display['종목명'] = df_display.apply(make_link, axis=1)
     
-    # 6. 화면에 보여줄 컬럼만 선택하고 순서 배치
-    columns_to_show = ['시장', '종목명', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어']
+    # ⭐ 1. 요청하신 '시장:티커' 통합 컬럼 새로 만들기
+    df_display['통합티커'] = df_display['시장'] + ":" + df_display['종목코드']
+    
+    # ⭐ 2. 화면에 보여줄 컬럼 장바구니 (여기에 이름을 넣으면 살아납니다!)
+    # 새로 만든 '통합티커'와 숨어있던 '종목코드'를 맨 앞에 추가했습니다.
+    columns_to_show = ['통합티커', '종목코드', '시장', '종목명', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어']
     df_final = df_display[columns_to_show]
     
-    # 7. 표 출력
     st.dataframe(
         df_final,
         use_container_width=True,
         column_config={
             "종목명": st.column_config.LinkColumn(
-                "종목명", # 표기될 컬럼 이름
+                "종목명", 
                 help="클릭하면 네이버 모바일 차트로 이동합니다.",
-                display_text=r"#(.+)" # 링크 주소의 '#' 뒤에 있는 글자(실제 종목명)만 화면에 표시
+                display_text=r"#(.+)" 
             )
         }
     )
