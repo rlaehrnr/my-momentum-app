@@ -1,13 +1,12 @@
 import streamlit as st
 import FinanceDataReader as fdr
-from pykrx import stock  
 import pandas as pd
 import calendar
 from dateutil.relativedelta import relativedelta
 
 st.set_page_config(page_title="과거 모멘텀 조회", layout="wide")
 st.title("🕰️ 과거 모멘텀 상위 30위 백테스트")
-st.write("선택한 과거 시점 당시에 **시가총액 상위 150위**였던 KOSPI/KOSDAQ 종목(총 300개)을 정확히 추려내어, 그 당시의 모멘텀 순위를 계산합니다.")
+st.write("클라우드 서버 차단(IP 밴) 문제를 완벽히 해결한 버전입니다! 오픈소스 데이터를 활용하여, **그 당시 시총 상위 300개**를 정확하게 추출해 모멘텀을 계산합니다.")
 
 col1, col2 = st.columns(2)
 with col1:
@@ -15,69 +14,55 @@ with col1:
 with col2:
     selected_month = st.selectbox("월 선택", range(1, 13), index=0)
 
+# ⭐ 1. 새로운 꼼수: GitHub 오픈소스에서 과거 시가총액 CSV 파일 직접 읽어오기 (차단 절대 없음)
 @st.cache_data(ttl=86400)
-def get_historical_momentum_top300(year, month):
-    # 1. 기준일 계산
-    last_day = calendar.monthrange(year, month)[1]
-    base_date = pd.Timestamp(year=year, month=month, day=last_day)
-    start_date = base_date - relativedelta(months=15)
-    
-    # ⭐ 2. 완벽한 영업일 찾기 꼼수 (삼성전자 주가 달력 활용)
-    # pykrx의 잦은 에러를 피하기 위해, 우량주인 삼성전자의 마지막 거래일을 그 달의 영업일 말일로 씁니다.
-    start_str = f"{year}-{month:02d}-01"
-    end_str = f"{year}-{month:02d}-{last_day:02d}"
-    
+def get_marcap_data(year):
+    url = f"https://raw.githubusercontent.com/FinanceData/marcap/master/data/marcap-{year}.csv.gz"
+    # 날짜(Date) 컬럼을 날짜 형식으로 읽어옵니다.
+    df = pd.read_csv(url, dtype={'Code': str}, parse_dates=['Date'])
+    return df
+
+@st.cache_data(ttl=86400)
+def get_historical_momentum_ultimate(year, month):
     try:
-        df_cal = fdr.DataReader('005930', start_str, end_str)
-        if df_cal.empty:
-            return pd.DataFrame()
-        # 삼성전자 데이터의 가장 마지막 날짜를 추출 (예: 20240131)
-        target_date_str = df_cal.index[-1].strftime("%Y%m%d")
+        df_marcap = get_marcap_data(year)
     except:
-        st.error("영업일 달력을 불러오지 못했습니다.")
+        st.error(f"{year}년의 시가총액 데이터를 오픈소스에서 불러오지 못했습니다.")
         return pd.DataFrame()
+        
+    # 2. 선택한 연/월의 데이터만 뽑아서 '그 달의 마지막 영업일' 자동으로 찾기
+    df_month = df_marcap[(df_marcap['Date'].dt.year == year) & (df_marcap['Date'].dt.month == month)]
+    if df_month.empty:
+        return pd.DataFrame()
+        
+    target_date = df_month['Date'].max() # 휴장일 제외하고 그 달의 진짜 마지막 거래일을 알아서 찾아냅니다!
+    df_target = df_month[df_month['Date'] == target_date]
     
-    progress_text = f"{year}년 {month}월 당시의 시가총액 상위 종목을 발굴하는 중..."
+    progress_text = f"{year}년 {month}월 당시의 KOSPI/KOSDAQ 대장주 300개 발굴 중..."
     my_bar = st.progress(0, text=progress_text)
     
-    # 3. pykrx로 과거 시가총액 순위 가져오기
-    try:
-        kospi_cap = stock.get_market_cap(target_date_str, market="KOSPI")
-        kosdaq_cap = stock.get_market_cap(target_date_str, market="KOSDAQ")
-        
-        kospi_top = kospi_cap.sort_values("시가총액", ascending=False).head(150)
-        kosdaq_top = kosdaq_cap.sort_values("시가총액", ascending=False).head(150)
-        
-        kospi_codes = kospi_top.index.tolist()
-        kosdaq_codes = kosdaq_top.index.tolist()
-    except Exception as e:
-        my_bar.empty()
-        st.error(f"해당 시점의 시가총액 데이터를 불러오지 못했습니다. ({e})")
-        return pd.DataFrame()
-        
-    results = []
-    total_stocks = 300
+    # ⭐ 3. 타임머신 가동: '그 당시' 시가총액 상위 150개씩 정확히 추출!
+    kospi_top = df_target[df_target['Market'] == 'KOSPI'].sort_values('Marcap', ascending=False).head(150)
+    kosdaq_top = df_target[df_target['Market'] == 'KOSDAQ'].sort_values('Marcap', ascending=False).head(150)
+    target_stocks = pd.concat([kospi_top, kosdaq_top])
     
-    # 4. 발굴해 낸 300개 종목 리스트 합치기
-    target_stocks = []
-    for code in kospi_codes:
-        target_stocks.append({'Code': code, 'Market': 'KOSPI'})
-    for code in kosdaq_codes:
-        target_stocks.append({'Code': code, 'Market': 'KOSDAQ'})
-        
-    # 5. 300개 종목에 대해서만 속전속결 모멘텀 계산
-    for i, row in enumerate(target_stocks):
+    results = []
+    total_stocks = len(target_stocks)
+    
+    # 모멘텀 계산용 날짜 세팅
+    base_date = target_date
+    start_date = base_date - relativedelta(months=15)
+    
+    # 4. 발굴해 낸 300개 종목에 대해서만 속전속결 모멘텀 계산
+    for i, (idx, row) in enumerate(target_stocks.iterrows()):
         code = row['Code']
+        name = row['Name']
         market = row['Market']
         
-        try:
-            name = stock.get_market_ticker_name(code) 
-        except:
-            name = code # 종목명을 못 가져오면 코드라도 표시
-            
         my_bar.progress((i + 1) / total_stocks, text=f"[{name}] 모멘텀 계산 중... ({i+1}/{total_stocks})")
         
         try:
+            # 개별 주가를 가져오는 fdr은 네이버를 쓰므로 IP 차단이 거의 없습니다.
             df = fdr.DataReader(code, start_date, base_date)
             if len(df) < 200: 
                 continue
@@ -85,8 +70,8 @@ def get_historical_momentum_top300(year, month):
             current_price = df['Close'].iloc[-1]
             
             def get_past_price(months_ago):
-                target_date = base_date - pd.offsets.MonthEnd(months_ago)
-                past_df = df[df.index <= target_date]
+                past_target = base_date - pd.offsets.MonthEnd(months_ago)
+                past_df = df[df.index <= past_target]
                 if past_df.empty: return current_price
                 return past_df['Close'].iloc[-1]
             
@@ -122,37 +107,18 @@ def get_historical_momentum_top300(year, month):
     if result_df.empty:
         return result_df
         
-    # 6. 상위 30개 추출
+    # 5. 상위 30개 추출 및 순위 매기기
     result_df = result_df.sort_values('모멘텀스코어', ascending=False).head(30).reset_index(drop=True)
     result_df.index = range(1, len(result_df) + 1)
     
-    # 7. 네이버 차트 링크 생성 
+    # 6. 네이버 차트 링크 생성 
+    result_df['종목코드'] = result_df['종목코드'].astype(str).str.zfill(6)
     def make_link(row):
         return f"https://m.stock.naver.com/fchart/domestic/stock/{row['종목코드']}#{row['종목명']}"
     result_df['종목명'] = result_df.apply(make_link, axis=1)
     
     return result_df
 
+# 화면 버튼 및 실행
 if st.button(f"🚀 {selected_year}년 {selected_month}월 기준 상위 30위 추출하기"):
-    with st.spinner(f'타임머신 가동 중... {selected_year}년 {selected_month}월 당시 시총 상위 300개 종목을 추출하여 계산합니다.'):
-        df_history = get_historical_momentum_top300(selected_year, selected_month)
-        
-    if df_history is not None and not df_history.empty:
-        st.success(f"✅ {selected_year}년 {selected_month}월 말일 기준, 당시 시총 상위 300개 중 모멘텀 1~30위 발굴 완료!")
-        
-        columns_to_show = ['시장', '종목명', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어']
-        df_final = df_history[columns_to_show]
-        
-        st.dataframe(
-            df_final,
-            use_container_width=True,
-            column_config={
-                "종목명": st.column_config.LinkColumn(
-                    "종목명",
-                    help="클릭하면 네이버 모바일 차트로 이동합니다.",
-                    display_text=r"#(.+)"
-                )
-            }
-        )
-    else:
-        st.error("데이터를 불러오지 못했습니다. 너무 먼 과거이거나 주말/휴장일 관련 오류일 수 있습니다.")
+    with st.spinner(f'타임머신 가동 중... {selected_year}년 {selected_month}월 당시 시총 대장주 300개를 바탕
