@@ -109,4 +109,15 @@ if os.path.exists(file_path):
     # # 표 출력
     # st.dataframe(
     #     df_output,
-    #
+    #     use_container_width=True,
+    #     column_config={
+    #         "종목명(링크)": st.column_config.LinkColumn(
+    #             "종목명",
+    #             help="클릭하면 네이버 모바일 차트로 이동합니다.",
+    #             display_text=r"#(.+)" # # 뒤의 텍스트(종목명)만 추출해서 표시
+            )
+        }
+    )
+
+else:
+    st.warning("데이터를 수집하는 중이거나 파일이 없습니다. (자동화 스크립트 실행 대기 중)")
