@@ -1,0 +1,36 @@
+name: Monthly Momentum Data Auto-Update
+
+on:
+  schedule:
+    # 매월 1일 자정(UTC), 한국 시간으로는 매월 1일 오전 9시에 실행
+    - cron: '0 0 1 * *'
+  workflow_dispatch: # 수동으로 버튼을 눌러서 실행할 수 있게 해주는 기능!
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write 
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run data update script
+        run: python update_data.py
+
+      - name: Commit and push changes (CSV file)
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add momentum_data.csv
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update momentum data" && git push)
