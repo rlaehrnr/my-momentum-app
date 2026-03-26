@@ -2,3 +2,4 @@ streamlit
 finance-datareader
 pandas
 python-dateutil
+pykrx
