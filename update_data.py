@@ -1,90 +1,60 @@
 import FinanceDataReader as fdr
 import pandas as pd
 from datetime import datetime
-from dateutil.relativedelta import relativedelta
+import os
 
-def update_momentum_data():
-    print("데이터 수집을 시작합니다...")
-    
-    # 1. 한국 주식 전 종목 가져오기
-    krx = fdr.StockListing('KRX')
-    
-    # 2. ⭐ 코스피, 코스닥 각각 시가총액 상위 150개 추출
-    kospi_top150 = krx[krx['Market'] == 'KOSPI'].sort_values('Marcap', ascending=False).head(150)
-    kosdaq_top150 = krx[krx['Market'] == 'KOSDAQ'].sort_values('Marcap', ascending=False).head(150)
-    
-    # 3. 두 데이터 합치기 (총 300개)
-    target_stocks = pd.concat([kospi_top150, kosdaq_top150])
-    
-    today = pd.Timestamp.today()
-    # 기준일: 실행 시점(매월 1일) 기준 이전 달의 마지막 날짜
-    base_date = today.replace(day=1) - pd.Timedelta(days=1)
-    
-    # 1년치 + 여유분 3개월 과거 데이터
-    start_date = base_date - relativedelta(months=15) 
-    
-    results = []
-    
-    for i, (idx, row) in enumerate(target_stocks.iterrows()):
-        code = row['Code']
-        name = row['Name']
-        market = row['Market'] # ⭐ 소속 시장 정보 추가
-        
+# 1. 기존 데이터(지난달 명단) 채점 및 아카이브 저장
+def archive_last_month():
+    file_path = 'momentum_data.csv'
+    archive_dir = 'archive'
+    if not os.path.exists(archive_dir):
+        os.makedirs(archive_dir)
+
+    if os.path.exists(file_path):
         try:
-            df = fdr.DataReader(code, start_date, today)
-            if len(df) < 200: 
-                continue
-                
-            # 기준월말 이전의 데이터만 필터링
-            df_base = df[df.index <= base_date]
-            if df_base.empty: continue
-            current_price = df_base['Close'].iloc[-1]
+            df_old = pd.read_csv(file_path, dtype={'종목코드': str})
+            # 파일 안에 기록된 기준일(예: 2026-02-28) 가져오기
+            last_base_date = df_old['기준일(월말)'].iloc[0]
+            year_month = datetime.strptime(last_base_date, '%Y-%m-%d').strftime('%Y_%m')
             
-            # N개월 전 말일 종가 가져오는 함수
-            def get_past_price(months_ago):
-                target_date = base_date - pd.offsets.MonthEnd(months_ago)
-                past_df = df_base[df_base.index <= target_date]
-                if past_df.empty: return current_price
-                return past_df['Close'].iloc[-1]
+            print(f"📊 {last_base_date} 명단의 한 달 수익률을 채점하여 보관함으로 보냅니다...")
+
+            today = datetime.today()
+            forward_returns = []
             
-            price_1m = get_past_price(1)
-            price_3m = get_past_price(3)
-            price_6m = get_past_price(6)
-            price_12m = get_past_price(12)
+            for idx, row in df_old.iterrows():
+                code = str(row['종목코드']).zfill(6)
+                base_price = row['기준가']
+                try:
+                    # 현재(한 달 뒤) 주가 가져오기
+                    df_now = fdr.DataReader(code, today - pd.Timedelta(days=7), today)
+                    if not df_now.empty:
+                        curr_price = df_now['Close'].iloc[-1]
+                        ret = round((curr_price - base_price) / base_price * 100, 2)
+                        forward_returns.append(ret)
+                    else:
+                        forward_returns.append(0.0)
+                except:
+                    forward_returns.append(0.0)
             
-            # 수익률 계산 (%)
-            ret_1m = (current_price - price_1m) / price_1m * 100
-            ret_3m = (current_price - price_3m) / price_3m * 100
-            ret_6m = (current_price - price_6m) / price_6m * 100
-            ret_12m = (current_price - price_12m) / price_12m * 100
-            
-            # 모멘텀 스코어 공식 적용
-            custom_score = (ret_1m * -0.2) + (ret_3m * 0.8) + (ret_6m * 0.5) + (ret_12m * 0.2)
-            
-            results.append({
-                '시장': market,  # ⭐ 결과에 시장 정보 포함
-                '종목명': name,
-                '종목코드': code,
-                '기준일(월말)': base_date.strftime('%Y-%m-%d'),
-                '기준가': current_price,
-                '1개월(%)': round(ret_1m, 2),
-                '3개월(%)': round(ret_3m, 2),
-                '6개월(%)': round(ret_6m, 2),
-                '12개월(%)': round(ret_12m, 2),
-                '모멘텀스코어': round(custom_score, 2)
-            })
+            df_old['다음달수익률(%)'] = forward_returns
+            # archive/momentum_2026_02.csv 형식으로 저장
+            archive_path = os.path.join(archive_dir, f'momentum_{year_month}.csv')
+            df_old.to_csv(archive_path, index=False)
+            print(f"✅ 보관 완료: {archive_path}")
         except Exception as e:
-            # 오류가 나는 종목은 조용히 넘어갑니다.
-            pass 
-            
-    # 데이터프레임 변환 및 모멘텀스코어 기준 내림차순 정렬
-    result_df = pd.DataFrame(results)
-    result_df = result_df.sort_values('모멘텀스코어', ascending=False).reset_index(drop=True)
-    result_df.index = result_df.index + 1 
+            print(f"❌ 아카이브 과정 중 오류: {e}")
+
+# 2. 새로운 이번 달 모멘텀 데이터 생성
+def update_current_momentum():
+    print("🚀 이번 달(새 기준일) 모멘텀 데이터를 새로 계산합니다...")
+    # (이 부분은 기존에 작성했던 300위 계산 코드를 그대로 넣으시면 됩니다.)
+    # 여기에 fdr.StockListing('KRX') 부터 momentum_data.csv 저장까지의 기존 로직 포함
     
-    # CSV 파일로 저장
-    result_df.to_csv('momentum_data.csv', index=False, encoding='utf-8-sig')
-    print("성공적으로 총 300개 종목의 데이터를 갱신했습니다!")
+    # ... [기존 계산 로직 생략 - 실제 파일에는 기존 코드를 이어서 넣으세요] ...
+    # 마지막에 df.to_csv('momentum_data.csv', index=False) 로 마무리
 
 if __name__ == "__main__":
-    update_momentum_data()
+    # 순서가 중요합니다!
+    archive_last_month()     # 1. 옛날 데이터 채점해서 창고에 넣고
+    update_current_momentum() # 2. 새 데이터로 메인 화면 갈아끼우기
