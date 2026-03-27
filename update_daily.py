@@ -16,21 +16,24 @@ def get_top_stocks(market, limit=150):
     except: return pd.DataFrame()
 
 def run_daily(market_type='KR'):
-    name_tag = "한국" if market_type == 'KR' else "미국"
-    file_path = f'data/momentum_data_daily{"_us" if market_type=="US" else ""}.csv'
-    
+    # 1. 마켓 타입에 따른 변수 자동 할당
+    if market_type == 'KR':
+        name_tag, file_path, market_list, limit = "한국", 'data/momentum_data_daily.csv', ['KOSPI', 'KOSDAQ'], 150
+    elif market_type == 'US':
+        name_tag, file_path, market_list, limit = "미국(시총상위)", 'data/momentum_data_daily_us.csv', ['NYSE', 'NASDAQ'], 150
+    elif market_type == 'SP500':
+        name_tag, file_path, market_list, limit = "S&P 500", 'data/momentum_data_daily_sp500.csv', ['S&P500'], 505 # S&P 500 전체
+
     # 한국은 전월 말일, 미국은 (시차 고려) 어제 기준
     today = datetime.today()
     ref_date = (today.replace(day=1) - timedelta(days=1))
     
-    print(f"🕒 {name_tag} 데일리 데이터 수집 시작...")
-    
-    market_list = ['KOSPI', 'KOSDAQ'] if market_type == 'KR' else ['NYSE', 'NASDAQ']
+    print(f"\n🕒 {name_tag} 데일리 데이터 수집 시작...")
     res = []
 
     for mkt_name in market_list:
         print(f"📡 {mkt_name} 데일리 데이터 수집 중...")
-        target_stocks = get_top_stocks(mkt_name)
+        target_stocks = get_top_stocks(mkt_name, limit)
         
         for i, (_, row) in enumerate(target_stocks.iterrows()):
             try:
@@ -50,19 +53,23 @@ def run_daily(market_type='KR'):
                 r1, r3, r6, r12 = get_ret(1), get_ret(3), get_ret(6), get_ret(12)
                 score = round((r1*-0.2) + (r3*0.8) + (r6*0.5) + (r12*0.2), 1)
                 
+                # ⭐ 중요: S&P500 종목도 스트림릿에서 지수 비교 색상칠이 적용되도록 'NYSE'로 통일해서 저장
+                display_mkt = 'NYSE' if market_type == 'SP500' else mkt_name
+
                 res.append({
                     '기준일': today.strftime('%Y-%m-%d'),
-                    '시장': mkt_name, # ⭐ 'US'가 아닌 'NYSE' 또는 'NASDAQ'으로 기록
+                    '시장': display_mkt,
                     '종목명': row['Name'], '종목코드': code, 
-                    '기준가': curr_price, '1개월(%)': round(r1, 1), '3개월(%)': round(r3, 1), 
+                    '기준가': round(curr_price, 2), '1개월(%)': round(r1, 1), '3개월(%)': round(r3, 1), 
                     '6개월(%)': round(r6, 1), '12개월(%)': round(r12, 1), '모멘텀스코어': score
                 })
             except: continue
-    
+            
     if res:
-        pd.DataFrame(res).sort_values('모멘텀스코어', ascending=False).to_csv(file_path, index=False)
-        print(f"✅ {name_tag} 데일리 갱신 완료!")
+        pd.DataFrame(res).sort_values('모멘텀스코어', ascending=False).to_csv(file_path, index=False, encoding='utf-8-sig')
+        print(f"✅ {name_tag} 데일리 갱신 완료! ({file_path})")
 
 if __name__ == "__main__":
     run_daily('KR')
     run_daily('US')
+    run_daily('SP500')
