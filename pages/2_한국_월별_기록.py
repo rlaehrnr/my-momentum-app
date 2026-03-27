@@ -10,7 +10,6 @@ st.markdown("""
     <style>
     .block-container { padding-top: 2rem !important; }
     h1 { font-size: 1.8rem !important; font-weight: 800; margin-bottom: 20px; }
-    /* 표 안의 숫자 가독성 향상 */
     [data-testid="stDataFrame"] td { font-family: 'Pretendard', sans-serif; }
     </style>
     """, unsafe_allow_html=True)
@@ -23,14 +22,16 @@ files = glob.glob(f"{folder}/{prefix}*.csv")
 if not files:
     st.info("데이터가 없습니다. archive 폴더를 확인해주세요.")
 else:
-    # 1. 연도/월 선택 로직 (이전과 동일하게 편리하게 유지)
+    # 1. 연도/월 선택 로직
     data_struct = {}
     for f in files:
         fname = os.path.basename(f)
-        date_part = fname.replace(prefix, "").replace(".csv", "")
-        year, month = date_part.split('_')
-        if year not in data_struct: data_struct[year] = []
-        data_struct[year].append(month)
+        try:
+            date_part = fname.replace(prefix, "").replace(".csv", "")
+            year, month = date_part.split('_')
+            if year not in data_struct: data_struct[year] = []
+            data_struct[year].append(month)
+        except: continue
 
     sorted_years = sorted(data_struct.keys(), reverse=True)
     col_y, col_m, _ = st.columns([1, 1, 4])
@@ -48,8 +49,8 @@ else:
 
     # 2. 메인 표 출력 (눈부신 배경색 제거, 글자색만 유지)
     def style_returns(val):
-        if val > 0: return 'color: #D32F2F; font-weight: bold;' # 빨간색 글자
-        elif val < 0: return 'color: #1976D2; font-weight: bold;' # 파란색 글자
+        if val > 0: return 'color: #D32F2F; font-weight: bold;' # 상승: 빨강
+        elif val < 0: return 'color: #1976D2; font-weight: bold;' # 하락: 파랑
         return ''
 
     df.index = range(1, len(df) + 1)
@@ -69,14 +70,19 @@ else:
 
     st.markdown("---")
 
-    # 3. 상위권 포트폴리오 성적 (표 하단으로 이동 및 깔끔한 칸 맞춤)
+    # 3. 상위권 포트폴리오 성적 (에러 수정 및 하단 배치)
     c1, c2, c3 = st.columns(3)
     
     def get_stats(data, n):
         subset = data.head(n)
+        if subset.empty: return "0.00%", "승률 0%"
+        
         avg = subset['다음달수익률(%)'].mean()
         win = (subset['다음달수익률(%)'] > 0).sum() / len(subset) * 100
-        return f"{avg:.2f}%", f"승률 {win.replace('.0', '') if win == int(win) else f'{win:.1f}'}%"
+        
+        # 소수점 오류 수정: 정수면 정수로, 아니면 소수점 1자리까지
+        win_display = int(win) if win == int(win) else round(win, 1)
+        return f"{avg:.2f}%", f"승률 {win_display}%"
 
     # Top 10 성적
     t10_avg, t10_win = get_stats(df, 10)
