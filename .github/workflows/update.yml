@@ -2,8 +2,8 @@ name: Monthly Momentum Data Auto-Update
 
 on:
   schedule:
-    - cron: '0 0 1 * *'  # 매월 1일 00:00 (UTC)
-  workflow_dispatch:      # 수동 실행 버튼 허용
+    - cron: '0 0 1 * *'
+  workflow_dispatch:      # 수동 실행 버튼
 
 jobs:
   update-data:
@@ -15,11 +15,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.11' # ⭐ 파이썬 버전을 3.11로 업그레이드
 
       - name: Install dependencies
         run: |
-          pip install pandas FinanceDataReader openpyxl pyarrow requests
+          # ⭐ 공식 명칭인 'finance-datareader'로 수정
+          pip install pandas finance-datareader openpyxl pyarrow requests 
 
       - name: Run update script
         run: |
@@ -31,10 +32,6 @@ jobs:
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           git add .
-          # 변경사항이 있을 때만 커밋
           git diff --quiet && git diff --staged --quiet || git commit -m "Auto-update momentum data and add to archive"
-          
-          # ⭐ [핵심 추가] 저장하기 전에 최신 코드를 먼저 가져와서 합칩니다.
           git pull --rebase origin main
-          
           git push
