@@ -4,8 +4,8 @@ from datetime import datetime, timedelta
 import os
 import time
 
-# 폴더 생성
-for d in ['data', 'archive', 'archive_us']:
+# 폴더 생성 (SP500 아카이브 폴더 추가)
+for d in ['data', 'archive', 'archive_us', 'archive_sp500']:
     if not os.path.exists(d): os.makedirs(d)
 
 def get_target_ref_date():
@@ -21,14 +21,23 @@ def get_top_stocks(market, limit=150):
     except: return pd.DataFrame()
 
 def run_monthly(market_type='KR'):
-    name_tag = "한국" if market_type == 'KR' else "미국"
-    file_path = f'data/momentum_data{"_us" if market_type=="US" else ""}.csv'
+    # 1. 마켓 타입에 따른 변수 자동 할당
+    if market_type == 'KR':
+        name_tag, file_path, folder, archive_prefix = "한국", 'data/momentum_data.csv', 'archive', 'momentum_'
+        market_list, limit = ['KOSPI', 'KOSDAQ'], 150
+    elif market_type == 'US':
+        name_tag, file_path, folder, archive_prefix = "미국(시총상위)", 'data/momentum_data_us.csv', 'archive_us', 'momentum_us_'
+        market_list, limit = ['NYSE', 'NASDAQ'], 150
+    elif market_type == 'SP500':
+        name_tag, file_path, folder, archive_prefix = "S&P 500", 'data/momentum_data_sp500.csv', 'archive_sp500', 'momentum_sp500_'
+        market_list, limit = ['S&P500'], 505
+
     target_date_str = get_target_ref_date()
     target_date_dt = pd.to_datetime(target_date_str)
     
-    print(f"🔍 {name_tag} 월말 데이터 수집 시작...")
+    print(f"\n🔍 {name_tag} 월말 데이터 수집 시작...")
 
-    # 1. 보관 및 채점 (기존 로직 유지)
+    # 1. 보관 및 채점 로직 (동적 폴더/파일이름 적용)
     if os.path.exists(file_path):
         df_old = pd.read_csv(file_path)
         existing_date = str(df_old['기준일(월말)'].iloc[0])
@@ -46,17 +55,16 @@ def run_monthly(market_type='KR'):
                 except: forward_returns.append(0.0)
             df_old['다음달수익률(%)'] = forward_returns
             
-            folder = 'archive_us' if market_type == 'US' else 'archive'
-            archive_file = f'{folder}/momentum_{"us_" if market_type=="US" else ""}{ym}.csv'
-            df_old.to_csv(archive_file, index=False)
+            archive_file = f'{folder}/{archive_prefix}{ym}.csv'
+            df_old.to_csv(archive_file, index=False, encoding='utf-8-sig')
+            print(f"📦 지난달 성적표 보관 완료: {archive_file}")
 
-    # 2. 신규 데이터 수집 (시장 이름 상세 기록)
-    market_list = ['KOSPI', 'KOSDAQ'] if market_type == 'KR' else ['NYSE', 'NASDAQ']
+    # 2. 신규 데이터 수집
     res = []
 
     for mkt_name in market_list:
         print(f"📡 {mkt_name} 데이터 수집 중...")
-        target_stocks = get_top_stocks(mkt_name)
+        target_stocks = get_top_stocks(mkt_name, limit)
         
         for i, (_, row) in enumerate(target_stocks.iterrows()):
             try:
@@ -74,9 +82,12 @@ def run_monthly(market_type='KR'):
                 r1, r3, r6, r12 = get_ret(1), get_ret(3), get_ret(6), get_ret(12)
                 score = round((r1*-0.2) + (r3*0.8) + (r6*0.5) + (r12*0.2), 1)
                 
+                # ⭐ S&P 500 종목도 스트림릿 하이라이트를 위해 'NYSE'로 기록
+                display_mkt = 'NYSE' if market_type == 'SP500' else mkt_name
+
                 res.append({
                     '기준일(월말)': target_date_str, 
-                    '시장': mkt_name, # ⭐ 'US'가 아닌 'NYSE' 또는 'NASDAQ'으로 기록!
+                    '시장': display_mkt, 
                     '종목명': row['Name'], '종목코드': code, 
                     '기준가': base_price, '1개월(%)': round(r1, 1), '3개월(%)': round(r3, 1), 
                     '6개월(%)': round(r6, 1), '12개월(%)': round(r12, 1), '모멘텀스코어': score, '다음달수익률(%)': 0.0
@@ -84,9 +95,10 @@ def run_monthly(market_type='KR'):
             except: continue
     
     if res:
-        pd.DataFrame(res).sort_values('모멘텀스코어', ascending=False).to_csv(file_path, index=False)
-        print(f"✨ {name_tag} 저장 완료!")
+        pd.DataFrame(res).sort_values('모멘텀스코어', ascending=False).to_csv(file_path, index=False, encoding='utf-8-sig')
+        print(f"✨ {name_tag} 저장 완료! ({file_path})")
 
 if __name__ == "__main__":
     run_monthly('KR')
     run_monthly('US')
+    run_monthly('SP500')
