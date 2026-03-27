@@ -1,117 +1,42 @@
 import streamlit as st
 import pandas as pd
-import FinanceDataReader as fdr
-from datetime import datetime, timedelta
 import os
+import glob
 
-# 1. 페이지 설정
-st.set_page_config(page_title="미국 모멘텀 순위", layout="wide")
+st.set_page_config(page_title="미국 모멘텀 기록보관소", layout="wide")
+st.markdown("""<style>.block-container { padding-top: 2.5rem !important; } h1 { font-size: 2rem !important; }</style>""", unsafe_allow_html=True)
 
-# CSS: 레이아웃 최적화 (초밀착)
-st.markdown("""
-    <style>
-    .block-container { padding-top: 2.5rem !important; }
-    h1 { font-size: 2rem !important; }
-    [data-testid="stTable"] { margin-bottom: -25px; }
-    .stTabs [data-baseweb="tab"] { font-size: 18px; font-weight: bold; }
-    </style>
-    """, unsafe_allow_html=True)
+st.title("📁 미국 월별 모멘텀 기록보관소")
 
-# 지수 비교 하이라이트 함수 (NYSE는 S&P500, NASDAQ은 나스닥 지수와 비교)
-def highlight_us(row, idx_df):
-    m_map = {'NYSE': 'S&P 500', 'NASDAQ': 'NASDAQ'}
-    target = m_map.get(row['시장'])
-    styles = [''] * len(row)
-    if target in idx_df.index:
-        idx_r = idx_df.loc[target]
-        for col in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
-            col_idx = row.index.get_loc(col)
-            if row[col] < idx_r[col]:
-                styles[col_idx] = 'background-color: #0047AB; color: #FFFFFF; font-weight: bold;'
-    return styles
+folder, prefix = "archive_us", "momentum_us_"
+files = sorted(glob.glob(f"{folder}/{prefix}*.csv"), reverse=True)
 
-@st.cache_data(ttl=3600)
-def get_idx_us(target_date=None):
-    indices = {'S&P 500': 'US500', 'NASDAQ': 'IXIC'}
-    today = datetime.today()
-    res = []
-    for name, code in indices.items():
-        try:
-            df = fdr.DataReader(code, today - pd.DateOffset(months=16), today)
-            curr_val = df.loc[df.index <= target_date]['Close'].iloc[-1] if target_date else df['Close'].iloc[-1]
-            last_idx_date = df.index[df.index <= (target_date if target_date else today)][-1]
-            def get_ret(m):
-                ref_day = (last_idx_date.replace(day=1) - pd.DateOffset(months=m-1)) - timedelta(days=1)
-                p_df = df[df.index <= ref_day]
-                return round((curr_val - p_df['Close'].iloc[-1]) / p_df['Close'].iloc[-1] * 100, 1) if not p_df.empty else 0.0
-            res.append({'시장': name, '현재가': round(curr_val, 1), '1개월(%)': get_ret(1), '3개월(%)': get_ret(3), '6개월(%)': get_ret(6), '12개월(%)': get_ret(12)})
-        except: pass
-    return pd.DataFrame(res).set_index('시장')
+if not files:
+    st.info("미국 시장 기록이 없습니다.")
+else:
+    file_map = {f"📅 {os.path.basename(f).replace(prefix, '').replace('.csv', '').split('_')[0]}년 {os.path.basename(f).replace(prefix, '').replace('.csv', '').split('_')[1]}월 성적표": f for f in files}
+    selected_file = file_map[st.selectbox("조회할 달을 선택하세요", list(file_map.keys()))]
 
-tab1, tab2 = st.tabs(["📅 전월 말일 기준", "🕒 오늘(데일리) 기준"])
+    df = pd.read_csv(selected_file)
+    st.success(f"✅ 이 리스트는 **{df['기준일(월말)'].iloc[0]}** 종가를 기준으로 추출되었습니다.")
 
-# [탭 1: 월말 고정 데이터]
-with tab1:
-    f_us = 'data/momentum_data_us.csv'
-    if os.path.exists(f_us):
-        df_us = pd.read_csv(f_us)
-        b_date = df_us['기준일(월말)'].iloc[0]
-        st.title(f"🇺🇸 미국 모멘텀 (기준: {b_date})")
-        
-        idx_us = get_idx_us(pd.to_datetime(b_date))
-        if not idx_us.empty:
-            st.table(idx_us.reset_index().assign(**{c: idx_us.reset_index()[c].map('{:.1f}'.format) for c in idx_us.columns if c != '시장'}))
-        
-        st.markdown("---")
-        df_us.index = range(1, len(df_us) + 1)
-        df_us['통합티커'] = df_us['시장'] + ":" + df_us['종목코드']
-        df_us['종목명'] = df_us.apply(lambda r: f"https://finance.yahoo.com/quote/{r['종목코드']}#{r['종목명']}", axis=1)
+    df.index = range(1, len(df) + 1)
+    df['종목명'] = df.apply(lambda r: f"https://finance.yahoo.com/quote/{r['종목코드']}#{r['종목명']}", axis=1)
 
-        st.dataframe(
-            df_us.style.apply(highlight_us, idx_df=idx_us, axis=1),
-            use_container_width=True, height=560,
-            column_order=['통합티커', '종목명', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어'],
-            column_config={
-                "종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"),
-                "기준가": st.column_config.NumberColumn(format="%.2f"),
-                "1개월(%)": st.column_config.NumberColumn(format="%.1f"),
-                "3개월(%)": st.column_config.NumberColumn(format="%.1f"),
-                "6개월(%)": st.column_config.NumberColumn(format="%.1f"),
-                "12개월(%)": st.column_config.NumberColumn(format="%.1f"),
-                "모멘텀스코어": st.column_config.NumberColumn(format="%.1f")
-            }
-        )
-    else: st.warning("미국 월말 데이터 파일이 없습니다.")
-
-# [탭 2: 데일리 데이터]
-with tab2:
-    f_daily_us = 'data/momentum_data_daily_us.csv'
-    if os.path.exists(f_daily_us):
-        df_d_us = pd.read_csv(f_daily_us)
-        d_date = df_d_us['기준일'].iloc[0]
-        st.title(f"🕒 미국 데일리 (기준: {d_date})")
-        
-        idx_now = get_idx_us() 
-        if not idx_now.empty:
-            st.table(idx_now.reset_index().assign(**{c: idx_now.reset_index()[c].map('{:.1f}'.format) for c in idx_now.columns if c != '시장'}))
-        
-        st.markdown("---")
-        df_d_us.index = range(1, len(df_d_us) + 1)
-        df_d_us['통합티커'] = df_d_us['시장'] + ":" + df_d_us['종목코드']
-        df_d_us['종목명'] = df_d_us.apply(lambda r: f"https://finance.yahoo.com/quote/{r['종목코드']}#{r['종목명']}", axis=1)
-
-        st.dataframe(
-            df_d_us.style.apply(highlight_us, idx_df=idx_now, axis=1),
-            use_container_width=True, height=560,
-            column_order=['통합티커', '종목명', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어'],
-            column_config={
-                "종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"),
-                "기준가": st.column_config.NumberColumn(format="%.2f"),
-                "1개월(%)": st.column_config.NumberColumn(format="%.1f"),
-                "3개월(%)": st.column_config.NumberColumn(format="%.1f"),
-                "6개월(%)": st.column_config.NumberColumn(format="%.1f"),
-                "12개월(%)": st.column_config.NumberColumn(format="%.1f"),
-                "모멘텀스코어": st.column_config.NumberColumn(format="%.1f")
-            }
-        )
-    else: st.warning("미국 데일리 데이터 파일이 없습니다.")
+    st.dataframe(
+        df.style.applymap(lambda v: 'color: #FF4B4B; font-weight: bold;' if v > 0 else ('color: #31333F; background-color: #E6F3FF;' if v < 0 else ''), subset=['다음달수익률(%)']),
+        use_container_width=True, height=600,
+        column_order=['시장', '종목명', '기준가', '모멘텀스코어', '다음달수익률(%)'],
+        column_config={
+            "종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"),
+            "기준가": st.column_config.NumberColumn(format="%.2f"),
+            "모멘텀스코어": st.column_config.NumberColumn(format="%.1f"),
+            "다음달수익률(%)": st.column_config.NumberColumn(format="%.1f %%")
+        }
+    )
+    
+    avg_ret = df['다음달수익률(%)'].mean()
+    win_rate = (df['다음달수익률(%)'] > 0).sum() / len(df) * 100 if len(df) > 0 else 0
+    c1, c2 = st.columns(2)
+    c1.metric("평균 수익률", f"{avg_ret:.1f}%")
+    c2.metric("상승 종목 비율", f"{win_rate:.1f}%")
