@@ -19,15 +19,18 @@ st.markdown("""
 
 # 지수 비교 하이라이트 함수
 def highlight_sp500(row, idx_df):
-    m_map = {'NYSE': 'S&P 500', 'NASDAQ': 'NASDAQ'} # S&P 500 종목도 거래소에 따라 구분될 수 있음
-    target = m_map.get(row['시장'], 'S&P 500') # 기본값을 S&P 500으로
+    # S&P 500 페이지니까 시장 이름 상관없이 무조건 'S&P 500' 지수와 비교
+    target = 'S&P 500' 
     styles = [''] * len(row)
+    
     if target in idx_df.index:
         idx_r = idx_df.loc[target]
         for col in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
-            col_idx = row.index.get_loc(col)
-            if row[col] < idx_r[col]:
-                styles[col_idx] = 'background-color: #0047AB; color: #FFFFFF; font-weight: bold;'
+            if col in row.index:
+                col_idx = row.index.get_loc(col)
+                # 지수 수익률보다 낮으면 파란색 배경
+                if row[col] < idx_r[col]:
+                    styles[col_idx] = 'background-color: #0047AB; color: #FFFFFF; font-weight: bold;'
     return styles
 
 @st.cache_data(ttl=3600)
