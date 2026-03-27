@@ -1,17 +1,15 @@
-name: Monthly Momentum Data Auto-Update
+name: Momentum Data Auto-Update
 
 on:
   schedule:
-    - cron: '0 0 1 * *'
+    - cron: '0 13 * * *'  # ⭐ 매일 한국시간 오후 10시 (UTC 13:00) 실행
   workflow_dispatch:      # 수동 실행 버튼
 
 jobs:
   update-data:
     runs-on: ubuntu-latest
-    # ⭐ [핵심 추가] 로봇에게 저장소에 파일을 쓸 수 있는 권한을 명시적으로 부여합니다.
     permissions:
       contents: write
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -22,26 +20,19 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: |
-          pip install pandas finance-datareader openpyxl pyarrow requests 
+        run: pip install pandas finance-datareader openpyxl pyarrow requests
 
-      - name: Run update script
+      - name: Run update scripts
         run: |
+          # 1. 월말 로봇 (조건부 실행 로직은 update_data.py 내부에 있음)
           python update_data.py
           python update_data_us.py
+          # 2. ⭐ 데일리 로봇 (매일 실행)
+          python update_data_daily.py
 
       - name: Commit and push changes
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           git add .
-          
-          # 변경사항이 있을 때만 실행
-          if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "Auto-update momentum data and add to archive"
-            # 최신 코드와 합치기
-            git pull --rebase origin main
-            git push
-          else
-            echo "No changes to commit"
-          fi
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Daily update momentum data" && git pull --rebase origin main && git push)
