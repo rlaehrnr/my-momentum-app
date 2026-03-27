@@ -5,14 +5,15 @@ import glob
 
 st.set_page_config(page_title="한국 모멘텀 기록보관소", layout="wide")
 
-# CSS: 레이아웃 밀착 및 가독성 최적화
+# CSS: 레이아웃 초밀착 및 배경색 완전 제거
 st.markdown("""
     <style>
     .block-container { padding-top: 2rem !important; }
     h1 { font-size: 1.8rem !important; font-weight: 800; margin-bottom: 20px; }
-    /* 표와 하단 지표 사이의 간격을 줄임 */
-    [data-testid="stDataFrame"] { margin-bottom: -10px; }
-    .stMetric { background-color: #F8F9FB; padding: 10px; border-radius: 5px; }
+    /* 표와 하단 지표 사이의 간격 최소화 */
+    [data-testid="stDataFrame"] { margin-bottom: -20px !important; }
+    /* 배경색 제거 및 텍스트 시인성 확보 */
+    .stMetric { background-color: transparent !important; padding: 0px !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -49,10 +50,10 @@ else:
     
     st.success(f"**{selected_year}년 {selected_month}월** (추출 기준일: {df['기준일(월말)'].iloc[0]})")
 
-    # 2. 메인 표 출력 (배경색 없이 글자색만 포인트)
+    # 2. 메인 표 출력 (글자색 포인트만 유지)
     def style_returns(val):
-        if val > 0: return 'color: #D32F2F; font-weight: bold;' # 상승: 빨강
-        elif val < 0: return 'color: #1976D2; font-weight: bold;' # 하락: 파랑
+        if val > 0: return 'color: #FF4B4B; font-weight: bold;' # 밝은 빨강 (다크모드 대응)
+        elif val < 0: return 'color: #3182CE; font-weight: bold;' # 밝은 파랑 (다크모드 대응)
         return ''
 
     df.index = range(1, len(df) + 1)
@@ -70,7 +71,7 @@ else:
         }
     )
 
-    # 3. 상위권 포트폴리오 성적 (표 바로 밑에 배치)
+    # 3. 상위권 포트폴리오 성적 (표 바로 밑에 투명하게 배치)
     def get_stats(data, n):
         subset = data.head(n)
         if subset.empty: return "0.00%", "승률 0%"
