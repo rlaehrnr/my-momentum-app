@@ -8,6 +8,10 @@ on:
 jobs:
   update-data:
     runs-on: ubuntu-latest
+    # ⭐ [핵심 추가] 로봇에게 저장소에 파일을 쓸 수 있는 권한을 명시적으로 부여합니다.
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -15,11 +19,10 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11' # ⭐ 파이썬 버전을 3.11로 업그레이드
+          python-version: '3.11'
 
       - name: Install dependencies
         run: |
-          # ⭐ 공식 명칭인 'finance-datareader'로 수정
           pip install pandas finance-datareader openpyxl pyarrow requests 
 
       - name: Run update script
@@ -32,6 +35,13 @@ jobs:
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           git add .
-          git diff --quiet && git diff --staged --quiet || git commit -m "Auto-update momentum data and add to archive"
-          git pull --rebase origin main
-          git push
+          
+          # 변경사항이 있을 때만 실행
+          if [ -n "$(git status --porcelain)" ]; then
+            git commit -m "Auto-update momentum data and add to archive"
+            # 최신 코드와 합치기
+            git pull --rebase origin main
+            git push
+          else
+            echo "No changes to commit"
+          fi
