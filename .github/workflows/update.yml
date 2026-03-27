@@ -2,16 +2,12 @@ name: Monthly Momentum Data Auto-Update
 
 on:
   schedule:
-    # 매월 1일 자정(UTC), 한국 시간으로는 매월 1일 오전 9시에 실행
-    - cron: '0 0 1 * *'
-  workflow_dispatch: # 수동으로 버튼을 눌러서 실행할 수 있게 해주는 기능!
+    - cron: '0 0 1 * *'  # 매월 1일 00:00 (UTC)
+  workflow_dispatch:      # 수동 실행 버튼 허용
 
 jobs:
   update-data:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write 
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -23,25 +19,22 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          pip install pandas FinanceDataReader openpyxl pyarrow requests
 
       - name: Run update script
         run: |
           python update_data.py
-          python update_data_us.py # ⭐ 미국 로봇도 같이 실행!
-      
+          python update_data_us.py
+
       - name: Commit and push changes
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add .
+          # 변경사항이 있을 때만 커밋
+          git diff --quiet && git diff --staged --quiet || git commit -m "Auto-update momentum data and add to archive"
           
-          # ⭐ 1. archive 폴더를 만들고, 오늘 날짜(예: 2026_03) 이름으로 복사본 저장!
-          mkdir -p archive
-          cp momentum_data.csv archive/momentum_$(date +%Y_%m).csv
+          # ⭐ [핵심 추가] 저장하기 전에 최신 코드를 먼저 가져와서 합칩니다.
+          git pull --rebase origin main
           
-          # ⭐ 2. 원본과 복사본 모두 창고에 저장
-          git add momentum_data.csv archive/
-          if ! git diff-index --quiet HEAD; then
-            git commit -m "Auto-update momentum data and add to archive"
-            git push
-          fi
+          git push
