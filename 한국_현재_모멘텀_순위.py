@@ -6,7 +6,7 @@ import os
 
 st.set_page_config(page_title="한국 모멘텀 순위", layout="wide")
 
-# CSS: 초밀착 레이아웃
+# CSS: 초밀착 레이아웃 및 폰트 설정
 st.markdown("""<style>.block-container { padding-top: 2.5rem !important; } h1 { font-size: 2rem !important; } .stTabs [data-baseweb="tab"] { font-size: 18px; font-weight: bold; }</style>""", unsafe_allow_html=True)
 
 def highlight_kr(row, idx_df):
@@ -49,7 +49,9 @@ with tab1:
         df_kr.index = range(1, len(df_kr) + 1)
         df_kr['통합티커'] = df_kr['시장'] + ":" + df_kr['종목코드'].str.zfill(6)
         df_kr['종목명'] = df_kr.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
-        st.dataframe(df_kr.style.apply(highlight_kr, idx_df=idx_kr, axis=1), use_container_width=True, height=560, column_order=['통합티커', '종목명', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어'], column_config={"종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), "기준가": st.column_config.NumberColumn(format="%d")})
+        # ⭐ 소수점 1자리 강제 설정 (NumberColumn format="%.1f")
+        st.dataframe(df_kr.style.apply(highlight_kr, idx_df=idx_kr, axis=1), use_container_width=True, height=560, column_order=['통합티커', '종목명', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어'], 
+                     column_config={"종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), "기준가": st.column_config.NumberColumn(format="%d"), "1개월(%)": st.column_config.NumberColumn(format="%.1f"), "3개월(%)": st.column_config.NumberColumn(format="%.1f"), "6개월(%)": st.column_config.NumberColumn(format="%.1f"), "12개월(%)": st.column_config.NumberColumn(format="%.1f"), "모멘텀스코어": st.column_config.NumberColumn(format="%.1f")})
 
 with tab2:
     f_daily = 'data/momentum_data_daily.csv'
@@ -62,4 +64,6 @@ with tab2:
         df_d.index = range(1, len(df_d) + 1)
         df_d['통합티커'] = df_d['시장'] + ":" + df_d['종목코드'].str.zfill(6)
         df_d['종목명'] = df_d.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
-        st.dataframe(df_d.style.apply(highlight_kr, idx_df=idx_now, axis=1), use_container_width=True, height=560, column_order=['통합티커', '종목명', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어'], column_config={"종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), "기준가": st.column_config.NumberColumn(format="%d")})
+        # ⭐ 소수점 1자리 강제 설정
+        st.dataframe(df_d.style.apply(highlight_kr, idx_df=idx_now, axis=1), use_container_width=True, height=560, column_order=['통합티커', '종목명', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어'], 
+                     column_config={"종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), "기준가": st.column_config.NumberColumn(format="%d"), "1개월(%)": st.column_config.NumberColumn(format="%.1f"), "3개월(%)": st.column_config.NumberColumn(format="%.1f"), "6개월(%)": st.column_config.NumberColumn(format="%.1f"), "12개월(%)": st.column_config.NumberColumn(format="%.1f"), "모멘텀스코어": st.column_config.NumberColumn(format="%.1f")})
