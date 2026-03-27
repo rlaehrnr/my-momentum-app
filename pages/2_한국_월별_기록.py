@@ -5,12 +5,14 @@ import glob
 
 st.set_page_config(page_title="한국 모멘텀 기록보관소", layout="wide")
 
-# CSS: 초밀착 레이아웃 및 가독성 설정
+# CSS: 레이아웃 밀착 및 가독성 최적화
 st.markdown("""
     <style>
     .block-container { padding-top: 2rem !important; }
     h1 { font-size: 1.8rem !important; font-weight: 800; margin-bottom: 20px; }
-    [data-testid="stDataFrame"] td { font-family: 'Pretendard', sans-serif; }
+    /* 표와 하단 지표 사이의 간격을 줄임 */
+    [data-testid="stDataFrame"] { margin-bottom: -10px; }
+    .stMetric { background-color: #F8F9FB; padding: 10px; border-radius: 5px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -47,7 +49,7 @@ else:
     
     st.success(f"**{selected_year}년 {selected_month}월** (추출 기준일: {df['기준일(월말)'].iloc[0]})")
 
-    # 2. 메인 표 출력 (눈부신 배경색 제거, 글자색만 유지)
+    # 2. 메인 표 출력 (배경색 없이 글자색만 포인트)
     def style_returns(val):
         if val > 0: return 'color: #D32F2F; font-weight: bold;' # 상승: 빨강
         elif val < 0: return 'color: #1976D2; font-weight: bold;' # 하락: 파랑
@@ -58,7 +60,7 @@ else:
 
     st.dataframe(
         df.style.map(style_returns, subset=['다음달수익률(%)']),
-        use_container_width=True, height=520,
+        use_container_width=True, height=500,
         column_order=['시장', '종목명_L', '기준가', '모멘텀스코어', '다음달수익률(%)'],
         column_config={
             "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"),
@@ -68,30 +70,22 @@ else:
         }
     )
 
-    st.markdown("---")
-
-    # 3. 상위권 포트폴리오 성적 (에러 수정 및 하단 배치)
-    c1, c2, c3 = st.columns(3)
-    
+    # 3. 상위권 포트폴리오 성적 (표 바로 밑에 배치)
     def get_stats(data, n):
         subset = data.head(n)
         if subset.empty: return "0.00%", "승률 0%"
-        
         avg = subset['다음달수익률(%)'].mean()
         win = (subset['다음달수익률(%)'] > 0).sum() / len(subset) * 100
-        
-        # 소수점 오류 수정: 정수면 정수로, 아니면 소수점 1자리까지
         win_display = int(win) if win == int(win) else round(win, 1)
         return f"{avg:.2f}%", f"승률 {win_display}%"
 
-    # Top 10 성적
+    c1, c2, c3 = st.columns(3)
+    
     t10_avg, t10_win = get_stats(df, 10)
     c1.metric("🏆 Top 10 성적", t10_avg, t10_win)
 
-    # Top 20 성적
     t20_avg, t20_win = get_stats(df, 20)
     c2.metric("🥈 Top 20 성적", t20_avg, t20_win)
 
-    # Top 30 성적
     t30_avg, t30_win = get_stats(df, 30)
     c3.metric("🥉 Top 30 성적", t30_avg, t30_win)
