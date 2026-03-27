@@ -5,14 +5,14 @@ import glob
 
 st.set_page_config(page_title="한국 모멘텀 기록보관소", layout="wide")
 
-# CSS: 레이아웃 초밀착 및 배경색 완전 제거
+# CSS: 레이아웃 초밀착 및 투명 디자인 유지
 st.markdown("""
     <style>
     .block-container { padding-top: 2rem !important; }
     h1 { font-size: 1.8rem !important; font-weight: 800; margin-bottom: 20px; }
-    /* 표와 하단 지표 사이의 간격 최소화 */
+    /* 표와 하단 지표 사이 간격 최소화 */
     [data-testid="stDataFrame"] { margin-bottom: -20px !important; }
-    /* 배경색 제거 및 텍스트 시인성 확보 */
+    /* 메트릭 배경 투명화 및 시인성 확보 */
     .stMetric { background-color: transparent !important; padding: 0px !important; }
     </style>
     """, unsafe_allow_html=True)
@@ -25,7 +25,7 @@ files = glob.glob(f"{folder}/{prefix}*.csv")
 if not files:
     st.info("데이터가 없습니다. archive 폴더를 확인해주세요.")
 else:
-    # 1. 연도/월 선택 로직
+    # 1. 데이터 구조 파악 (연도별로 월 리스트 저장)
     data_struct = {}
     for f in files:
         fname = os.path.basename(f)
@@ -36,12 +36,15 @@ else:
             data_struct[year].append(month)
         except: continue
 
+    # ⭐ 연도는 최신순 (2026, 2025...)
     sorted_years = sorted(data_struct.keys(), reverse=True)
+    
     col_y, col_m, _ = st.columns([1, 1, 4])
     with col_y:
         selected_year = st.selectbox("📅 연도", sorted_years)
     with col_m:
-        available_months = sorted(data_struct[selected_year], reverse=True)
+        # ⭐ 월은 1월부터 순서대로 (01, 02, 03...)
+        available_months = sorted(data_struct[selected_year], key=lambda x: int(x))
         selected_month = st.selectbox("🌙 월", available_months)
 
     # 데이터 로드
@@ -50,10 +53,10 @@ else:
     
     st.success(f"**{selected_year}년 {selected_month}월** (추출 기준일: {df['기준일(월말)'].iloc[0]})")
 
-    # 2. 메인 표 출력 (글자색 포인트만 유지)
+    # 2. 메인 표 출력 (글자색 포인트)
     def style_returns(val):
-        if val > 0: return 'color: #FF4B4B; font-weight: bold;' # 밝은 빨강 (다크모드 대응)
-        elif val < 0: return 'color: #3182CE; font-weight: bold;' # 밝은 파랑 (다크모드 대응)
+        if val > 0: return 'color: #FF4B4B; font-weight: bold;' # 상승: 빨강
+        elif val < 0: return 'color: #3182CE; font-weight: bold;' # 하락: 파랑
         return ''
 
     df.index = range(1, len(df) + 1)
@@ -71,7 +74,7 @@ else:
         }
     )
 
-    # 3. 상위권 포트폴리오 성적 (표 바로 밑에 투명하게 배치)
+    # 3. 상위권 포트폴리오 성적 (표 바로 밑 밀착 배치)
     def get_stats(data, n):
         subset = data.head(n)
         if subset.empty: return "0.00%", "승률 0%"
