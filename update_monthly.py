@@ -82,8 +82,7 @@ def run_monthly(market_type='KR'):
                 r1, r3, r6, r12 = get_ret(1), get_ret(3), get_ret(6), get_ret(12)
                 score = round((r1*-0.2) + (r3*0.8) + (r6*0.5) + (r12*0.2), 1)
                 
-                # ⭐ S&P 500 종목도 스트림릿 하이라이트를 위해 'NYSE'로 기록
-                display_mkt = 'NYSE' if market_type == 'SP500' else mkt_name
+                display_mkt = mkt_name # 원래 시장 이름 그대로 사용
 
                 res.append({
                     '기준일(월말)': target_date_str, 
