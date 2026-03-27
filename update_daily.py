@@ -54,7 +54,7 @@ def run_daily(market_type='KR'):
                 score = round((r1*-0.2) + (r3*0.8) + (r6*0.5) + (r12*0.2), 1)
                 
                 # ⭐ 중요: S&P500 종목도 스트림릿에서 지수 비교 색상칠이 적용되도록 'NYSE'로 통일해서 저장
-                display_mkt = 'NYSE' if market_type == 'SP500' else mkt_name
+                display_mkt = mkt_name # 원래 시장 이름 그대로 사용
 
                 res.append({
                     '기준일': today.strftime('%Y-%m-%d'),
