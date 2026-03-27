@@ -30,8 +30,17 @@ def get_index_momentum():
             def get_ret(m):
                 target = df.index[-1] - pd.DateOffset(months=m)
                 past_df = df[df.index <= target]
+                # 소수점 한 자리 반올림 계산
                 return round((curr - past_df['Close'].iloc[-1]) / past_df['Close'].iloc[-1] * 100, 1)
-            res.append({'시장': name, '현재가': round(curr, 1), '1개월(%)': get_ret(1), '3개월(%)': get_ret(3), '6개월(%)': get_ret(6), '12개월(%)': get_ret(12)})
+            
+            res.append({
+                '시장': name, 
+                '현재가': round(curr, 1), 
+                '1개월(%)': get_ret(1), 
+                '3개월(%)': get_ret(3), 
+                '6개월(%)': get_ret(6), 
+                '12개월(%)': get_ret(12)
+            })
         except: pass
     return pd.DataFrame(res).set_index('시장')
 
@@ -47,8 +56,11 @@ if os.path.exists(file_path):
 
     idx_data = get_index_momentum()
     if not idx_data.empty:
-        # 지수 표는 간단하게 st.table로 출력 (소수점 1자리 자동 적용됨)
-        st.table(idx_data.reset_index())
+        # ⭐ [수정] 지수 표의 모든 숫자를 소수점 한 자리 문자로 강제 변환하여 출력
+        idx_display = idx_data.reset_index().copy()
+        for col in ['현재가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
+            idx_display[col] = idx_display[col].map('{:.1f}'.format)
+        st.table(idx_display)
 
     st.markdown("---") # 얇은 구분선
 
@@ -88,10 +100,10 @@ if os.path.exists(file_path):
         column_config={
             "종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"),
             "기준가": st.column_config.NumberColumn(format="%d"),
-            "1개월(%)": st.column_config.NumberColumn(format="%.1f"),
-            "3개월(%)": st.column_config.NumberColumn(format="%.1f"),
-            "6개월(%)": st.column_config.NumberColumn(format="%.1f"),
-            "12개월(%)": st.column_config.NumberColumn(format="%.1f"),
+            "1개월(%)": st.column_config.NumberColumn(format="%.1f"), # ⭐ 소수점 한 자리
+            "3개월(%)": st.column_config.NumberColumn(format="%.1f"), # ⭐ 소수점 한 자리
+            "6개월(%)": st.column_config.NumberColumn(format="%.1f"), # ⭐ 소수점 한 자리
+            "12개월(%)": st.column_config.NumberColumn(format="%.1f"), # ⭐ 소수점 한 자리
             "모멘텀스코어": st.column_config.NumberColumn(format="%.2f"),
         }
     )
