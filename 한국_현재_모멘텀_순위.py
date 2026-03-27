@@ -7,14 +7,26 @@ import os
 # 1. 페이지 설정
 st.set_page_config(page_title="글로벌 모멘텀 순위", layout="wide")
 
-# CSS: 초밀착 레이아웃 및 탭 디자인
+# ⭐ [CSS 수정] 상단 여백을 대폭 줄이고 디자인을 더 밀착시킵니다.
 st.markdown("""
     <style>
-    [data-testid="stTable"] { margin-bottom: -20px; }
-    hr { margin-top: 5px; margin-bottom: 5px; }
-    .stDataFrame { margin-top: -10px; }
+    /* 전체 상단 여백 강제 제거 */
+    .block-container { padding-top: 1rem !important; padding-bottom: 0rem !important; }
+    
+    /* 제목(h1) 상단 마진 제거 */
+    h1 { margin-top: -20px !important; margin-bottom: 10px !important; font-size: 2rem !important; }
+    
+    /* 탭 디자인 및 간격 */
     .stTabs [data-baseweb="tab-list"] { gap: 24px; }
     .stTabs [data-baseweb="tab"] { height: 50px; font-size: 18px; font-weight: bold; }
+    
+    /* 표와 구분선 간격 초밀착 */
+    [data-testid="stTable"] { margin-bottom: -25px; }
+    hr { margin-top: 5px; margin-bottom: 5px; }
+    .stDataFrame { margin-top: -15px; }
+    
+    /* 탭 위의 불필요한 공백 제거 */
+    div[data-testid="stVerticalBlock"] > div:has(div.stTabs) { margin-top: -30px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -40,28 +52,23 @@ def get_index_momentum(market_type='KR'):
         except: pass
     return pd.DataFrame(res).set_index('시장')
 
-# --- 탭 구성 ---
-tab_kr, tab_us = st.tabs(["🇰🇷 한국 시장 모멘텀", "🇺🇸 미국 시장 모멘텀"])
-
-# 🎨 공통 하이라이트 스타일 함수 (짙은 파란색 배경 + 흰색 굵은 글씨)
+# 🎨 공통 하이라이트 스타일 함수
 def get_highlight_style(row, idx_df, market_map=None):
     market_key = row['시장']
-    if market_map: # 미국용 매칭 (NYSE->S&P 500 등)
-        market_key = market_map.get(row['시장'])
-        
+    if market_map: market_key = market_map.get(row['시장'])
     styles = [''] * len(row)
     if market_key in idx_df.index:
         idx_r = idx_df.loc[market_key]
         for col in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
             col_idx = row.index.get_loc(col)
             if row[col] < idx_r[col]:
-                # ⭐ 고대비 스타일 적용
                 styles[col_idx] = 'background-color: #0047AB; color: #FFFFFF; font-weight: bold;'
     return styles
 
-# ---------------------------------------------------------
+# --- 탭 구성 ---
+tab_kr, tab_us = st.tabs(["🇰🇷 한국 시장 모멘텀", "🇺🇸 미국 시장 모멘텀"])
+
 # [탭 1: 한국 시장]
-# ---------------------------------------------------------
 with tab_kr:
     file_kr = 'momentum_data.csv'
     if os.path.exists(file_kr):
@@ -77,24 +84,18 @@ with tab_kr:
             st.table(idx_disp)
 
         st.markdown("---")
-        
         df_kr['종목코드'] = df_kr['종목코드'].str.zfill(6)
         df_kr['통합티커'] = df_kr['시장'] + ":" + df_kr['종목코드']
         df_kr['종목명'] = df_kr.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드']}#{r['종목명']}", axis=1)
-
         styled_kr = df_kr.style.apply(get_highlight_style, idx_df=idx_kr, axis=1)
-
         st.dataframe(styled_kr, use_container_width=True, height=560, 
                      column_order=['통합티커', '종목명', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어'],
                      column_config={"종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), "기준가": st.column_config.NumberColumn(format="%d"),
                                     "1개월(%)": st.column_config.NumberColumn(format="%.1f"), "3개월(%)": st.column_config.NumberColumn(format="%.1f"),
                                     "6개월(%)": st.column_config.NumberColumn(format="%.1f"), "12개월(%)": st.column_config.NumberColumn(format="%.1f"),
                                     "모멘텀스코어": st.column_config.NumberColumn(format="%.2f")})
-    else: st.warning("한국 데이터 파일이 없습니다.")
 
-# ---------------------------------------------------------
 # [탭 2: 미국 시장]
-# ---------------------------------------------------------
 with tab_us:
     file_us = 'momentum_data_us.csv'
     if os.path.exists(file_us):
@@ -110,17 +111,13 @@ with tab_us:
             st.table(idx_disp_us)
 
         st.markdown("---")
-
         df_us['통합티커'] = df_us['시장'] + ":" + df_us['종목코드']
         df_us['종목명'] = df_us.apply(lambda r: f"https://finance.yahoo.com/quote/{r['종목코드']}#{r['종목명']}", axis=1)
-
         m_map_us = {'NYSE': 'S&P 500', 'NASDAQ': 'NASDAQ'}
         styled_us = df_us.style.apply(get_highlight_style, idx_df=idx_us, market_map=m_map_us, axis=1)
-
         st.dataframe(styled_us, use_container_width=True, height=560,
                      column_order=['통합티커', '종목명', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어'],
                      column_config={"종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), "기준가": st.column_config.NumberColumn(format="%.2f"),
                                     "1개월(%)": st.column_config.NumberColumn(format="%.1f"), "3개월(%)": st.column_config.NumberColumn(format="%.1f"),
                                     "6개월(%)": st.column_config.NumberColumn(format="%.1f"), "12개월(%)": st.column_config.NumberColumn(format="%.1f"),
                                     "모멘텀스코어": st.column_config.NumberColumn(format="%.2f")})
-    else: st.warning("미국 데이터가 아직 없습니다. 로봇을 실행해 주세요!")
