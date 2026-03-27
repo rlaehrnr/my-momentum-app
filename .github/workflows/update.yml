@@ -2,8 +2,10 @@ name: Momentum Data Auto-Update
 
 on:
   schedule:
-    - cron: '0 13 * * *'  # ⭐ 매일 한국시간 오후 10시 (UTC 13:00) 실행
-  workflow_dispatch:      # 수동 실행 버튼
+    # ⭐ 매일 한국 시간 오전 8시 실행 (UTC 23:00)
+    # 분 시 일 월 요일 순서입니다.
+    - cron: '0 23 * * *'  
+  workflow_dispatch:      # 언제든 수동으로 실행하고 싶을 때 사용하는 버튼
 
 jobs:
   update-data:
@@ -24,10 +26,10 @@ jobs:
 
       - name: Run update scripts
         run: |
-          # 1. 월말 로봇 (조건부 실행 로직은 update_data.py 내부에 있음)
+          # 1. 월말/초 보관 및 업데이트 로봇
           python update_data.py
           python update_data_us.py
-          # 2. ⭐ 데일리 로봇 (매일 실행)
+          # 2. 데일리 로봇 (매일 실행)
           python update_data_daily.py
 
       - name: Commit and push changes
@@ -35,4 +37,5 @@ jobs:
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           git add .
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Daily update momentum data" && git pull --rebase origin main && git push)
+          # 변경 사항이 있을 때만 커밋하고 푸시
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Daily morning update" && git pull --rebase origin main && git push)
