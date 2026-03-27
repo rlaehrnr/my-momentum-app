@@ -7,26 +7,26 @@ import os
 # 1. 페이지 설정
 st.set_page_config(page_title="글로벌 모멘텀 순위", layout="wide")
 
-# ⭐ [CSS 수정] 상단 여백을 대폭 줄이고 디자인을 더 밀착시킵니다.
+# ⭐ [CSS 수정] 잘리는 현상을 막기 위해 음수 마진을 제거하고 패딩을 최적화했습니다.
 st.markdown("""
     <style>
-    /* 전체 상단 여백 강제 제거 */
-    .block-container { padding-top: 1rem !important; padding-bottom: 0rem !important; }
+    /* 상단 컨테이너 여백 조정 (잘림 방지) */
+    .block-container { padding-top: 2.5rem !important; padding-bottom: 0rem !important; }
     
-    /* 제목(h1) 상단 마진 제거 */
-    h1 { margin-top: -20px !important; margin-bottom: 10px !important; font-size: 2rem !important; }
+    /* 제목(h1) 마진 정상화 */
+    h1 { margin-top: 0px !important; margin-bottom: 10px !important; font-size: 2rem !important; }
     
     /* 탭 디자인 및 간격 */
     .stTabs [data-baseweb="tab-list"] { gap: 24px; }
     .stTabs [data-baseweb="tab"] { height: 50px; font-size: 18px; font-weight: bold; }
     
-    /* 표와 구분선 간격 초밀착 */
+    /* 표와 구분선 사이의 간격은 여전히 밀착 유지 */
     [data-testid="stTable"] { margin-bottom: -25px; }
     hr { margin-top: 5px; margin-bottom: 5px; }
     .stDataFrame { margin-top: -15px; }
     
-    /* 탭 위의 불필요한 공백 제거 */
-    div[data-testid="stVerticalBlock"] > div:has(div.stTabs) { margin-top: -30px; }
+    /* 탭 위의 음수 마진을 제거하여 글자 잘림 해결 */
+    div[data-testid="stVerticalBlock"] > div:has(div.stTabs) { margin-top: 0px !important; }
     </style>
     """, unsafe_allow_html=True)
 
