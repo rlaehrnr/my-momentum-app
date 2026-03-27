@@ -64,4 +64,16 @@ if os.path.exists(file_kr):
     
     df_kr['종목코드'] = df_kr['종목코드'].str.zfill(6)
     df_kr['통합티커'] = df_kr['시장'] + ":" + df_kr['종목코드']
-    df_kr['종목명'] = df_kr
+    df_kr['종목명'] = df_kr.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드']}#{r['종목명']}", axis=1)
+
+    styled_df = df_kr.style.apply(highlight_kr, idx_df=idx_kr, axis=1)
+
+    st.dataframe(styled_df, use_container_width=True, height=560, 
+                 column_order=['통합티커', '종목명', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어'],
+                 column_config={"종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), "기준가": st.column_config.NumberColumn(format="%d"),
+                                "1개월(%)": st.column_config.NumberColumn(format="%.1f"), "3개월(%)": st.column_config.NumberColumn(format="%.1f"),
+                                "6개월(%)": st.column_config.NumberColumn(format="%.1f"), "12개월(%)": st.column_config.NumberColumn(format="%.1f"),
+                                "모멘텀스코어": st.column_config.NumberColumn(format="%.2f")})
+else:
+    st.title("📊 한국 모멘텀 순위")
+    st.warning("데이터 파일이 없습니다. 로봇을 실행해주세요.")
