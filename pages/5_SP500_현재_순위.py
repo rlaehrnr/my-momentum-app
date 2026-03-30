@@ -11,13 +11,13 @@ st.set_page_config(page_title="S&P 500 모멘텀 순위", layout="wide")
 st.markdown("""
     <style>
     .block-container { padding-top: 1.5rem !important; }
-    h1 { font-size: 2.rem !important; font-weight: 800; margin-bottom: 10px; }
+    h1 { font-size: 2.0rem !important; font-weight: 800; margin-bottom: 10px; }
     [data-testid="stTable"] { margin-bottom: -25px; }
     .stTabs [data-baseweb="tab"] { font-size: 18px; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-# 지수 비교 하이라이트 함수 (S&P 500 지수보다 낮으면 파란색)
+# 지수 비교 하이라이트 함수 (지수보다 낮으면 파란색)
 def highlight_sp500(row, idx_df):
     target = 'S&P 500'
     styles = [''] * len(row)
@@ -30,7 +30,7 @@ def highlight_sp500(row, idx_df):
                     styles[col_idx] = 'background-color: #0047AB; color: #FFFFFF; font-weight: bold;'
     return styles
 
-# 미국 대통령 집권 연차 필터 (2026년 = 6년차 정확히 반영)
+# 미국 대통령 집권 연차 필터 (2026년 = 6년차)
 def get_pres_status():
     now = datetime.now()
     year, month = now.year, now.month
@@ -62,14 +62,20 @@ def get_idx_us(target_date=None):
         except: pass
     return pd.DataFrame(res).set_index('시장')
 
-# 상단 타이틀 및 필터 정보
+# ⭐ 야후 차트 전용 링크 생성 함수
+def get_yahoo_chart_link(row):
+    # 야후 파이낸스는 BRK.B 같은 티커를 BRK-B로 인식함
+    symbol = str(row['종목코드']).strip().upper().replace('.', '-')
+    return f"https://finance.yahoo.com/chart/{symbol}#{row['종목명']}"
+
+# 상단 정보 출력
 st.title("🇺🇸 S&P 500 모멘텀 순위")
 cy, status = get_pres_status()
 st.info(f"**미국 집권 {cy}년차** | {status}")
 
 tab1, tab2 = st.tabs(["📅 전월 말일 기준", "🕒 오늘(데일리) 기준"])
 
-# 공통 컬럼 설정 (소수점 2자리 고정)
+# 공통 컬럼 설정
 common_config = {
     "시장": st.column_config.TextColumn("거래소"),
     "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
@@ -93,7 +99,6 @@ with tab1:
         if not idx_m.empty:
             st.table(idx_m.reset_index().assign(**{c: idx_m.reset_index()[c].map('{:.1f}'.format) for c in idx_m.columns if c != '시장'}))
         
-        # [지지난달 순위 대조]
         try:
             curr_dt = datetime.strptime(b_date_str, '%Y-%m-%d')
             prev_month_dt = curr_dt.replace(day=1) - timedelta(days=1)
@@ -110,8 +115,8 @@ with tab1:
 
         st.markdown("---")
         df_m.index = range(1, len(df_m) + 1)
-        # ⭐ 사용자님 요청 링크 방식 적용
-        df_m['종목명_L'] = df_m.apply(lambda r: f"https://finance.yahoo.com/quote/{r['종목코드']}#{r['종목명']}", axis=1)
+        # ⭐ 요청하신 차트 전용 링크 적용
+        df_m['종목명_L'] = df_m.apply(get_yahoo_chart_link, axis=1)
 
         st.dataframe(
             df_m.style.apply(highlight_sp500, idx_df=idx_m, axis=1),
@@ -129,7 +134,6 @@ with tab2:
     if os.path.exists(f_daily):
         df_d = pd.read_csv(f_daily, dtype={'종목코드': str})
         
-        # [전월 순위 대조]
         if os.path.exists(f_monthly_ref):
             df_m_ref = pd.read_csv(f_monthly_ref, dtype={'종목코드': str})
             rank_map = {code: i+1 for i, code in enumerate(df_m_ref['종목코드'])}
@@ -146,8 +150,8 @@ with tab2:
         
         st.markdown("---")
         df_d.index = range(1, len(df_d) + 1)
-        # ⭐ 사용자님 요청 링크 방식 적용
-        df_d['종목명_L'] = df_d.apply(lambda r: f"https://finance.yahoo.com/quote/{r['종목코드']}#{r['종목명']}", axis=1)
+        # ⭐ 요청하신 차트 전용 링크 적용
+        df_d['종목명_L'] = df_d.apply(get_yahoo_chart_link, axis=1)
 
         st.dataframe(
             df_d.style.apply(highlight_sp500, idx_df=idx_now, axis=1),
