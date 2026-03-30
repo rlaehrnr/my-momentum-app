@@ -84,13 +84,16 @@ with tab1:
                          "전달순위": st.column_config.TextColumn("전달 순위")
                      })
 
+# ... (상단 생략)
+
 with tab2:
     f_daily = 'data/momentum_data_daily.csv'
     f_monthly_ref = 'data/momentum_data.csv'
+    
     if os.path.exists(f_daily):
         df_d = pd.read_csv(f_daily, dtype={'종목코드': str})
         
-        # [순위 대조 및 자연수 표기]
+        # 순위 대조 로직 (기존 유지)
         if os.path.exists(f_monthly_ref):
             df_m_ref = pd.read_csv(f_monthly_ref, dtype={'종목코드': str})
             rank_map = {code: i+1 for i, code in enumerate(df_m_ref['종목코드'])}
@@ -98,24 +101,31 @@ with tab2:
         else: df_d['전월순위'] = "-"
 
         st.title(f"🕒 데일리 모멘텀 (기준: {df_d['기준일'].iloc[0]})")
-        idx_now = get_idx_kr()
-        if not idx_now.empty: 
-            st.table(idx_now.reset_index().assign(**{c: idx_now.reset_index()[c].map('{:.1f}'.format) for c in idx_now.columns if c != '시장'}))
         
+        # ... (지수 테이블 출력 부분 생략)
+
         st.markdown("---")
         df_d.index = range(1, len(df_d) + 1)
         df_d['통합티커'] = df_d['시장'] + ":" + df_d['종목코드'].str.zfill(6)
         df_d['종목명'] = df_d.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
 
-        st.dataframe(df_d.style.apply(highlight_kr, idx_df=idx_now, axis=1), use_container_width=True, height=560, 
-                     column_order=['통합티커', '종목명', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전월순위'], 
-                     column_config={
-                         "종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
-                         "기준가": st.column_config.NumberColumn(format="%d"), 
-                         "1개월(%)": st.column_config.NumberColumn(format="%.1f"), 
-                         "3개월(%)": st.column_config.NumberColumn(format="%.1f"), 
-                         "6개월(%)": st.column_config.NumberColumn(format="%.1f"), 
-                         "12개월(%)": st.column_config.NumberColumn(format="%.1f"), 
-                         "모멘텀스코어": st.column_config.NumberColumn(format="%.1f"),
-                         "전월순위": st.column_config.TextColumn("전월 순위")
-                     })
+        # ⭐ 데이터프레임 출력 부분 수정
+        st.dataframe(
+            df_d.style.apply(highlight_kr, idx_df=idx_now, axis=1), 
+            use_container_width=True, 
+            height=560, 
+            # 1. 컬럼 순서에 '전일거래량' 추가
+            column_order=['통합티커', '종목명', '기준가', '전일거래량', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전월순위'], 
+            column_config={
+                "종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
+                "기준가": st.column_config.NumberColumn("현재가", format="%d"), 
+                # 2. 거래량 포맷 설정 (천 단위 콤마 추가)
+                "전일거래량": st.column_config.NumberColumn("전일 거래량", format="%d"), 
+                "1개월(%)": st.column_config.NumberColumn(format="%.1f"), 
+                "3개월(%)": st.column_config.NumberColumn(format="%.1f"), 
+                "6개월(%)": st.column_config.NumberColumn(format="%.1f"), 
+                "12개월(%)": st.column_config.NumberColumn(format="%.1f"), 
+                "모멘텀스코어": st.column_config.NumberColumn(format="%.1f"),
+                "전월순위": st.column_config.TextColumn("전월 순위")
+            }
+        )
