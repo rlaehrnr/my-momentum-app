@@ -30,7 +30,7 @@ def highlight_sp500(row, idx_df):
                     styles[col_idx] = 'background-color: #0047AB; color: #FFFFFF; font-weight: bold;'
     return styles
 
-# 미국 대통령 집권 연차 필터 (2026년 6년차)
+# 미국 대통령 집권 연차 필터 (2026년 6년차 기준)
 def get_pres_status():
     now = datetime.now()
     year, month = now.year, now.month
@@ -52,6 +52,7 @@ def get_idx_us(target_date=None):
     for name, code in indices.items():
         try:
             df = fdr.DataReader(code, today - pd.DateOffset(months=16), today)
+            # 타겟 날짜가 있으면 해당 날짜 이전 데이터 중 가장 마지막 값 사용
             curr_val = df.loc[df.index <= target_date]['Close'].iloc[-1] if target_date else df['Close'].iloc[-1]
             last_idx_date = df.index[df.index <= (target_date if target_date else today)][-1]
             def get_ret(m):
@@ -62,27 +63,21 @@ def get_idx_us(target_date=None):
         except: pass
     return pd.DataFrame(res).set_index('시장')
 
-# ⭐ 네이버 차트 마스터 링크 함수 (NYSE의 .K/.N 구분 해결)
-def get_naver_master_link(row):
+# ⭐ 네이버 차트 fchart 링크 함수 (CIEN.K 및 최신 NYSE 대응)
+def get_naver_fchart_link(row):
     symbol = str(row['종목코드']).strip().upper().replace('.', '_')
     market = str(row['시장']).strip().upper()
     
-    # 1. 나스닥은 무조건 .O
     if 'NASDAQ' in market:
         suffix = '.O'
-    # 2. 뉴욕거래소(NYSE) 처리
     else:
-        # 💡 네이버에서 .N을 사용하는 '비교적 최신 상장' NYSE 종목들
-        # (여기에 없는 NYSE 종목은 자동으로 .K로 연결됩니다)
-        new_nyse_list = ['V', 'MA', 'SQ', 'SNAP', 'UBER', 'LYFT', 'PINS', 'NET'] 
-        if symbol in new_nyse_list:
-            suffix = '.N'
-        else:
-            suffix = '.K' # CIEN, KO, F, GE 등 대부분의 우량주는 .K
+        # NYSE 종목 중 .N을 사용하는 예외 리스트 (보통은 .K)
+        new_nyse_list = ['V', 'MA', 'SQ', 'SNAP', 'UBER', 'LYFT', 'PINS', 'NET']
+        suffix = '.N' if symbol in new_nyse_list else '.K'
             
     return f"https://m.stock.naver.com/fchart/foreign/stock/{symbol}{suffix}#{row['종목명']}"
 
-# 상단 타이틀
+# 상단 타이틀 및 필터 정보
 st.title("🇺🇸 S&P 500 모멘텀 순위")
 cy, status = get_pres_status()
 st.info(f"**미국 집권 {cy}년차** | {status}")
@@ -101,17 +96,82 @@ common_config = {
     "모멘텀스코어": st.column_config.NumberColumn("스코어", format="%.2f"),
 }
 
-# --- [탭 1 / 탭 2 공통 적용] ---
-for tab, file_path, rank_col_name in zip([tab1, tab2], 
-                                         ['data/momentum_data_sp500.csv', 'data/momentum_data_daily_sp500.csv'],
-                                         ['전달순위', '전월순위']):
-    with tab:
-        if os.path.exists(file_path):
-            df = pd.read_csv(file_path, dtype={'종목코드': str})
-            # (중략된 순위 비교 및 지수 테이블 로직은 이전과 동일하게 유지)
-            # ...
-            # 핵심은 아래의 링크 적용 부분입니다.
-            df['종목명_L'] = df.apply(get_naver_master_link, axis=1)
+# --- [탭 1: 월말 고정 데이터] ---
+with tab1:
+    f_monthly = 'data/momentum_data_sp500.csv'
+    if os.path.exists(f_monthly):
+        df_m = pd.read_csv(f_monthly, dtype={'종목코드': str})
+        b_date_str = df_m['기준일(월말)'].iloc[0]
+        st.subheader(f"📅 월말 기준 데이터 (기준일: {b_date_str})")
+        
+        # 지수 테이블
+        idx_m = get_idx_us(pd.to_datetime(b_date_str))
+        if not idx_m.empty:
+            st.table(idx_m.reset_index().assign(**{c: idx_m.reset_index()[c].map('{:.1f}'.format) for c in idx_m.columns if c != '시장'}))
+        
+        # 전달 순위 비교 로직
+        try:
+            curr_dt = datetime.strptime(b_date_str, '%Y-%m-%d')
+            prev_month_dt = curr_dt.replace(day=1) - timedelta(days=1)
+            prev_ym = prev_month_dt.strftime('%Y_%m')
+            f_prev_archive = f'archive_sp500/momentum_sp500_{prev_ym}.csv'
             
-            # (데이터프레임 출력 부분)
-            st.dataframe(df, column_config=common_config, ...)
+            if os.path.exists(f_prev_archive):
+                df_prev_m = pd.read_csv(f_prev_archive, dtype={'종목코드': str})
+                prev_rank_map = {code: i+1 for i, code in enumerate(df_prev_m['종목코드'])}
+                df_m['전달순위'] = df_m['종목코드'].map(prev_rank_map).fillna("⭐ NEW")
+                df_m['전달순위'] = df_m['전달순위'].apply(lambda x: f"{x}위" if isinstance(x, int) else x)
+            else:
+                df_m['전달순위'] = "기록 없음"
+        except:
+            df_m['전달순위'] = "-"
+
+        st.markdown("---")
+        df_m.index = range(1, len(df_m) + 1)
+        df_m['종목명_L'] = df_m.apply(get_naver_fchart_link, axis=1)
+
+        st.dataframe(
+            df_m.style.apply(highlight_sp500, idx_df=idx_m, axis=1),
+            use_container_width=True, height=600,
+            column_order=['시장', '종목명_L', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달순위'],
+            column_config={**common_config, "전달순위": st.column_config.TextColumn("전달 순위")}
+        )
+    else:
+        st.warning("월말 데이터 파일이 없습니다.")
+
+# --- [탭 2: 데일리 데이터] ---
+with tab2:
+    f_daily = 'data/momentum_data_daily_sp500.csv'
+    f_monthly_ref = 'data/momentum_data_sp500.csv'
+    
+    if os.path.exists(f_daily):
+        df_d = pd.read_csv(f_daily, dtype={'종목코드': str})
+        
+        # 전월 순위 비교 로직
+        if os.path.exists(f_monthly_ref):
+            df_m_ref = pd.read_csv(f_monthly_ref, dtype={'종목코드': str})
+            rank_map = {code: i+1 for i, code in enumerate(df_m_ref['종목코드'])}
+            df_d['전월순위'] = df_d['종목코드'].map(rank_map).fillna("⭐ NEW")
+            df_d['전월순위'] = df_d['전월순위'].apply(lambda x: f"{x}위" if isinstance(x, int) else x)
+        else:
+            df_d['전월순위'] = "-"
+
+        d_date = df_d['기준일'].iloc[0]
+        st.subheader(f"🕒 데일리 실시간 순위 (기준일: {d_date})")
+        
+        idx_now = get_idx_us() 
+        if not idx_now.empty:
+            st.table(idx_now.reset_index().assign(**{c: idx_now.reset_index()[c].map('{:.1f}'.format) for c in idx_now.columns if c != '시장'}))
+        
+        st.markdown("---")
+        df_d.index = range(1, len(df_d) + 1)
+        df_d['종목명_L'] = df_d.apply(get_naver_fchart_link, axis=1)
+
+        st.dataframe(
+            df_d.style.apply(highlight_sp500, idx_df=idx_now, axis=1),
+            use_container_width=True, height=600,
+            column_order=['시장', '종목명_L', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전월순위'],
+            column_config={**common_config, "전월순위": st.column_config.TextColumn("전월 순위")}
+        )
+    else:
+        st.warning("데일리 데이터 파일이 없습니다.")
