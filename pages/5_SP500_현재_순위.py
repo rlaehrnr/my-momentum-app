@@ -62,27 +62,23 @@ def get_idx_us(target_date=None):
         except: pass
     return pd.DataFrame(res).set_index('시장')
 
-# ⭐ 수정된 네이버 fchart 링크 생성 함수
+# ⭐ 수정된 네이버 fchart 링크 생성 함수 (CIEN.K 대응)
 def get_naver_fchart_link(row):
     symbol = str(row['종목코드']).strip().upper()
-    
-    # 1. 티커 자체에 시장 기호가 붙어있는 경우 제거 (중복 방지)
-    symbol = symbol.split('.')[0] 
-    
-    # 2. 거래소 판별 로직
-    # 기본적으로 NYSE는 .N, 나머지는 .O를 붙임
+    clean_symbol = symbol.replace('.', '_')
     market = str(row['시장']).upper()
     
-    # 💡 [핵심] Ciena(CIEN)처럼 시장 이전 상장 종목이나 판별 오류 종목 예외 처리
-    if symbol == 'CIEN':
-        suffix = '.N'  # Ciena는 무조건 NYSE(.N)
-    elif symbol == 'BRK_B' or symbol == 'BRK.B':
-        symbol = 'BRK_B' # 버크셔 대응
+    # 💡 [핵심] Ciena(CIEN)는 네이버에서 .K 접미사를 사용함
+    if 'CIEN' in clean_symbol:
+        suffix = '.K'
+    elif 'BRK' in clean_symbol:
+        clean_symbol = 'BRK_B'
         suffix = '.N'
     else:
+        # 일반적인 규칙: NYSE는 .N, NASDAQ은 .O
         suffix = '.N' if 'NYSE' in market else '.O'
         
-    return f"https://m.stock.naver.com/fchart/foreign/stock/{symbol}{suffix}# {row['종목명']}"
+    return f"https://m.stock.naver.com/fchart/foreign/stock/{clean_symbol}{suffix}# {row['종목명']}"
 
 # 상단 타이틀 및 필터 정보
 st.title("🇺🇸 S&P 500 모멘텀 순위")
@@ -131,7 +127,6 @@ with tab1:
 
         st.markdown("---")
         df_m.index = range(1, len(df_m) + 1)
-        # ⭐ 네이버 fchart 링크 적용
         df_m['종목명_L'] = df_m.apply(get_naver_fchart_link, axis=1)
 
         st.dataframe(
@@ -166,7 +161,6 @@ with tab2:
         
         st.markdown("---")
         df_d.index = range(1, len(df_d) + 1)
-        # ⭐ 네이버 fchart 링크 적용
         df_d['종목명_L'] = df_d.apply(get_naver_fchart_link, axis=1)
 
         st.dataframe(
