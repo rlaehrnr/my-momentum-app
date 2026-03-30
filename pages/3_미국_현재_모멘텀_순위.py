@@ -31,20 +31,6 @@ def highlight_us(row, idx_df):
                     styles[col_idx] = 'background-color: #0047AB; color: #FFFFFF; font-weight: bold;'
     return styles
 
-# 미국 대통령 집권 연차 필터 (2026년 = 6년차)
-def get_pres_status():
-    now = datetime.now()
-    year, month = now.year, now.month
-    cycle_year = (year - 2020) % 8
-    if cycle_year == 0: cycle_year = 8
-    exclusion_rules = {
-        1: [2, 3, 8], 2: [1, 4, 6, 9], 3: [9], 4: [10],
-        5: [2, 3, 8], 6: [7, 8, 9], 7: [9], 8: [1, 2, 8, 9]
-    }
-    is_excluded = month in exclusion_rules.get(cycle_year, [])
-    status = "🔴 현재는 현금 비중 확대를 권장합니다" if is_excluded else "🟢 현재는 적극 투자하기 좋은 달입니다"
-    return cycle_year, status
-
 @st.cache_data(ttl=3600)
 def get_idx_us(target_date=None):
     indices = {'S&P 500': 'US500', 'NASDAQ': 'IXIC'}
@@ -63,10 +49,8 @@ def get_idx_us(target_date=None):
         except: pass
     return pd.DataFrame(res).set_index('시장')
 
-# 상단 타이틀 및 필터 정보
+# 상단 타이틀
 st.title("🇺🇸 미국 시총상위 모멘텀")
-cy, status = get_pres_status()
-st.info(f"**미국 집권 {cy}년차** | {status}")
 
 tab1, tab2 = st.tabs(["📅 전월 말일 기준", "🕒 오늘(데일리) 기준"])
 
@@ -99,7 +83,7 @@ with tab1:
             curr_dt = datetime.strptime(b_date_str, '%Y-%m-%d')
             prev_month_dt = curr_dt.replace(day=1) - timedelta(days=1)
             prev_ym = prev_month_dt.strftime('%Y_%m')
-            f_prev_archive = f'archive_us/momentum_us_{prev_ym}.csv' # 미국 아카이브 폴더
+            f_prev_archive = f'archive_us/momentum_us_{prev_ym}.csv'
             
             if os.path.exists(f_prev_archive):
                 df_prev = pd.read_csv(f_prev_archive, dtype={'종목코드': str})
@@ -125,7 +109,7 @@ with tab1:
 # --- [탭 2: 데일리 데이터] ---
 with tab2:
     f_daily_us = 'data/momentum_data_daily_us.csv'
-    f_monthly_ref = 'data/momentum_data_us.csv' # 비교용 월말 데이터
+    f_monthly_ref = 'data/momentum_data_us.csv'
     
     if os.path.exists(f_daily_us):
         df_d_us = pd.read_csv(f_daily_us, dtype={'종목코드': str})
