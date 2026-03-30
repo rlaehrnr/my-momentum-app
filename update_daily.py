@@ -9,7 +9,9 @@ if not os.path.exists('data'): os.makedirs('data')
 def get_top_stocks(market, limit=150):
     try:
         df = fdr.StockListing(market)
-        if market == 'S&P500': return df.drop_duplicates('Symbol')
+        # S&P 500의 경우 Symbol 컬럼의 중복을 확실히 제거
+        if market == 'S&P500': 
+            df = df.drop_duplicates(subset=['Symbol'])
         cap_col = [c for c in df.columns if 'market' in c.lower() and 'cap' in c.lower()]
         if not cap_col: cap_col = [c for c in df.columns if 'mar' in c.lower() and 'cap' in c.lower()]
         return df.sort_values(cap_col[0], ascending=False).head(limit) if cap_col else df.head(limit)
