@@ -51,22 +51,24 @@ def get_idx_us(target_date=None):
     res = []
     for name, code in indices.items():
         try:
-            df = fdr.DataReader(code, today - pd.Offset(months=16), today)
+            # ⭐ 수정 완료: pd.Offset -> pd.DateOffset
+            df = fdr.DataReader(code, today - pd.DateOffset(months=16), today)
             curr_val = df.loc[df.index <= target_date]['Close'].iloc[-1] if target_date else df['Close'].iloc[-1]
             last_idx_date = df.index[df.index <= (target_date if target_date else today)][-1]
             def get_ret(m):
-                ref_day = (last_idx_date.replace(day=1) - pd.Offset(months=m-1)) - timedelta(days=1)
+                # ⭐ 수정 완료: pd.Offset -> pd.DateOffset
+                ref_day = (last_idx_date.replace(day=1) - pd.DateOffset(months=m-1)) - timedelta(days=1)
                 p_df = df[df.index <= ref_day]
                 return round((curr_val - p_df['Close'].iloc[-1]) / p_df['Close'].iloc[-1] * 100, 2) if not p_df.empty else 0.0
             res.append({'시장': name, '현재가': round(curr_val, 1), '1개월(%)': get_ret(1), '3개월(%)': get_ret(3), '6개월(%)': get_ret(6), '12개월(%)': get_ret(12)})
         except: pass
     return pd.DataFrame(res).set_index('시장')
 
-# ⭐ Finviz 일봉 차트 링크 생성 함수 (오류가 거의 없는 방식)
+# ⭐ Finviz 일봉 차트 링크 생성 함수
 def get_finviz_link(row):
     symbol = str(row['종목코드']).strip().upper()
-    # BRK.B 같은 경우 Finviz는 BRK-B 또는 BRK.B 둘 다 잘 인식하지만 보통은 원본 티커 그대로 사용 가능
-    return f"https://finviz.com/quote.ashx?t={symbol}# {row['종목명']}"
+    # 띄어쓰기 없이 # 뒤에 바로 종목명을 붙여야 스트림릿이 에러 없이 인식합니다.
+    return f"https://finviz.com/quote.ashx?t={symbol}#{row['종목명']}"
 
 # 상단 타이틀 및 필터 정보
 st.title("🇺🇸 S&P 500 모멘텀 순위")
@@ -75,10 +77,10 @@ st.info(f"**미국 집권 {cy}년차** | {status}")
 
 tab1, tab2 = st.tabs(["📅 전월 말일 기준", "🕒 오늘(데일리) 기준"])
 
-# 공통 컬럼 설정 (소수점 2자리 고정)
+# ⭐ 공통 컬럼 설정 (디스플레이 텍스트 정규식 오류 수정 완료)
 common_config = {
     "시장": st.column_config.TextColumn("거래소"),
-    "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#\s*(.+)"),
+    "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
     "기준가": st.column_config.NumberColumn("기준가", format="$ %.2f"),
     "1개월(%)": st.column_config.NumberColumn("1M (%)", format="%.2f%%"),
     "3개월(%)": st.column_config.NumberColumn("3M (%)", format="%.2f%%"),
