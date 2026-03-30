@@ -17,7 +17,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 지수 비교 하이라이트 함수
+# 지수 비교 하이라이트 함수 (S&P 500 지수보다 낮으면 파란색)
 def highlight_sp500(row, idx_df):
     target = 'S&P 500'
     styles = [''] * len(row)
@@ -51,26 +51,22 @@ def get_idx_us(target_date=None):
     res = []
     for name, code in indices.items():
         try:
-            df = fdr.DataReader(code, today - pd.DateOffset(months=16), today)
+            df = fdr.DataReader(code, today - pd.Offset(months=16), today)
             curr_val = df.loc[df.index <= target_date]['Close'].iloc[-1] if target_date else df['Close'].iloc[-1]
             last_idx_date = df.index[df.index <= (target_date if target_date else today)][-1]
             def get_ret(m):
-                ref_day = (last_idx_date.replace(day=1) - pd.DateOffset(months=m-1)) - timedelta(days=1)
+                ref_day = (last_idx_date.replace(day=1) - pd.Offset(months=m-1)) - timedelta(days=1)
                 p_df = df[df.index <= ref_day]
                 return round((curr_val - p_df['Close'].iloc[-1]) / p_df['Close'].iloc[-1] * 100, 2) if not p_df.empty else 0.0
             res.append({'시장': name, '현재가': round(curr_val, 1), '1개월(%)': get_ret(1), '3개월(%)': get_ret(3), '6개월(%)': get_ret(6), '12개월(%)': get_ret(12)})
         except: pass
     return pd.DataFrame(res).set_index('시장')
 
-# ⭐ 수정된 TradingView 차트 링크 생성 함수 (yQtag4ML 레이아웃 적용)
-def get_tradingview_link(row):
-    # 1. 티커 및 시장 세척 (BRK.B 같은 점 처리는 TradingView가 알아서 함)
+# ⭐ Finviz 일봉 차트 링크 생성 함수 (오류가 거의 없는 방식)
+def get_finviz_link(row):
     symbol = str(row['종목코드']).strip().upper()
-    market = str(row['시장']).strip().upper()
-    
-    # 💡 [핵심] share해주신 yQtag4ML 차트 레이아웃 주소를 베이스로 사용합니다.
-    # TradingView 형식: https://www.tradingview.com/chart/[LAYOUT_HASH]/?symbol=[MARKET]:[TICKER]
-    return f"https://www.tradingview.com/chart/yQtag4ML/?symbol={market}:{symbol}# {row['종목명']}"
+    # BRK.B 같은 경우 Finviz는 BRK-B 또는 BRK.B 둘 다 잘 인식하지만 보통은 원본 티커 그대로 사용 가능
+    return f"https://finviz.com/quote.ashx?t={symbol}# {row['종목명']}"
 
 # 상단 타이틀 및 필터 정보
 st.title("🇺🇸 S&P 500 모멘텀 순위")
@@ -119,8 +115,8 @@ with tab1:
 
         st.markdown("---")
         df_m.index = range(1, len(df_m) + 1)
-        # ⭐ yQtag4ML 레이아웃 링크 적용
-        df_m['종목명_L'] = df_m.apply(get_tradingview_link, axis=1)
+        # ⭐ Finviz 링크 적용
+        df_m['종목명_L'] = df_m.apply(get_finviz_link, axis=1)
 
         st.dataframe(
             df_m.style.apply(highlight_sp500, idx_df=idx_m, axis=1),
@@ -154,8 +150,8 @@ with tab2:
         
         st.markdown("---")
         df_d.index = range(1, len(df_d) + 1)
-        # ⭐ yQtag4ML 레이아웃 링크 적용
-        df_d['종목명_L'] = df_d.apply(get_tradingview_link, axis=1)
+        # ⭐ Finviz 링크 적용
+        df_d['종목명_L'] = df_d.apply(get_finviz_link, axis=1)
 
         st.dataframe(
             df_d.style.apply(highlight_sp500, idx_df=idx_now, axis=1),
