@@ -17,7 +17,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 지수 비교 하이라이트 함수 (S&P 500 지수보다 낮으면 파란색)
+# 지수 비교 하이라이트 함수
 def highlight_sp500(row, idx_df):
     target = 'S&P 500'
     styles = [''] * len(row)
@@ -62,12 +62,15 @@ def get_idx_us(target_date=None):
         except: pass
     return pd.DataFrame(res).set_index('시장')
 
-# ⭐ TradingView 차트 링크 생성 함수
+# ⭐ 수정된 TradingView 차트 링크 생성 함수 (yQtag4ML 레이아웃 적용)
 def get_tradingview_link(row):
+    # 1. 티커 및 시장 세척 (BRK.B 같은 점 처리는 TradingView가 알아서 함)
     symbol = str(row['종목코드']).strip().upper()
     market = str(row['시장']).strip().upper()
-    # TradingView 형식: https://www.tradingview.com/chart/?symbol=NYSE:CIEN
-    return f"https://www.tradingview.com/chart/?symbol={market}:{symbol}# {row['종목명']}"
+    
+    # 💡 [핵심] share해주신 yQtag4ML 차트 레이아웃 주소를 베이스로 사용합니다.
+    # TradingView 형식: https://www.tradingview.com/chart/[LAYOUT_HASH]/?symbol=[MARKET]:[TICKER]
+    return f"https://www.tradingview.com/chart/yQtag4ML/?symbol={market}:{symbol}# {row['종목명']}"
 
 # 상단 타이틀 및 필터 정보
 st.title("🇺🇸 S&P 500 모멘텀 순위")
@@ -116,7 +119,7 @@ with tab1:
 
         st.markdown("---")
         df_m.index = range(1, len(df_m) + 1)
-        # ⭐ TradingView 링크 적용
+        # ⭐ yQtag4ML 레이아웃 링크 적용
         df_m['종목명_L'] = df_m.apply(get_tradingview_link, axis=1)
 
         st.dataframe(
@@ -151,7 +154,7 @@ with tab2:
         
         st.markdown("---")
         df_d.index = range(1, len(df_d) + 1)
-        # ⭐ TradingView 링크 적용
+        # ⭐ yQtag4ML 레이아웃 링크 적용
         df_d['종목명_L'] = df_d.apply(get_tradingview_link, axis=1)
 
         st.dataframe(
