@@ -2,6 +2,7 @@ import FinanceDataReader as fdr
 import pandas as pd
 from datetime import datetime, timedelta
 import os
+import time
 
 # 폴더 생성
 if not os.path.exists('data'): os.makedirs('data')
@@ -9,85 +10,109 @@ if not os.path.exists('data'): os.makedirs('data')
 def get_top_stocks(market, limit=150):
     try:
         df = fdr.StockListing(market)
-        # S&P 500의 경우 Symbol 컬럼의 중복을 확실히 제거
+        if df.empty: return pd.DataFrame()
+
         if market == 'S&P500': 
             df = df.drop_duplicates(subset=['Symbol'])
         
+        # 시가총액 컬럼 찾기
         cap_col = [c for c in df.columns if 'market' in c.lower() and 'cap' in c.lower()]
         if not cap_col: cap_col = [c for c in df.columns if 'mar' in c.lower() and 'cap' in c.lower()]
         
-        return df.sort_values(cap_col[0], ascending=False).head(limit) if cap_col else df.head(limit)
-    except: return pd.DataFrame()
+        if cap_col:
+            return df.sort_values(cap_col[0], ascending=False).head(limit)
+        return df.head(limit)
+    except Exception as e:
+        print(f"❌ {market} 리스트 가져오기 실패: {e}")
+        return pd.DataFrame()
 
 def run_daily(market_type='KR'):
-    # 시장별 설정
     if market_type == 'KR':
         name_tag, file_path, market_list, limit = "한국", 'data/momentum_data_daily.csv', ['KOSPI', 'KOSDAQ'], 150
-        mkt_map = {} # 한국은 리스트 자체로 구분
+        mkt_map = {}
     elif market_type == 'US':
         name_tag, file_path, market_list, limit = "미국(시총상위)", 'data/momentum_data_daily_us.csv', ['NYSE', 'NASDAQ'], 150
         mkt_map = {}
     elif market_type == 'SP500':
         name_tag, file_path, market_list, limit = "S&P 500", 'data/momentum_data_daily_sp500.csv', ['S&P500'], 505
-        # S&P 500 상세 거래소 구분을 위한 매핑
-        try:
-            nyse = fdr.StockListing('NYSE')[['Symbol']]
-            nasdaq = fdr.StockListing('NASDAQ')[['Symbol']]
-            mkt_map = {s: 'NYSE' for s in nyse['Symbol']}
-            mkt_map.update({s: 'NASDAQ' for s in nasdaq['Symbol']})
-        except: mkt_map = {}
+        # 💡 [최적화] 매번 전체 리스트를 받지 않고 빈 딕셔너리로 시작 (필요 시에만 조회)
+        mkt_map = {} 
 
     today = datetime.today()
-    print(f"🕒 {name_tag} 데일리 데이터 수집 시작...")
+    print(f"🕒 {name_tag} 데일리 데이터 수집 시작... (기준일: {today.strftime('%Y-%m-%d')})")
     res = []
 
     for mkt_name in market_list:
         target_stocks = get_top_stocks(mkt_name, limit)
-        for _, row in target_stocks.iterrows():
+        if target_stocks.empty:
+            print(f"⚠️ {mkt_name} 종목 리스트가 비어있습니다. 건너뜁니다.")
+            continue
+            
+        print(f"🔎 {mkt_name} 총 {len(target_stocks)}개 종목 분석 중...")
+        
+        for i, row in target_stocks.iterrows():
             try:
                 code = row['Code'] if 'Code' in row else row['Symbol']
                 # 데이터 로드 (최근 16개월)
-                df = fdr.DataReader(code.replace('.', '-'), today - pd.DateOffset(months=16), today)
+                # 💡 나스닥 종목은 티커 뒤에 .O, NYSE는 .N 등이 붙는 경우가 있어 세척
+                clean_code = code.split('.')[0].replace('.', '-')
+                
+                df = fdr.DataReader(clean_code, today - pd.DateOffset(months=16), today)
                 if df.empty: continue
                 
                 curr_price = df['Close'].iloc[-1]
-                # ⭐ 전일 거래량 추출 (가장 최근 영업일)
                 curr_volume = int(df['Volume'].iloc[-1]) if 'Volume' in df.columns else 0
+                
+                # 데이터 기준일 확인 (오늘 날짜와 데이터 마지막 날짜가 너무 다르면 경고)
+                last_date = df.index[-1].strftime('%Y-%m-%d')
                 
                 def get_ret(m):
                     ref = (today.replace(day=1) - pd.DateOffset(months=m-1)) - timedelta(days=1)
                     past = df[df.index <= ref]
-                    return (curr_price - past['Close'].iloc[-1]) / past['Close'].iloc[-1] * 100 if not past.empty else 0.0
+                    if past.empty: return 0.0
+                    return (curr_price - past['Close'].iloc[-1]) / past['Close'].iloc[-1] * 100
                 
                 r1, r3, r6, r12 = get_ret(1), get_ret(3), get_ret(6), get_ret(12)
-                # 모멘텀 스코어 계산 공식
                 score = round((r1*-0.2) + (r3*0.8) + (r6*0.5) + (r12*0.2), 1)
                 
-                # 시장 이름 결정
-                display_mkt = mkt_map.get(code, 'NYSE') if market_type == 'SP500' else mkt_name
+                display_mkt = mkt_name
+                # S&P500의 경우 데이터프레임의 'Exchange' 컬럼 활용 (없으면 NYSE 기본)
+                if market_type == 'SP500':
+                    display_mkt = row.get('Exchange', 'NYSE')
 
                 res.append({
-                    '기준일': today.strftime('%Y-%m-%d'), 
+                    '기준일': last_date, # 💡 실제 데이터의 마지막 날짜를 기록
                     '시장': display_mkt,
                     '종목명': row['Name'], 
                     '종목코드': code, 
                     '기준가': round(curr_price, 2),
-                    '전일거래량': curr_volume, # ⭐ 추가된 컬럼
+                    '전일거래량': curr_volume,
                     '1개월(%)': round(r1, 1), 
                     '3개월(%)': round(r3, 1), 
                     '6개월(%)': round(r6, 1),
                     '12개월(%)': round(r12, 1), 
                     '모멘텀스코어': score
                 })
-            except: continue
+                
+                # 💡 너무 빠른 요청으로 인한 차단 방지 (0.05초 대기)
+                time.sleep(0.05)
+                
+            except Exception as e:
+                # 에러 발생 시 로그 출력
+                if i % 50 == 0: print(f"  - {code} 수집 중 오류 발생: {e}")
+                continue
             
     if res:
-        # 결과 저장 (CSV)
-        pd.DataFrame(res).sort_values('모멘텀스코어', ascending=False).to_csv(file_path, index=False, encoding='utf-8-sig')
-        print(f"✅ {name_tag} 데일리 완료!")
+        final_df = pd.DataFrame(res).sort_values('모멘텀스코어', ascending=False)
+        final_df.to_csv(file_path, index=False, encoding='utf-8-sig')
+        print(f"✅ {name_tag} 완료! (최종 수집: {len(res)}개 종목)")
+    else:
+        print(f"❌ {name_tag} 수집된 데이터가 없습니다.")
 
 if __name__ == "__main__":
-    # 순차적으로 데이터 업데이트
-    run_daily('KR')
-    run_daily('US')
-    run_daily('SP500')
+    # 실행 순서 조정 및 에러 시 중단 방지
+    for m_type in ['KR', 'US', 'SP500']:
+        try:
+            run_daily(m_type)
+        except Exception as e:
+            print(f"🔥 {m_type} 실행 중 치명적 오류: {e}")
