@@ -22,7 +22,14 @@ def run_daily(market_type='KR'):
     elif market_type == 'US':
         name_tag, file_path, market_list, limit = "미국(시총상위)", 'data/momentum_data_daily_us.csv', ['NYSE', 'NASDAQ'], 150
     elif market_type == 'SP500':
-        name_tag, file_path, market_list, limit = "S&P 500", 'data/momentum_data_daily_sp500.csv', ['S&P500'], 505 # S&P 500 전체
+        name_tag, file_path, market_list, limit = "S&P 500", 'data/momentum_data_daily_sp500.csv', ['S&P500'], 505
+        
+        # ⭐ [추가] S&P 500 종목의 실제 시장(NYSE/NASDAQ) 구분을 위한 맵 구축
+        print("🔍 거래소 정보 대조용 리스트 생성 중...")
+        nyse_list = fdr.StockListing('NYSE')[['Symbol']]
+        nasdaq_list = fdr.StockListing('NASDAQ')[['Symbol']]
+        mkt_map = {s: 'NYSE' for s in nyse_list['Symbol']}
+        mkt_map.update({s: 'NASDAQ' for s in nasdaq_list['Symbol']})
 
     # 한국은 전월 말일, 미국은 (시차 고려) 어제 기준
     today = datetime.today()
