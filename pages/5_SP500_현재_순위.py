@@ -7,7 +7,7 @@ import os
 # 1. 페이지 설정
 st.set_page_config(page_title="S&P 500 모멘텀 순위", layout="wide")
 
-# CSS: 초밀착 레이아웃
+# CSS: 초밀착 레이아웃 및 디자인
 st.markdown("""
     <style>
     .block-container { padding-top: 1.5rem !important; }
@@ -30,7 +30,7 @@ def highlight_sp500(row, idx_df):
                     styles[col_idx] = 'background-color: #0047AB; color: #FFFFFF; font-weight: bold;'
     return styles
 
-# 미국 대통령 집권 연차 필터 (2026년 6년차)
+# 미국 대통령 집권 연차 필터 로직
 def get_pres_status():
     now = datetime.now()
     year, month = now.year, now.month
@@ -62,13 +62,14 @@ def get_idx_us(target_date=None):
         except: pass
     return pd.DataFrame(res).set_index('시장')
 
-# ⭐ 수정된 야후 파이낸스 일봉 차트 강제 링크 함수
-def get_yahoo_daily_chart_link(row):
-    symbol = str(row['종목코드']).strip().upper().replace('.', '-')
-    # interval=1d (일봉), range=1y (1년치 데이터) 파라미터 추가
-    return f"https://finance.yahoo.com/quote/{symbol}/chart?interval=1d&range=1y#{row['종목명']}"
+# ⭐ 야후 파이낸스 차트 링크 생성 함수 (가장 깔끔하고 오류가 없음)
+def get_yahoo_chart_link(row):
+    symbol = str(row['종목코드']).strip().upper()
+    # 야후 파이낸스는 BRK.B 같은 종목을 BRK-B로 인식합니다.
+    symbol = symbol.replace('.', '-')
+    return f"https://finance.yahoo.com/chart/{symbol}#{row['종목명']}"
 
-# 상단 타이틀
+# 상단 타이틀 및 필터 정보
 st.title("🇺🇸 S&P 500 모멘텀 순위")
 cy, status = get_pres_status()
 st.info(f"**미국 집권 {cy}년차** | {status}")
@@ -115,8 +116,8 @@ with tab1:
 
         st.markdown("---")
         df_m.index = range(1, len(df_m) + 1)
-        # ⭐ 일봉 차트 링크 적용
-        df_m['종목명_L'] = df_m.apply(get_yahoo_daily_chart_link, axis=1)
+        # ⭐ 야후 파이낸스 링크 적용
+        df_m['종목명_L'] = df_m.apply(get_yahoo_chart_link, axis=1)
 
         st.dataframe(
             df_m.style.apply(highlight_sp500, idx_df=idx_m, axis=1),
@@ -150,8 +151,8 @@ with tab2:
         
         st.markdown("---")
         df_d.index = range(1, len(df_d) + 1)
-        # ⭐ 일봉 차트 링크 적용
-        df_d['종목명_L'] = df_d.apply(get_yahoo_daily_chart_link, axis=1)
+        # ⭐ 야후 파이낸스 링크 적용
+        df_d['종목명_L'] = df_d.apply(get_yahoo_chart_link, axis=1)
 
         st.dataframe(
             df_d.style.apply(highlight_sp500, idx_df=idx_now, axis=1),
