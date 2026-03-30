@@ -7,7 +7,7 @@ import os
 # 1. 페이지 설정
 st.set_page_config(page_title="S&P 500 모멘텀 순위", layout="wide")
 
-# CSS: 초밀착 레이아웃
+# CSS: 레이아웃 최적화
 st.markdown("""
     <style>
     .block-container { padding-top: 1.5rem !important; }
@@ -51,6 +51,7 @@ def get_idx_us(target_date=None):
     res = []
     for name, code in indices.items():
         try:
+            # ⭐ pd.DateOffset 오류 수정 완료
             df = fdr.DataReader(code, today - pd.DateOffset(months=16), today)
             curr_val = df.loc[df.index <= target_date]['Close'].iloc[-1] if target_date else df['Close'].iloc[-1]
             last_idx_date = df.index[df.index <= (target_date if target_date else today)][-1]
@@ -62,20 +63,23 @@ def get_idx_us(target_date=None):
         except: pass
     return pd.DataFrame(res).set_index('시장')
 
-# ⭐ 수정된 네이버 정식 종목 페이지 링크 함수 (잘못된 접근 방지)
-def get_naver_safe_link(row):
+# ⭐ 네이버 종목 상세 페이지로 즉시 연결하는 함수
+def get_naver_direct_link(row):
     symbol = str(row['종목코드']).strip().upper().replace('.', '_')
     market = str(row['시장']).strip().upper()
     
     if 'NASDAQ' in market:
         suffix = '.O'
     else:
-        # Ciena 등 NYSE 우량주는 .K, 최신 종목은 .N
-        new_nyse_list = ['V', 'MA', 'SQ', 'SNAP', 'UBER', 'LYFT', 'PINS', 'NET']
-        suffix = '.N' if symbol in new_nyse_list else '.K'
+        # 💡 CIEN은 네이버에서 .K를 사용합니다.
+        if symbol == 'CIEN':
+            suffix = '.K'
+        else:
+            # S&P 500 내 대형 NYSE 종목들은 대개 .N을 사용합니다.
+            suffix = '.N'
             
-    # fchart 대신 정식 경로인 worldstock/stock/ 사용
-    return f"https://m.stock.naver.com/worldstock/stock/{symbol}{suffix}#{row['종목명']}"
+    # 정식 모바일 상세 페이지 경로 (/total 추가)
+    return f"https://m.stock.naver.com/worldstock/stock/{symbol}{suffix}/total#{row['종목명']}"
 
 # 상단 타이틀
 st.title("🇺🇸 S&P 500 모멘텀 순위")
@@ -108,6 +112,7 @@ with tab1:
         if not idx_m.empty:
             st.table(idx_m.reset_index().assign(**{c: idx_m.reset_index()[c].map('{:.1f}'.format) for c in idx_m.columns if c != '시장'}))
         
+        # 전달 순위 비교
         try:
             curr_dt = datetime.strptime(b_date_str, '%Y-%m-%d')
             prev_month_dt = curr_dt.replace(day=1) - timedelta(days=1)
@@ -124,7 +129,7 @@ with tab1:
 
         st.markdown("---")
         df_m.index = range(1, len(df_m) + 1)
-        df_m['종목명_L'] = df_m.apply(get_naver_safe_link, axis=1)
+        df_m['종목명_L'] = df_m.apply(get_naver_direct_link, axis=1)
 
         st.dataframe(
             df_m.style.apply(highlight_sp500, idx_df=idx_m, axis=1),
@@ -142,6 +147,7 @@ with tab2:
     if os.path.exists(f_daily):
         df_d = pd.read_csv(f_daily, dtype={'종목코드': str})
         
+        # 전월 순위 비교
         if os.path.exists(f_monthly_ref):
             df_m_ref = pd.read_csv(f_monthly_ref, dtype={'종목코드': str})
             rank_map = {code: i+1 for i, code in enumerate(df_m_ref['종목코드'])}
@@ -158,7 +164,7 @@ with tab2:
         
         st.markdown("---")
         df_d.index = range(1, len(df_d) + 1)
-        df_d['종목명_L'] = df_d.apply(get_naver_safe_link, axis=1)
+        df_d['종목명_L'] = df_d.apply(get_naver_direct_link, axis=1)
 
         st.dataframe(
             df_d.style.apply(highlight_sp500, idx_df=idx_now, axis=1),
