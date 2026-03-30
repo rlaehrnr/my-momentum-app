@@ -84,8 +84,6 @@ with tab1:
                          "전달순위": st.column_config.TextColumn("전달 순위")
                      })
 
-# ... (상단 생략)
-
 with tab2:
     f_daily = 'data/momentum_data_daily.csv'
     f_monthly_ref = 'data/momentum_data.csv'
