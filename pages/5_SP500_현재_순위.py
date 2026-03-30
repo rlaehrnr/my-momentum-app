@@ -17,7 +17,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 지수 비교 하이라이트 함수 (S&P 500 지수보다 낮으면 파란색)
+# 지수 비교 하이라이트 함수
 def highlight_sp500(row, idx_df):
     target = 'S&P 500'
     styles = [''] * len(row)
@@ -30,7 +30,7 @@ def highlight_sp500(row, idx_df):
                     styles[col_idx] = 'background-color: #0047AB; color: #FFFFFF; font-weight: bold;'
     return styles
 
-# 미국 대통령 집권 연차 필터 로직
+# 미국 대통령 집권 연차 필터 로직 (2026년 6년차 반영)
 def get_pres_status():
     now = datetime.now()
     year, month = now.year, now.month
@@ -62,6 +62,12 @@ def get_idx_us(target_date=None):
         except: pass
     return pd.DataFrame(res).set_index('시장')
 
+# 네이버 증권 링크 생성 함수 (미국 주식용)
+def get_naver_link(row):
+    symbol = str(row['종목코드']).replace('.', '_') # BRK.B 같은 종목 대응
+    suffix = '.N' if row['시장'] == 'NYSE' else '.O'
+    return f"https://m.stock.naver.com/worldstock/stock/{symbol}{suffix}# {row['종목명']}"
+
 # 상단 타이틀 및 필터 정보
 st.title("🇺🇸 S&P 500 모멘텀 순위")
 cy, status = get_pres_status()
@@ -69,10 +75,10 @@ st.info(f"**미국 집권 {cy}년차** | {status}")
 
 tab1, tab2 = st.tabs(["📅 전월 말일 기준", "🕒 오늘(데일리) 기준"])
 
-# 공통 컬럼 설정 (소수점 자릿수 제어)
+# 공통 컬럼 설정 (소수점 2자리 고정)
 common_config = {
     "시장": st.column_config.TextColumn("거래소"),
-    "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"),
+    "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#\s*(.+)"),
     "기준가": st.column_config.NumberColumn("기준가", format="$ %.2f"),
     "1개월(%)": st.column_config.NumberColumn("1M (%)", format="%.2f%%"),
     "3개월(%)": st.column_config.NumberColumn("3M (%)", format="%.2f%%"),
@@ -109,7 +115,8 @@ with tab1:
 
         st.markdown("---")
         df_m.index = range(1, len(df_m) + 1)
-        df_m['종목명_L'] = df_m.apply(lambda r: f"https://finance.yahoo.com/quote/{r['종목코드']}#{r['종목명']}", axis=1)
+        # 네이버 링크 적용
+        df_m['종목명_L'] = df_m.apply(get_naver_link, axis=1)
 
         st.dataframe(
             df_m.style.apply(highlight_sp500, idx_df=idx_m, axis=1),
@@ -143,7 +150,8 @@ with tab2:
         
         st.markdown("---")
         df_d.index = range(1, len(df_d) + 1)
-        df_d['종목명_L'] = df_d.apply(lambda r: f"https://finance.yahoo.com/quote/{r['종목코드']}#{r['종목명']}", axis=1)
+        # 네이버 링크 적용
+        df_d['종목명_L'] = df_d.apply(get_naver_link, axis=1)
 
         st.dataframe(
             df_d.style.apply(highlight_sp500, idx_df=idx_now, axis=1),
