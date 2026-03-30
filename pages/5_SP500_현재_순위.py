@@ -62,11 +62,12 @@ def get_idx_us(target_date=None):
         except: pass
     return pd.DataFrame(res).set_index('시장')
 
-# 네이버 증권 링크 생성 함수 (미국 주식용)
-def get_naver_link(row):
-    symbol = str(row['종목코드']).replace('.', '_') # BRK.B 같은 종목 대응
+# ⭐ 네이버 증권 fchart 링크 생성 함수 (해외주식용)
+def get_naver_fchart_link(row):
+    symbol = str(row['종목코드'])
+    # 네이버 fchart 형식: NYSE는 .N, NASDAQ은 .O
     suffix = '.N' if row['시장'] == 'NYSE' else '.O'
-    return f"https://m.stock.naver.com/worldstock/stock/{symbol}{suffix}# {row['종목명']}"
+    return f"https://m.stock.naver.com/fchart/foreign/stock/{symbol}{suffix}# {row['종목명']}"
 
 # 상단 타이틀 및 필터 정보
 st.title("🇺🇸 S&P 500 모멘텀 순위")
@@ -115,8 +116,8 @@ with tab1:
 
         st.markdown("---")
         df_m.index = range(1, len(df_m) + 1)
-        # 네이버 링크 적용
-        df_m['종목명_L'] = df_m.apply(get_naver_link, axis=1)
+        # ⭐ 네이버 fchart 링크 적용
+        df_m['종목명_L'] = df_m.apply(get_naver_fchart_link, axis=1)
 
         st.dataframe(
             df_m.style.apply(highlight_sp500, idx_df=idx_m, axis=1),
@@ -150,8 +151,8 @@ with tab2:
         
         st.markdown("---")
         df_d.index = range(1, len(df_d) + 1)
-        # 네이버 링크 적용
-        df_d['종목명_L'] = df_d.apply(get_naver_link, axis=1)
+        # ⭐ 네이버 fchart 링크 적용
+        df_d['종목명_L'] = df_d.apply(get_naver_fchart_link, axis=1)
 
         st.dataframe(
             df_d.style.apply(highlight_sp500, idx_df=idx_now, axis=1),
