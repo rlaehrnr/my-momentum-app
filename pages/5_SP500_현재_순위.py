@@ -34,16 +34,20 @@ def highlight_sp500(row, idx_df):
 def get_pres_status():
     now = datetime.now()
     year, month = now.year, now.month
-    # 2016년(트럼프 당선해)을 기준으로 4년/8년 주기 계산
-    cycle_year = (year - 2016) % 8
+    
+    # 기준 연도를 2020년으로 수정 (2021년 = 1년차 / 2026년 = 6년차)
+    cycle_year = (year - 2020) % 8
     if cycle_year == 0: cycle_year = 8
     
+    # 8년 주기별 계절성 제외 규칙 (기존 유지)
     exclusion_rules = {
         1: [2, 3, 8], 2: [1, 4, 6, 9], 3: [9], 4: [10],
         5: [2, 3, 8], 6: [7, 8, 9], 7: [9], 8: [1, 2, 8, 9]
     }
+    
     is_excluded = month in exclusion_rules.get(cycle_year, [])
-    status = "🔴 현재는 현금 비중 확대를 권장합니다" if is_excluded else "🟢 현재는 적극 투자하기 좋은 달입니다"
+    status = "🔴 현재는 현금 비중 확대를 권장합니다 (주의)" if is_excluded else "🟢 현재는 적극 투자하기 좋은 달입니다 (양호)"
+    
     return cycle_year, status
 
 @st.cache_data(ttl=3600)
