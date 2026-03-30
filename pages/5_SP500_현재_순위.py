@@ -17,7 +17,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 지수 비교 하이라이트 함수 (S&P 500 지수보다 낮으면 파란색)
+# 지수 비교 하이라이트 함수
 def highlight_sp500(row, idx_df):
     target = 'S&P 500'
     styles = [''] * len(row)
@@ -30,7 +30,7 @@ def highlight_sp500(row, idx_df):
                     styles[col_idx] = 'background-color: #0047AB; color: #FFFFFF; font-weight: bold;'
     return styles
 
-# 미국 대통령 집권 연차 필터 로직 (2026년 6년차 반영)
+# 미국 대통령 집권 연차 필터 로직
 def get_pres_status():
     now = datetime.now()
     year, month = now.year, now.month
@@ -51,12 +51,10 @@ def get_idx_us(target_date=None):
     res = []
     for name, code in indices.items():
         try:
-            # ⭐ 수정 완료: pd.Offset -> pd.DateOffset
             df = fdr.DataReader(code, today - pd.DateOffset(months=16), today)
             curr_val = df.loc[df.index <= target_date]['Close'].iloc[-1] if target_date else df['Close'].iloc[-1]
             last_idx_date = df.index[df.index <= (target_date if target_date else today)][-1]
             def get_ret(m):
-                # ⭐ 수정 완료: pd.Offset -> pd.DateOffset
                 ref_day = (last_idx_date.replace(day=1) - pd.DateOffset(months=m-1)) - timedelta(days=1)
                 p_df = df[df.index <= ref_day]
                 return round((curr_val - p_df['Close'].iloc[-1]) / p_df['Close'].iloc[-1] * 100, 2) if not p_df.empty else 0.0
@@ -64,11 +62,12 @@ def get_idx_us(target_date=None):
         except: pass
     return pd.DataFrame(res).set_index('시장')
 
-# ⭐ Finviz 일봉 차트 링크 생성 함수
-def get_finviz_link(row):
+# ⭐ 야후 파이낸스 차트 링크 생성 함수 (가장 깔끔하고 오류가 없음)
+def get_yahoo_chart_link(row):
     symbol = str(row['종목코드']).strip().upper()
-    # 띄어쓰기 없이 # 뒤에 바로 종목명을 붙여야 스트림릿이 에러 없이 인식합니다.
-    return f"https://finviz.com/quote.ashx?t={symbol}#{row['종목명']}"
+    # 야후 파이낸스는 BRK.B 같은 종목을 BRK-B로 인식합니다.
+    symbol = symbol.replace('.', '-')
+    return f"https://finance.yahoo.com/chart/{symbol}#{row['종목명']}"
 
 # 상단 타이틀 및 필터 정보
 st.title("🇺🇸 S&P 500 모멘텀 순위")
@@ -77,7 +76,7 @@ st.info(f"**미국 집권 {cy}년차** | {status}")
 
 tab1, tab2 = st.tabs(["📅 전월 말일 기준", "🕒 오늘(데일리) 기준"])
 
-# ⭐ 공통 컬럼 설정 (디스플레이 텍스트 정규식 오류 수정 완료)
+# 공통 컬럼 설정
 common_config = {
     "시장": st.column_config.TextColumn("거래소"),
     "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
@@ -117,8 +116,8 @@ with tab1:
 
         st.markdown("---")
         df_m.index = range(1, len(df_m) + 1)
-        # ⭐ Finviz 링크 적용
-        df_m['종목명_L'] = df_m.apply(get_finviz_link, axis=1)
+        # ⭐ 야후 파이낸스 링크 적용
+        df_m['종목명_L'] = df_m.apply(get_yahoo_chart_link, axis=1)
 
         st.dataframe(
             df_m.style.apply(highlight_sp500, idx_df=idx_m, axis=1),
@@ -152,8 +151,8 @@ with tab2:
         
         st.markdown("---")
         df_d.index = range(1, len(df_d) + 1)
-        # ⭐ Finviz 링크 적용
-        df_d['종목명_L'] = df_d.apply(get_finviz_link, axis=1)
+        # ⭐ 야후 파이낸스 링크 적용
+        df_d['종목명_L'] = df_d.apply(get_yahoo_chart_link, axis=1)
 
         st.dataframe(
             df_d.style.apply(highlight_sp500, idx_df=idx_now, axis=1),
