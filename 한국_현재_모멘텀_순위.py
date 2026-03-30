@@ -42,21 +42,63 @@ with tab1:
     f_kr = 'data/momentum_data.csv'
     if os.path.exists(f_kr):
         df_kr = pd.read_csv(f_kr, dtype={'종목코드': str})
-        st.title(f"📊 한국 모멘텀 (기준: {df_kr['기준일(월말)'].iloc[0]})")
-        idx_kr = get_idx_kr(pd.to_datetime(df_kr['기준일(월말)'].iloc[0]))
+        b_date_str = df_kr['기준일(월말)'].iloc[0]
+        st.title(f"📊 한국 모멘텀 (기준: {b_date_str})")
+        
+        idx_kr = get_idx_kr(pd.to_datetime(b_date_str))
         if not idx_kr.empty: st.table(idx_kr.reset_index().assign(**{c: idx_kr.reset_index()[c].map('{:.1f}'.format) for c in idx_kr.columns if c != '시장'}))
+        
+        # [추가] 지지난달 순위 대조 로직
+        try:
+            curr_dt = datetime.strptime(b_date_str, '%Y-%m-%d')
+            prev_month_dt = curr_dt.replace(day=1) - timedelta(days=1)
+            prev_ym = prev_month_dt.strftime('%Y_%m')
+            f_prev_archive = f'archive/momentum_{prev_ym}.csv'
+            
+            if os.path.exists(f_prev_archive):
+                df_prev = pd.read_csv(f_prev_archive, dtype={'종목코드': str})
+                prev_rank_map = {code: i+1 for i, code in enumerate(df_prev['종목코드'])}
+                df_kr['전달순위'] = df_kr['종목코드'].map(prev_rank_map).fillna("⭐ NEW")
+                df_kr['전달순위'] = df_kr['전달순위'].apply(lambda x: f"{x}위" if isinstance(x, int) else x)
+            else: df_kr['전달순위'] = "기록 없음"
+        except: df_kr['전달순위'] = "-"
+
         st.markdown("---")
         df_kr.index = range(1, len(df_kr) + 1)
         df_kr['통합티커'] = df_kr['시장'] + ":" + df_kr['종목코드'].str.zfill(6)
         df_kr['종목명'] = df_kr.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
+        
         # ⭐ 소수점 1자리 강제 설정 (NumberColumn format="%.1f")
-        st.dataframe(df_kr.style.apply(highlight_kr, idx_df=idx_kr, axis=1), use_container_width=True, height=560, column_order=['통합티커', '종목명', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어'], 
-                     column_config={"종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), "기준가": st.column_config.NumberColumn(format="%d"), "1개월(%)": st.column_config.NumberColumn(format="%.1f"), "3개월(%)": st.column_config.NumberColumn(format="%.1f"), "6개월(%)": st.column_config.NumberColumn(format="%.1f"), "12개월(%)": st.column_config.NumberColumn(format="%.1f"), "모멘텀스코어": st.column_config.NumberColumn(format="%.1f")})
+        st.dataframe(
+            df_kr.style.apply(highlight_kr, idx_df=idx_kr, axis=1), 
+            use_container_width=True, height=560, 
+            column_order=['통합티커', '종목명', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달순위'], 
+            column_config={
+                "종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
+                "기준가": st.column_config.NumberColumn(format="%d"), 
+                "1개월(%)": st.column_config.NumberColumn(format="%.1f"), 
+                "3개월(%)": st.column_config.NumberColumn(format="%.1f"), 
+                "6개월(%)": st.column_config.NumberColumn(format="%.1f"), 
+                "12개월(%)": st.column_config.NumberColumn(format="%.1f"), 
+                "모멘텀스코어": st.column_config.NumberColumn(format="%.1f"),
+                "전달순위": st.column_config.TextColumn("전달 순위")
+            }
+        )
 
 with tab2:
     f_daily = 'data/momentum_data_daily.csv'
+    f_monthly_ref = 'data/momentum_data.csv' # 비교용
     if os.path.exists(f_daily):
         df_d = pd.read_csv(f_daily, dtype={'종목코드': str})
+        
+        # [추가] 전월 순위 대조 로직
+        if os.path.exists(f_monthly_ref):
+            df_m_ref = pd.read_csv(f_monthly_ref, dtype={'종목코드': str})
+            rank_map = {code: i+1 for i, code in enumerate(df_m_ref['종목코드'])}
+            df_d['전월순위'] = df_d['종목코드'].map(rank_map).fillna("⭐ NEW")
+            df_d['전월순위'] = df_d['전월순위'].apply(lambda x: f"{x}위" if isinstance(x, int) else x)
+        else: df_d['전월순위'] = "-"
+
         st.title(f"🕒 데일리 모멘텀 (기준: {df_d['기준일'].iloc[0]})")
         idx_now = get_idx_kr()
         if not idx_now.empty: st.table(idx_now.reset_index().assign(**{c: idx_now.reset_index()[c].map('{:.1f}'.format) for c in idx_now.columns if c != '시장'}))
@@ -64,6 +106,20 @@ with tab2:
         df_d.index = range(1, len(df_d) + 1)
         df_d['통합티커'] = df_d['시장'] + ":" + df_d['종목코드'].str.zfill(6)
         df_d['종목명'] = df_d.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
+        
         # ⭐ 소수점 1자리 강제 설정
-        st.dataframe(df_d.style.apply(highlight_kr, idx_df=idx_now, axis=1), use_container_width=True, height=560, column_order=['통합티커', '종목명', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어'], 
-                     column_config={"종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), "기준가": st.column_config.NumberColumn(format="%d"), "1개월(%)": st.column_config.NumberColumn(format="%.1f"), "3개월(%)": st.column_config.NumberColumn(format="%.1f"), "6개월(%)": st.column_config.NumberColumn(format="%.1f"), "12개월(%)": st.column_config.NumberColumn(format="%.1f"), "모멘텀스코어": st.column_config.NumberColumn(format="%.1f")})
+        st.dataframe(
+            df_d.style.apply(highlight_kr, idx_df=idx_now, axis=1), 
+            use_container_width=True, height=560, 
+            column_order=['통합티커', '종목명', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전월순위'], 
+            column_config={
+                "종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
+                "기준가": st.column_config.NumberColumn(format="%d"), 
+                "1개월(%)": st.column_config.NumberColumn(format="%.1f"), 
+                "3개월(%)": st.column_config.NumberColumn(format="%.1f"), 
+                "6개월(%)": st.column_config.NumberColumn(format="%.1f"), 
+                "12개월(%)": st.column_config.NumberColumn(format="%.1f"), 
+                "모멘텀스코어": st.column_config.NumberColumn(format="%.1f"),
+                "전월순위": st.column_config.TextColumn("전월 순위")
+            }
+        )
