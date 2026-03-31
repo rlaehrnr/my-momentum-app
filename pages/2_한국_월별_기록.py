@@ -8,7 +8,7 @@ import numpy as np
 # 1. 페이지 설정
 st.set_page_config(page_title="한국 모멘텀 기록보관소", layout="wide")
 
-# CSS: 레이아웃 최적화
+# CSS: 디자인 및 가독성 최적화
 st.markdown("""
     <style>
     .block-container { padding-top: 1.5rem !important; }
@@ -27,7 +27,7 @@ files = glob.glob(f"{folder}/{prefix}*.csv")
 if not files:
     st.info("데이터가 없습니다. archive 폴더를 확인해주세요.")
 else:
-    # 데이터 구조 파악 (연도/월 리스트 생성)
+    # 데이터 구조 파악 (연도별 월 리스트)
     data_struct = {}
     for f in files:
         fname = os.path.basename(f)
@@ -46,14 +46,15 @@ else:
         available_months = sorted(data_struct[selected_year], key=lambda x: int(x))
         selected_month = st.selectbox("🌙 월", available_months)
 
-    # --- [데이터 로드 및 에러 방지 처리] ---
+    # --- [데이터 로드 및 컬럼 자동 감지] ---
     target_file = f"{folder}/{prefix}{selected_year}_{selected_month}.csv"
     df = pd.read_csv(target_file, dtype={'종목코드': str})
     
-    # 🔍 컬럼명 유연하게 찾기 (이름이 조금 달라도 에러 안 나게)
-    date_col = next((c for c in df.columns if '기준일' in c), "날짜 정보 없음")
+    # 🔍 컬럼명 유연하게 찾기 (에러 방지의 핵심)
+    date_col = next((c for c in df.columns if '기준일' in c), None)
     score_col = next((c for c in df.columns if '모멘텀스코어' in c), '모멘텀스코어')
-    ret_col = next((c for c in df.columns if '수익률' in c), None) # 수익률 컬럼이 없으면 None
+    # '수익률' 글자가 포함된 컬럼을 찾고, 없으면 None 반환
+    ret_col = next((c for c in df.columns if '수익률' in c), None)
 
     # 전달 순위 계산 (직전 달 파일 대조)
     try:
@@ -62,7 +63,6 @@ else:
         prev_file = f"{folder}/{prefix}{prev_dt.strftime('%Y_%m')}.csv"
         if os.path.exists(prev_file):
             df_p = pd.read_csv(prev_file, dtype={'종목코드': str})
-            # 스코어 컬럼 존재 확인 후 정렬
             p_score_col = next((c for c in df_p.columns if '모멘텀스코어' in c), None)
             if p_score_col:
                 df_p = df_p.sort_values(p_score_col, ascending=False).reset_index(drop=True)
@@ -71,9 +71,10 @@ else:
         else: df['전달순위'] = None
     except: df['전달순위'] = None
 
-    st.success(f"**{selected_year}년 {selected_month}월** (기준일: {df[date_col].iloc[0] if date_col in df.columns else '알 수 없음'})")
+    display_date = df[date_col].iloc[0] if date_col and date_col in df.columns else f"{selected_year}-{selected_month}"
+    st.success(f"**{selected_year}년 {selected_month}월** (기준일: {display_date})")
 
-    # 스타일 함수 (수익률이 있을 때만 작동)
+    # 스타일 함수
     def style_returns(val):
         try:
             num = float(val)
@@ -85,12 +86,12 @@ else:
     df.index = range(1, len(df) + 1)
     df['종목명_L'] = df.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
 
-    # --- [데이터프레임 출력 설정] ---
-    # 보여줄 컬럼 순서 동적 생성
+    # --- [데이터프레임 출력 및 설정] ---
+    # 보여줄 컬럼 리스트 구성
     cols_to_show = ['시장', '종목명_L', '기준가', score_col, '전달순위']
     if ret_col: cols_to_show.append(ret_col)
 
-    # 컬럼 설정(Config) 동적 생성
+    # 컬럼 상세 설정
     config = {
         "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"),
         "기준가": st.column_config.NumberColumn("현재가", format="%,d"),
@@ -100,7 +101,7 @@ else:
     if ret_col:
         config[ret_col] = st.column_config.NumberColumn("익월 수익률", format="%.2f%%")
 
-    # 스타일 적용 (수익률 컬럼이 있을 때만 매핑)
+    # ⭐ [에러 방지 핵심] 수익률 컬럼이 있을 때만 색상을 칠함
     styled_df = df.style
     if ret_col:
         styled_df = styled_df.map(style_returns, subset=[ret_col])
@@ -115,13 +116,12 @@ else:
         column_config=config
     )
 
-    # --- [하단 엑셀 스타일 계산기] ---
+    # --- [하단 지표 및 계산기] ---
     selected_rows = event.selection.rows
     if selected_rows:
         st.markdown("---")
         st.subheader("📝 선택 영역 분석")
         s_df = df.iloc[selected_rows]
-        
         c1, c2, c3 = st.columns(3)
         c1.metric("선택 종목", f"{len(selected_rows)}개")
         if ret_col:
@@ -130,7 +130,6 @@ else:
             c2.metric("평균 수익률", f"{avg_r:.2f}%")
             c3.metric("승률", f"{win_r:.1f}%")
     else:
-        # 미선택 시 기본 상위권 성적표
         st.markdown("---")
         def show_top_stats(n, col):
             subset = df.head(n)
@@ -139,7 +138,7 @@ else:
                 win = (subset[ret_col] > 0).mean() * 100
                 col.metric(f"🏆 Top {n} 성적", f"{avg:.2f}%", f"승률 {win:.1f}%")
             else:
-                col.metric(f"🏆 Top {n} 성적", "데이터 없음")
+                col.metric(f"🏆 Top {n} 성적", "수익률 정보 없음")
 
         sc1, sc2, sc3 = st.columns(3)
         show_top_stats(10, sc1)
