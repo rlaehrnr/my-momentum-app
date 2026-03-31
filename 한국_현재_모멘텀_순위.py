@@ -6,14 +6,12 @@ import os
 
 st.set_page_config(page_title="한국 모멘텀 순위", layout="wide")
 
-# CSS: 초밀착 레이아웃 및 폰트 설정
+# CSS: 레이아웃 설정
 st.markdown("""<style>.block-container { padding-top: 2.5rem !important; } h1 { font-size: 2rem !important; } .stTabs [data-baseweb="tab"] { font-size: 18px; font-weight: bold; }</style>""", unsafe_allow_html=True)
 
-# ⭐ 스타일 함수: 특정 컬럼만 조준 (수익률 약세 파랑 / 거래량 폭발 핑크)
+# 스타일 함수: 수익률 약세 파랑 / 거래량 폭발 핑크
 def apply_custom_styling(row, idx_df):
     styles = [''] * len(row)
-    
-    # 1. 지수 대비 수익률 하이라이트 (수익률 칸만 파란색)
     if '시장' in row and row['시장'] in idx_df.index:
         idx_r = idx_df.loc[row['시장']]
         for col_name in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
@@ -21,13 +19,10 @@ def apply_custom_styling(row, idx_df):
                 col_idx = row.index.get_loc(col_name)
                 if row[col_name] < idx_r[col_name]:
                     styles[col_idx] = 'background-color: #E3F2FD; color: #0047AB;'
-
-    # 2. 거래량 1,000만 주 이상 하이라이트 (거래량 칸만 연분홍색)
     if '전일거래량' in row.index:
         vol_idx = row.index.get_loc('전일거래량')
         if row['전일거래량'] >= 10000000:
             styles[vol_idx] = 'background-color: #FFEBEE; color: #B71C1C; font-weight: bold;'
-            
     return styles
 
 @st.cache_data(ttl=3600)
@@ -56,10 +51,8 @@ with tab1:
         df_kr = pd.read_csv(f_kr, dtype={'종목코드': str})
         b_date_str = df_kr['기준일(월말)'].iloc[0]
         st.title(f"📊 한국 모멘텀 (기준: {b_date_str})")
-        
         idx_kr = get_idx_kr(pd.to_datetime(b_date_str))
         if not idx_kr.empty: 
-            # ⭐ [수정] 지수 테이블 강제 포맷팅: 소수점 1자리 고정
             idx_disp = idx_kr.reset_index().copy()
             idx_disp['현재가'] = idx_disp['현재가'].map('{:,.0f}'.format)
             for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
@@ -67,8 +60,6 @@ with tab1:
             st.table(idx_disp)
         
         st.markdown("---")
-        
-        # 순위 대조 (정수 유지)
         try:
             curr_dt = datetime.strptime(b_date_str, '%Y-%m-%d')
             prev_month_dt = curr_dt.replace(day=1) - timedelta(days=1)
@@ -77,9 +68,10 @@ with tab1:
             if os.path.exists(f_prev_archive):
                 df_prev = pd.read_csv(f_prev_archive, dtype={'종목코드': str})
                 prev_rank_map = {code: i+1 for i, code in enumerate(df_prev['종목코드'])}
-                df_kr['전달순위'] = df_kr['종목코드'].map(prev_rank_map).apply(lambda x: f"{int(x)}위" if pd.notnull(x) else "⭐ NEW")
-            else: df_kr['전달순위'] = "기록 없음"
-        except: df_kr['전달순위'] = "-"
+                # ⭐ [수정] 문자열이 아닌 숫자로 저장 (NaN은 NEW 종목)
+                df_kr['전달순위'] = df_kr['종목코드'].map(prev_rank_map)
+            else: df_kr['전달순위'] = None
+        except: df_kr['전달순위'] = None
 
         df_kr.index = range(1, len(df_kr) + 1)
         df_kr['통합티커'] = df_kr['시장'] + ":" + df_kr['종목코드'].str.zfill(6)
@@ -94,7 +86,9 @@ with tab1:
                          "3개월(%)": st.column_config.NumberColumn(format="%.1f"), 
                          "6개월(%)": st.column_config.NumberColumn(format="%.1f"), 
                          "12개월(%)": st.column_config.NumberColumn(format="%.1f"), 
-                         "모멘텀스코어": st.column_config.NumberColumn(format="%.1f")
+                         "모멘텀스코어": st.column_config.NumberColumn(format="%.1f"),
+                         # ⭐ [수정] NumberColumn으로 설정하여 숫자 정렬 지원
+                         "전달순위": st.column_config.NumberColumn("전달 순위", format="%d위")
                      })
 
 with tab2:
@@ -105,13 +99,13 @@ with tab2:
         if os.path.exists(f_monthly_ref):
             df_m_ref = pd.read_csv(f_monthly_ref, dtype={'종목코드': str})
             rank_map = {code: i+1 for i, code in enumerate(df_m_ref['종목코드'])}
-            df_d['전월순위'] = df_d['종목코드'].map(rank_map).apply(lambda x: f"{int(x)}위" if pd.notnull(x) else "⭐ NEW")
-        else: df_d['전월순위'] = "-"
+            # ⭐ [수정] 숫자로 저장
+            df_d['전월순위'] = df_d['종목코드'].map(rank_map)
+        else: df_d['전월순위'] = None
 
         st.title(f"🕒 데일리 모멘텀 (기준: {df_d['기준일'].iloc[0]})")
         idx_now = get_idx_kr()
         if not idx_now.empty: 
-            # ⭐ [수정] 데일리 지수 테이블 강제 포맷팅: 소수점 1자리 고정
             idx_disp_now = idx_now.reset_index().copy()
             idx_disp_now['현재가'] = idx_disp_now['현재가'].map('{:,.0f}'.format)
             for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
@@ -120,7 +114,6 @@ with tab2:
         
         st.markdown("---")
         if '전일거래량' not in df_d.columns: df_d['전일거래량'] = 0 
-
         df_d.index = range(1, len(df_d) + 1)
         df_d['통합티커'] = df_d['시장'] + ":" + df_d['종목코드'].str.zfill(6)
         df_d['종목명'] = df_d.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
@@ -135,5 +128,7 @@ with tab2:
                          "3개월(%)": st.column_config.NumberColumn(format="%.1f"), 
                          "6개월(%)": st.column_config.NumberColumn(format="%.1f"), 
                          "12개월(%)": st.column_config.NumberColumn(format="%.1f"), 
-                         "모멘텀스코어": st.column_config.NumberColumn(format="%.1f")
+                         "모멘텀스코어": st.column_config.NumberColumn(format="%.1f"),
+                         # ⭐ [수정] 숫자 정렬 지원
+                         "전월순위": st.column_config.NumberColumn("전월 순위", format="%d위")
                      })
