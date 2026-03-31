@@ -6,14 +6,14 @@ import os
 
 st.set_page_config(page_title="한국 모멘텀 순위", layout="wide")
 
-# CSS: 초밀착 레이아웃
+# CSS: 초밀착 레이아웃 및 폰트 설정
 st.markdown("""<style>.block-container { padding-top: 2.5rem !important; } h1 { font-size: 2rem !important; } .stTabs [data-baseweb="tab"] { font-size: 18px; font-weight: bold; }</style>""", unsafe_allow_html=True)
 
-# ⭐ 수정된 스타일 함수: 행 전체가 아니라 특정 '컬럼'만 조준 사격
+# ⭐ 스타일 함수: 특정 컬럼만 조준 (수익률 약세 파랑 / 거래량 폭발 핑크)
 def apply_custom_styling(row, idx_df):
     styles = [''] * len(row)
     
-    # 1. 지수 대비 수익률 하이라이트 (수익률 컬럼들만 파란색)
+    # 1. 지수 대비 수익률 하이라이트 (수익률 칸만 파란색)
     if '시장' in row and row['시장'] in idx_df.index:
         idx_r = idx_df.loc[row['시장']]
         for col_name in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
@@ -22,7 +22,7 @@ def apply_custom_styling(row, idx_df):
                 if row[col_name] < idx_r[col_name]:
                     styles[col_idx] = 'background-color: #E3F2FD; color: #0047AB;'
 
-    # 2. 거래량 1,000만 주 이상 하이라이트 (거래량 컬럼'만' 연분홍색)
+    # 2. 거래량 1,000만 주 이상 하이라이트 (거래량 칸만 연분홍색)
     if '전일거래량' in row.index:
         vol_idx = row.index.get_loc('전일거래량')
         if row['전일거래량'] >= 10000000:
@@ -59,12 +59,16 @@ with tab1:
         
         idx_kr = get_idx_kr(pd.to_datetime(b_date_str))
         if not idx_kr.empty: 
+            # ⭐ [수정] 지수 테이블 강제 포맷팅: 소수점 1자리 고정
             idx_disp = idx_kr.reset_index().copy()
             idx_disp['현재가'] = idx_disp['현재가'].map('{:,.0f}'.format)
+            for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
+                idx_disp[c] = idx_disp[c].map('{:+.1f}%'.format)
             st.table(idx_disp)
         
         st.markdown("---")
         
+        # 순위 대조 (정수 유지)
         try:
             curr_dt = datetime.strptime(b_date_str, '%Y-%m-%d')
             prev_month_dt = curr_dt.replace(day=1) - timedelta(days=1)
@@ -81,7 +85,6 @@ with tab1:
         df_kr['통합티커'] = df_kr['시장'] + ":" + df_kr['종목코드'].str.zfill(6)
         df_kr['종목명'] = df_kr.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
 
-        # 스타일 적용 (수익률 컬럼만 파랑)
         st.dataframe(df_kr.style.apply(apply_custom_styling, idx_df=idx_kr, axis=1), use_container_width=True, height=560, 
                      column_order=['통합티커', '종목명', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달순위'], 
                      column_config={
@@ -108,8 +111,11 @@ with tab2:
         st.title(f"🕒 데일리 모멘텀 (기준: {df_d['기준일'].iloc[0]})")
         idx_now = get_idx_kr()
         if not idx_now.empty: 
+            # ⭐ [수정] 데일리 지수 테이블 강제 포맷팅: 소수점 1자리 고정
             idx_disp_now = idx_now.reset_index().copy()
             idx_disp_now['현재가'] = idx_disp_now['현재가'].map('{:,.0f}'.format)
+            for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
+                idx_disp_now[c] = idx_disp_now[c].map('{:+.1f}%'.format)
             st.table(idx_disp_now)
         
         st.markdown("---")
@@ -119,7 +125,6 @@ with tab2:
         df_d['통합티커'] = df_d['시장'] + ":" + df_d['종목코드'].str.zfill(6)
         df_d['종목명'] = df_d.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
 
-        # 스타일 적용 (거래량 컬럼만 핑크)
         st.dataframe(df_d.style.apply(apply_custom_styling, idx_df=idx_now, axis=1), use_container_width=True, height=560, 
                      column_order=['통합티커', '종목명', '기준가', '전일거래량', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전월순위'], 
                      column_config={
