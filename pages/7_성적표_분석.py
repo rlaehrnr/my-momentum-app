@@ -8,19 +8,36 @@ import plotly.graph_objects as go
 # 1. 페이지 설정
 st.set_page_config(page_title="모멘텀 구간 최적화", layout="wide")
 
-# CSS: 디자인 및 가독성 최적화
+# CSS: 시인성 및 가독성 최적화
 st.markdown("""
     <style>
     .block-container { padding-top: 1.5rem !important; }
     h1 { font-size: 2.2rem !important; font-weight: 800; color: #1E1E1E; }
-    [data-testid="stMetricValue"] { font-size: 1.8rem !important; color: #0047AB !important; }
-    .stMetric { background-color: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px solid #dee2e6; }
+    
+    /* ⭐ [업그레이드] 메트릭 카드 시인성 강화 (진한 배경/진한 글자) */
+    [data-testid="stMetricValue"] { 
+        font-size: 2.0rem !important; 
+        color: #0047AB !important; /* 진한 파란색 숫자 */
+        font-weight: 800 !important;
+    }
+    [data-testid="stMetricLabel"] { 
+        font-weight: bold !important; 
+        color: #333333 !important; /* 진한 회색 라벨 */
+        font-size: 1.0rem !important;
+    }
+    .stMetric { 
+        background-color: #f0f2f6 !important; /* ⭐ 진한 회색 배경 */
+        padding: 20px !important; 
+        border-radius: 12px !important; 
+        border: 2px solid #d1d5db !important; /* 테두리 강화 */
+        box-shadow: 2px 2px 5px rgba(0,0,0,0.05); /* 소소한 그림자 */
+    }
     </style>
     """, unsafe_allow_html=True)
 
 st.title("🎯 모멘텀 최적 구간 탐색기")
 
-# 2. 데이터 로드 함수
+# 2. 데이터 로드 함수 (캐싱 적용)
 @st.cache_data
 def load_total_archive(folder, prefix):
     files = glob.glob(os.path.join(folder, f"{prefix}*.csv"))
@@ -61,18 +78,14 @@ for tab, (folder, prefix, name_tag) in zip(tabs, configs):
         if st.button(f"🔎 전수조사 시작 ({name_tag})", key=f"btn_{prefix}"):
             with st.spinner("모든 시나리오를 계산 중입니다..."):
                 search_results = []
-                # 시작 순위: 1, 6, 11... 46위까지 (5단위)
-                # 종목 수: 10, 15, 20... 50개까지 (5단위)
                 for start in range(1, 51, 5):
                     for size in range(10, 51, 5):
                         end = start + size - 1
                         sub_df = df_master[(df_master['순위'] >= start) & (df_master['순위'] <= end)]
                         
                         if not sub_df.empty:
-                            # 월별 평균 수익률 계산
                             m_perf = sub_df.groupby('기준일(월말)')['다음달수익률(%)'].mean()
                             if not m_perf.empty:
-                                # 복리 누적 수익률 계산
                                 cum_ret = ((1 + m_perf/100).cumprod().iloc[-1] - 1) * 100
                                 win_rate = (m_perf > 0).mean() * 100
                                 
@@ -81,7 +94,8 @@ for tab, (folder, prefix, name_tag) in zip(tabs, configs):
                                     "종목 수": f"{size}개",
                                     "구간": f"{start}위 ~ {end}위",
                                     "최종 누적 수익률": round(cum_ret, 2),
-                                    "월간 승률": round(win_rate, 1)
+                                    # ⭐ 승률 소수점 첫째 자리 및 % 포맷팅
+                                    "월간 승률": f"{win_rate:.1f}%"
                                 })
                 
                 if search_results:
@@ -90,6 +104,7 @@ for tab, (folder, prefix, name_tag) in zip(tabs, configs):
                     
                     st.success(f"🏆 분석 완료! 가장 수익률이 좋은 구간은 **[{winner['구간']}]** 입니다.")
                     
+                    # 지표 카드 출력 (시인성 강화 적용)
                     c1, c2, c3 = st.columns(3)
                     c1.metric("최고 누적 수익률", f"{winner['최종 누적 수익률']}%")
                     c2.metric("권장 시작 순위", winner['시작 순위'])
@@ -119,21 +134,24 @@ for tab, (folder, prefix, name_tag) in zip(tabs, configs):
             monthly_perf = u_df.groupby('기준일(월말)')['다음달수익률(%)'].mean().reset_index()
             monthly_perf.columns = ['월별', '수익률']
             
-            # 복리 계산 기반 지표
             monthly_perf['지수'] = (1 + monthly_perf['수익률']/100).cumprod()
             monthly_perf['누적수익률'] = (monthly_perf['지수'] - 1) * 100
             
             peak = monthly_perf['지수'].cummax()
             mdd = ((monthly_perf['지수'] - peak) / peak * 100).min()
-            
-            # 지표 출력
-            st.markdown("---")
-            m1, m2, m3 = st.columns(3)
-            m1.metric("누적 수익률", f"{monthly_perf['누적수익률'].iloc[-1]:.2f}%")
-            m2.metric("월간 승률", f"{(monthly_perf['수익률'] > 0).mean()*100:.1f}%")
-            m3.metric("최대 낙폭 (MDD)", f"{mdd:.2f}%")
+            win_rate = (monthly_perf['수익률'] > 0).mean() * 100
+            sharpe = (monthly_perf['수익률'].mean() / monthly_perf['수익률'].std()) if monthly_perf['수익률'].std() > 0 else 0
 
-            # 시각화
+            # 지표 카드 출력 (시인성 강화 적용)
+            st.markdown("---")
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("누적 수익률", f"{monthly_perf['누적수익률'].iloc[-1]:.2f}%")
+            # ⭐ 소수점 첫째 자리 및 % 포맷팅
+            m2.metric("월간 승률", f"{win_rate:.1f}%")
+            m3.metric("최대 낙폭 (MDD)", f"{mdd:.2f}%")
+            m4.metric("수익 안정성 (Sharpe)", f"{sharpe:.2f}")
+
+            # 시각화 및 상세 데이터
             chart_col, table_col = st.columns([1.6, 1])
             with chart_col:
                 st.subheader("📈 누적 수익 곡선")
@@ -144,6 +162,6 @@ for tab, (folder, prefix, name_tag) in zip(tabs, configs):
                 st.subheader("📅 월별 상세 성적")
                 st.dataframe(
                     monthly_perf[['월별', '수익률']].sort_values('월별', ascending=False),
-                    use_container_width=True, height=400,
+                    use_container_width=True, height=450,
                     column_config={"수익률": st.column_config.NumberColumn(format="%.2f%%")}
                 )
