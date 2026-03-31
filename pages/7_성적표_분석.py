@@ -5,84 +5,145 @@ import glob
 import plotly.express as px
 import plotly.graph_objects as go
 
-# ... (상단 데이터 로드 함수 등은 동일하게 유지) ...
+# 1. 페이지 설정
+st.set_page_config(page_title="모멘텀 구간 최적화", layout="wide")
 
-for tab, (folder, prefix) in zip(tabs, configs):
+# CSS: 디자인 및 가독성 최적화
+st.markdown("""
+    <style>
+    .block-container { padding-top: 1.5rem !important; }
+    h1 { font-size: 2.2rem !important; font-weight: 800; color: #1E1E1E; }
+    [data-testid="stMetricValue"] { font-size: 1.8rem !important; color: #0047AB !important; }
+    .stMetric { background-color: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px solid #dee2e6; }
+    </style>
+    """, unsafe_allow_html=True)
+
+st.title("🎯 모멘텀 최적 구간 탐색기")
+
+# 2. 데이터 로드 함수
+@st.cache_data
+def load_total_archive(folder, prefix):
+    files = glob.glob(os.path.join(folder, f"{prefix}*.csv"))
+    if not files: return pd.DataFrame()
+    
+    all_data = []
+    for f in sorted(files):
+        try:
+            df = pd.read_csv(f)
+            if '다음달수익률(%)' in df.columns:
+                df = df.sort_values('모멘텀스코어', ascending=False).reset_index(drop=True)
+                df['순위'] = df.index + 1
+                all_data.append(df)
+        except: continue
+    return pd.concat(all_data) if all_data else pd.DataFrame()
+
+# 3. 마켓 선택 탭 (이름 태그 포함)
+tabs_name = ["🇰🇷 한국 시장", "🇺🇸 미국(150위)", "🇺🇸 S&P 500"]
+tabs = st.tabs(tabs_name)
+configs = [
+    ("archive", "momentum_", "한국"), 
+    ("archive_us", "momentum_us_", "미국(150위)"), 
+    ("archive_sp500", "momentum_sp500_", "S&P 500")
+]
+
+for tab, (folder, prefix, name_tag) in zip(tabs, configs):
     with tab:
         df_master = load_total_archive(folder, prefix)
+        
         if df_master.empty:
-            st.warning("데이터가 부족합니다.")
+            st.warning(f"💡 '{folder}' 폴더에 데이터가 없습니다.")
             continue
 
-        # --- [신규 파트: 최적 노다지 구간 자동 탐색기] ---
-        st.markdown("---")
-        st.header("🏆 전수조사: 어디가 가장 '노다지' 구간인가?")
-        st.write("컴퓨터가 모든 구간(시작 순위 1~50위, 종목 수 10~50개)을 시뮬레이션하여 가장 높은 누적 수익률을 기록한 구간을 찾아냅니다.")
+        # --- [1. 최적 노다지 구간 자동 탐색기] ---
+        st.header(f"🚀 {name_tag} 최적 수익 구간 전수조사")
+        st.write("컴퓨터가 시작 순위(1~50위)와 종목 수(10~50개)를 조합하여 수익률이 가장 높은 '챔피언 구간'을 찾습니다.")
 
-        if st.button(f"🚀 최적 수익 구간 전수조사 시작 ({name_tag})", key=f"btn_{prefix}"):
-            with st.spinner("과거 모든 데이터를 조합하여 최적의 구간을 계산 중입니다..."):
+        if st.button(f"🔎 전수조사 시작 ({name_tag})", key=f"btn_{prefix}"):
+            with st.spinner("모든 시나리오를 계산 중입니다..."):
                 search_results = []
-                
-                # 시작 순위: 1위부터 50위까지 5단위로 테스트
-                # 종목 수: 10개부터 50개까지 5단위로 테스트
+                # 시작 순위: 1, 6, 11... 46위까지 (5단위)
+                # 종목 수: 10, 15, 20... 50개까지 (5단위)
                 for start in range(1, 51, 5):
                     for size in range(10, 51, 5):
                         end = start + size - 1
-                        
-                        # 해당 구간 필터링
                         sub_df = df_master[(df_master['순위'] >= start) & (df_master['순위'] <= end)]
                         
                         if not sub_df.empty:
-                            # 월별 평균 수익률 및 복리 누적 수익률 계산
+                            # 월별 평균 수익률 계산
                             m_perf = sub_df.groupby('기준일(월말)')['다음달수익률(%)'].mean()
                             if not m_perf.empty:
-                                # 복리 누적 수익률 공식: [(1+r1)*(1+r2)*...]-1
+                                # 복리 누적 수익률 계산
                                 cum_ret = ((1 + m_perf/100).cumprod().iloc[-1] - 1) * 100
                                 win_rate = (m_perf > 0).mean() * 100
                                 
                                 search_results.append({
                                     "시작 순위": f"{start}위",
                                     "종목 수": f"{size}개",
-                                    "구간 범위": f"{start}위 ~ {end}위",
+                                    "구간": f"{start}위 ~ {end}위",
                                     "최종 누적 수익률": round(cum_ret, 2),
                                     "월간 승률": round(win_rate, 1)
                                 })
                 
                 if search_results:
                     optimizer_df = pd.DataFrame(search_results).sort_values("최종 누적 수익률", ascending=False)
-                    
-                    # 1. 챔피언 구간 발표
                     winner = optimizer_df.iloc[0]
-                    st.success(f"🎊 분석 결과, 가장 수익률이 좋은 구간은 **[{winner['구간 범위']}]** 입니다!")
+                    
+                    st.success(f"🏆 분석 완료! 가장 수익률이 좋은 구간은 **[{winner['구간']}]** 입니다.")
                     
                     c1, c2, c3 = st.columns(3)
                     c1.metric("최고 누적 수익률", f"{winner['최종 누적 수익률']}%")
-                    c2.metric("최적 시작 순위", winner['시작 순위'])
-                    c3.metric("최적 종목 수", winner['종목 수'])
+                    c2.metric("권장 시작 순위", winner['시작 순위'])
+                    c3.metric("권장 매수 종목 수", winner['종목 수'])
                     
-                    # 2. TOP 10 노다지 구간 표
                     st.markdown("---")
-                    st.subheader("📊 수익률 상위 10개 구간 리스트")
+                    st.subheader("📊 수익률 TOP 10 구간 리스트")
                     st.table(optimizer_df.head(10).assign(
-                        **{'최종 누적 수익률': optimizer_df['최종 누적 수익률'].head(10).map('{:,.2f}%'.format),
-                           '월간 승률': optimizer_df['월간 승률'].head(10).map('{:.1f}%'.format)}
+                        **{'최종 누적 수익률': optimizer_df['최종 누적 수익률'].head(10).map('{:,.2f}%'.format)}
                     ).reset_index(drop=True))
-                    
-                    # 3. 열지도(Heatmap) 시각화 - 시작순위 vs 종목수
-                    st.subheader("🗺️ 구간별 수익률 열지도 (어디에 수익이 몰려있나?)")
-                    # 피벗 테이블 생성
-                    heatmap_data = optimizer_df.pivot(index="종목 수", columns="시작 순위", values="최종 누적 수익률")
-                    # 정렬 (인덱스와 컬럼 순서 맞추기)
-                    heatmap_data = heatmap_data.sort_index(ascending=False)
-                    
-                    fig_heat = px.imshow(heatmap_data, 
-                                         labels=dict(x="시작 순위", y="종목 수", color="누적 수익률(%)"),
-                                         color_continuous_scale='RdBu_r',
-                                         aspect="auto")
-                    st.plotly_chart(fig_heat, use_container_width=True)
                 else:
-                    st.error("분석 가능한 데이터가 충분하지 않습니다.")
+                    st.error("분석할 충분한 데이터가 없습니다.")
 
-        # --- [그 아래에 기존의 '내 맘대로 구간 테스트' 위치] ---
         st.markdown("---")
-        # (기존 슬라이더 및 상세 분석 코드...)
+
+        # --- [2. 내 맘대로 구간 정밀 분석 (기존 기능)] ---
+        st.subheader("🔬 구간 정밀 시뮬레이션")
+        rank_range = st.slider(
+            "분석할 범위를 직접 조절해보세요",
+            1, 300, (1, 20), step=1, key=f"range_{prefix}"
+        )
+
+        u_start, u_end = rank_range
+        u_df = df_master[(df_master['순위'] >= u_start) & (df_master['순위'] <= u_end)]
+        
+        if not u_df.empty:
+            monthly_perf = u_df.groupby('기준일(월말)')['다음달수익률(%)'].mean().reset_index()
+            monthly_perf.columns = ['월별', '수익률']
+            
+            # 복리 계산 기반 지표
+            monthly_perf['지수'] = (1 + monthly_perf['수익률']/100).cumprod()
+            monthly_perf['누적수익률'] = (monthly_perf['지수'] - 1) * 100
+            
+            peak = monthly_perf['지수'].cummax()
+            mdd = ((monthly_perf['지수'] - peak) / peak * 100).min()
+            
+            # 지표 출력
+            st.markdown("---")
+            m1, m2, m3 = st.columns(3)
+            m1.metric("누적 수익률", f"{monthly_perf['누적수익률'].iloc[-1]:.2f}%")
+            m2.metric("월간 승률", f"{(monthly_perf['수익률'] > 0).mean()*100:.1f}%")
+            m3.metric("최대 낙폭 (MDD)", f"{mdd:.2f}%")
+
+            # 시각화
+            chart_col, table_col = st.columns([1.6, 1])
+            with chart_col:
+                st.subheader("📈 누적 수익 곡선")
+                fig = px.area(monthly_perf, x='월별', y='누적수익률')
+                fig.update_traces(line_color='#0047AB', fillcolor='rgba(0, 71, 171, 0.1)')
+                st.plotly_chart(fig, use_container_width=True)
+            with table_col:
+                st.subheader("📅 월별 상세 성적")
+                st.dataframe(
+                    monthly_perf[['월별', '수익률']].sort_values('월별', ascending=False),
+                    use_container_width=True, height=400,
+                    column_config={"수익률": st.column_config.NumberColumn(format="%.2f%%")}
+                )
