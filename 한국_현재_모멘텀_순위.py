@@ -224,49 +224,34 @@ with tab3:
         st.warning("데이터 파일을 찾을 수 없습니다.")
 
 
-# --- 탭 3: KOSPI 200 집중 분석 ---
-with tab3:
-    if os.path.exists(f_kr):
-        df_k200 = pd.read_csv(f_kr, dtype={'종목코드': str})
-        
-        # ⭐ [수정] 시가총액 컬럼명을 유연하게 찾기
-        m_col = next((c for c in df_k200.columns if c in ['시가총액', 'Marcap', 'MarketCap', 'Marcap']), None)
-        
-        # (기존 필터링 로직...)
-        is_common_stock = df_k200['종목코드'].str.endswith('0')
-        is_kospi = df_k200['시장'] == 'KOSPI'
-        
-        # 만약 시가총액 컬럼이 있다면 그걸로 정렬해서 상위 200개 추출
-        if m_col:
-            df_k200 = df_k200[is_kospi & is_common_stock].sort_values(by=m_col, ascending=False).head(200).copy()
-        else:
-            # 시가총액 컬럼이 없으면 기존 방식(순서대로) 유지
-            df_k200 = df_k200[is_kospi & is_common_stock].head(200).copy()
-
-        # ... (중략: 상단 퍼펙트 상승/장기 주도 로직은 그대로 두세요) ...
-
-        # --- 하단: KOSPI 200 시가총액 전체 순위 표 ---
+# --- [추가] KOSPI 200 시가총액 전체 순위 리스트 ---
         st.markdown("---")
         st.subheader("🏆 KOSPI 200 시가총액 순위 (1위 ~ 200위)")
 
+        # 1. 시가총액 컬럼 이름 찾기 (한글/영문 모두 대응)
+        # 파일 안에 '시가총액', 'Marcap', 'MarketCap' 중 있는 것을 자동으로 선택합니다.
+        m_col = next((c for c in df_k200.columns if c in ['시가총액', 'Marcap', 'MarketCap', 'marcap']), None)
+
         if m_col:
-            # 1. 시가총액 기준으로 다시 정렬 및 순위 부여
-            df_full_list = df_k200.sort_values(by=m_col, ascending=False).copy()
+            # 2. 데이터 정리: KOSPI 보통주 중 시총 상위 200개 정렬
+            df_full_list = df_k200[is_kospi & is_common_stock].sort_values(by=m_col, ascending=False).head(200).copy()
+            
+            # 3. 순위 부여 (1부터 200까지)
             df_full_list['순위'] = range(1, len(df_full_list) + 1)
             df_full_list = df_full_list.set_index('순위')
 
-            # 2. 출력 설정 (시총 컬럼 동적 반영)
-            dynamic_config = k200_col_config.copy()
-            dynamic_config[m_col] = st.column_config.NumberColumn("시가총액", format="%,d")
+            # 4. 표 설정 (시총 숫자를 읽기 편하게 포맷팅)
+            full_col_config = k200_col_config.copy()
+            full_col_config[m_col] = st.column_config.NumberColumn("시가총액", format="%,d")
 
+            # 5. 표 출력
             st.dataframe(
                 df_full_list.style.apply(apply_k200_styling, idx_df=idx_now_k200, common_codes=common_codes, axis=1),
                 use_container_width=True,
                 height=600, 
                 column_order=['통합티커', '종목명_L', m_col, '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)'],
-                column_config=dynamic_config
+                column_config=full_col_config
             )
         else:
-            st.error("데이터 파일에 시가총액(Marcap) 정보가 없어 순위를 표시할 수 없습니다.")
-    else:
-        st.warning("데이터 파일을 찾을 수 없습니다.")
+            # 시가총액 데이터가 아예 없을 경우 안내 메시지
+            st.info("💡 현재 데이터 파일에 시가총액(Marcap) 정보가 포함되어 있지 않습니다. 200위 순위를 표시하려면 시가총액이 포함된 데이터 파일이 필요합니다.")
