@@ -14,7 +14,6 @@ st.markdown("""
     .block-container { padding-top: 1.5rem !important; }
     h1 { font-size: 1.8rem !important; font-weight: 800; margin-bottom: 20px; }
     [data-testid="stDataFrame"] { margin-bottom: -10px !important; }
-    /* 메트릭 카드 시인성 확보 (진한 배경) */
     [data-testid="stMetricValue"] { font-size: 1.5rem !important; color: #0047AB !important; font-weight: 700; }
     .stMetric { background-color: #f0f2f6 !important; padding: 15px !important; border-radius: 10px; border: 1px solid #d1d5db; }
     </style>
@@ -48,12 +47,16 @@ else:
         available_months = sorted(data_struct[selected_year], key=lambda x: int(x))
         selected_month = st.selectbox("🌙 월", available_months)
 
-    # --- [핵심 추가: 전달 순위 로직] ---
+    # 데이터 로드
     target_file = f"{folder}/{prefix}{selected_year}_{selected_month}.csv"
     df = pd.read_csv(target_file, dtype={'종목코드': str})
     
+    # ⭐ [KeyError 방지] 기준일 컬럼명 유연하게 찾기
+    date_cols = [c for c in df.columns if '기준일' in c or 'Date' in c]
+    base_date = df[date_cols[0]].iloc[0] if date_cols else f"{selected_year}-{selected_month}"
+    
+    # 전달 순위 계산 로직
     try:
-        # 현재 선택된 달의 직전 달 계산
         curr_dt = datetime(int(selected_year), int(selected_month), 1)
         prev_dt = curr_dt - timedelta(days=1)
         p_year = prev_dt.strftime('%Y')
@@ -62,16 +65,15 @@ else:
 
         if os.path.exists(prev_file):
             df_p = pd.read_csv(prev_file, dtype={'종목코드': str})
-            # 스코어 기준 정렬 후 순위 맵 생성
             df_p = df_p.sort_values('모멘텀스코어', ascending=False).reset_index(drop=True)
             p_rank_map = {code: i+1 for i, code in enumerate(df_p['종목코드'])}
             df['전달순위'] = df['종목코드'].map(p_rank_map)
         else:
-            df['전달순위'] = None # 이전 달 기록이 없으면 빈칸
+            df['전달순위'] = None
     except:
         df['전달순위'] = None
 
-    st.success(f"**{selected_year}년 {selected_month}월** (추출 기준일: {df['기준일(월말)'].iloc[0]})")
+    st.success(f"**{selected_year}년 {selected_month}월** (추출 기준일: {base_date})")
 
     # 데이터 스타일링
     def style_returns(val):
@@ -82,39 +84,37 @@ else:
     df.index = range(1, len(df) + 1)
     df['종목명_L'] = df.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
 
-    # --- [업그레이드: 선택 이벤트 감지] ---
+    # 엑셀 스타일 선택 영역 감지
     event = st.dataframe(
         df.style.map(style_returns, subset=['다음달수익률(%)']),
         use_container_width=True, height=500,
-        on_select="rerun", # 엑셀 스타일 계산기 작동
+        on_select="rerun", 
         selection_mode="multi_row",
         column_order=['시장', '종목명_L', '기준가', '모멘텀스코어', '전달순위', '다음달수익률(%)'],
         column_config={
             "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"),
             "기준가": st.column_config.NumberColumn("현재가", format="%,d"),
             "모멘텀스코어": st.column_config.NumberColumn(format="%.1f"),
-            "전달순위": st.column_config.NumberColumn("전달 순위", format="%d위"), # ⭐ 숫자 정렬 지원
+            "전달순위": st.column_config.NumberColumn("전달 순위", format="%d위"), 
             "다음달수익률(%)": st.column_config.NumberColumn("익월 수익률", format="%.2f %%")
         }
     )
 
-    # --- [하단 지표 및 엑셀 스타일 계산기] ---
+    # 하단 성적표 & 실시간 계산기
     selected_rows = event.selection.rows
     
     if selected_rows:
-        # 엑셀 스타일 계산기 (선택 시)
         st.markdown("---")
-        st.subheader("📝 선택 종목 분석 (상태 표시줄)")
+        st.subheader("📝 선택 영역 분석")
         s_df = df.iloc[selected_rows]
         avg_ret = s_df['다음달수익률(%)'].mean()
         win_rate = (s_df['다음달수익률(%)'] > 0).mean() * 100
         
         cols = st.columns(3)
-        cols[0].metric("선택 종목 수", f"{len(selected_rows)}개")
-        cols[1].metric("선택 평균 수익률", f"{avg_ret:.2f}%")
-        cols[2].metric("선택 승률", f"{win_rate:.1f}%")
+        cols[0].metric("선택 종목", f"{len(selected_rows)}개")
+        cols[1].metric("평균 수익률", f"{avg_ret:.2f}%")
+        cols[2].metric("승률", f"{win_rate:.1f}%")
     else:
-        # 기본 상위권 성적표 (미선택 시)
         def get_stats(data, n):
             subset = data.head(n)
             if subset.empty: return "0.00%", "0%"
