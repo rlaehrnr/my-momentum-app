@@ -8,7 +8,7 @@ import numpy as np
 # 1. 페이지 설정
 st.set_page_config(page_title="한국 모멘텀 기록보관소", layout="wide")
 
-# CSS: 레이아웃 및 메트릭 시인성 강화
+# CSS: 레이아웃 및 디자인
 st.markdown("""
     <style>
     .block-container { padding-top: 1.5rem !important; }
@@ -51,75 +51,86 @@ else:
     target_file = f"{folder}/{prefix}{selected_year}_{selected_month}.csv"
     df = pd.read_csv(target_file, dtype={'종목코드': str})
     
-    # ⭐ [KeyError 방지] 기준일 컬럼명 유연하게 찾기
+    # 🔍 [방어 로직 1] 기준일 컬럼 유연하게 찾기
     date_cols = [c for c in df.columns if '기준일' in c or 'Date' in c]
     base_date = df[date_cols[0]].iloc[0] if date_cols else f"{selected_year}-{selected_month}"
+
+    # 🔍 [방어 로직 2] 수익률 컬럼 유연하게 찾기
+    ret_cols = [c for c in df.columns if '수익률' in c]
+    ret_col = ret_cols[0] if ret_cols else None
     
-    # 전달 순위 계산 로직
+    # 전달 순위 계산
     try:
         curr_dt = datetime(int(selected_year), int(selected_month), 1)
         prev_dt = curr_dt - timedelta(days=1)
-        p_year = prev_dt.strftime('%Y')
-        p_month = prev_dt.strftime('%m')
+        p_year, p_month = prev_dt.strftime('%Y'), prev_dt.strftime('%m')
         prev_file = f"{folder}/{prefix}{p_year}_{p_month}.csv"
-
         if os.path.exists(prev_file):
             df_p = pd.read_csv(prev_file, dtype={'종목코드': str})
             df_p = df_p.sort_values('모멘텀스코어', ascending=False).reset_index(drop=True)
             p_rank_map = {code: i+1 for i, code in enumerate(df_p['종목코드'])}
             df['전달순위'] = df['종목코드'].map(p_rank_map)
-        else:
-            df['전달순위'] = None
-    except:
-        df['전달순위'] = None
+        else: df['전달순위'] = None
+    except: df['전달순위'] = None
 
     st.success(f"**{selected_year}년 {selected_month}월** (추출 기준일: {base_date})")
 
-    # 데이터 스타일링
+    # 스타일 함수
     def style_returns(val):
-        if val > 0: return 'color: #FF4B4B; font-weight: bold;'
-        elif val < 0: return 'color: #3182CE; font-weight: bold;'
+        try:
+            if float(val) > 0: return 'color: #FF4B4B; font-weight: bold;'
+            elif float(val) < 0: return 'color: #3182CE; font-weight: bold;'
+        except: pass
         return ''
 
     df.index = range(1, len(df) + 1)
     df['종목명_L'] = df.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
 
-    # 엑셀 스타일 선택 영역 감지
+    # 🔍 [방어 로직 3] 스타일 적용 시 컬럼 존재 여부 체크
+    styled_df = df.style
+    if ret_col in df.columns:
+        styled_df = styled_df.map(style_returns, subset=[ret_col])
+
+    # 컬럼 순서 설정 (수익률 컬럼이 있을 때만 포함)
+    display_cols = ['시장', '종목명_L', '기준가', '모멘텀스코어', '전달순위']
+    if ret_col: display_cols.append(ret_col)
+
+    # 메인 표 출력
     event = st.dataframe(
-        df.style.map(style_returns, subset=['다음달수익률(%)']),
+        styled_df,
         use_container_width=True, height=500,
         on_select="rerun", 
         selection_mode="multi_row",
-        column_order=['시장', '종목명_L', '기준가', '모멘텀스코어', '전달순위', '다음달수익률(%)'],
+        column_order=display_cols,
         column_config={
             "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"),
             "기준가": st.column_config.NumberColumn("현재가", format="%,d"),
             "모멘텀스코어": st.column_config.NumberColumn(format="%.1f"),
             "전달순위": st.column_config.NumberColumn("전달 순위", format="%d위"), 
-            "다음달수익률(%)": st.column_config.NumberColumn("익월 수익률", format="%.2f %%")
+            ret_col: st.column_config.NumberColumn("수익률", format="%.2f %%") if ret_col else None
         }
     )
 
-    # 하단 성적표 & 실시간 계산기
+    # 하단 성적표 & 계산기
     selected_rows = event.selection.rows
-    
     if selected_rows:
         st.markdown("---")
         st.subheader("📝 선택 영역 분석")
         s_df = df.iloc[selected_rows]
-        avg_ret = s_df['다음달수익률(%)'].mean()
-        win_rate = (s_df['다음달수익률(%)'] > 0).mean() * 100
         
         cols = st.columns(3)
         cols[0].metric("선택 종목", f"{len(selected_rows)}개")
-        cols[1].metric("평균 수익률", f"{avg_ret:.2f}%")
-        cols[2].metric("승률", f"{win_rate:.1f}%")
+        if ret_col:
+            avg_ret = s_df[ret_col].mean()
+            win_rate = (s_df[ret_col] > 0).mean() * 100
+            cols[1].metric("평균 수익률", f"{avg_ret:.2f}%")
+            cols[2].metric("승률", f"{win_rate:.1f}%")
     else:
         def get_stats(data, n):
             subset = data.head(n)
-            if subset.empty: return "0.00%", "0%"
-            avg = subset['다음달수익률(%)'].mean()
-            win = (subset['다음달수익률(%)'] > 0).mean() * 100
+            if subset.empty or ret_col not in subset.columns: return "0.00%", "0%"
+            avg = subset[ret_col].mean()
+            win = (subset[ret_col] > 0).mean() * 100
             return f"{avg:.2f}%", f"{win:.1f}%"
 
         st.markdown("---")
