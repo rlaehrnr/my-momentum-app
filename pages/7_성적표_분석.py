@@ -2,15 +2,15 @@ import streamlit as st
 import pandas as pd
 import os
 import glob
-import plotly.express as px
-import plotly.graph_objects as go
 
-st.set_page_config(page_title="모멘텀 최적화 분석", layout="wide")
+# 1. 페이지 설정
+st.set_page_config(page_title="모멘텀 구간 최적화", layout="wide")
 
-st.title("🎯 모멘텀 순위별 성과 감쇄(Decay) 분석")
-st.info("1위부터 300위까지 각 순위가 역대 기록한 평균 수익률을 분석하여 최적의 포트폴리오 규모를 도출합니다.")
+st.title("🎯 모멘텀 최적 수익 구간(Range) 분석")
+st.info("차트보다는 정밀한 표 데이터를 통해 '몇 위부터 몇 위까지' 사는 것이 유리한지 분석합니다.")
 
-def load_all_data(folder, prefix):
+# 2. 데이터 로드 함수 (모든 아카이브 통합)
+def load_total_archive(folder, prefix):
     files = glob.glob(os.path.join(folder, f"{prefix}*.csv"))
     if not files: return pd.DataFrame()
     
@@ -19,71 +19,89 @@ def load_all_data(folder, prefix):
         try:
             df = pd.read_csv(f)
             if '다음달수익률(%)' in df.columns:
-                # 💡 파일 내에서의 순위(Rank)를 1부터 다시 매김 (혹시 모르니)
+                # 스코어 기준 재정렬 및 순위 부여
                 df = df.sort_values('모멘텀스코어', ascending=False).reset_index(drop=True)
                 df['순위'] = df.index + 1
-                all_data.append(df[['순위', '다음달수익률(%)', '종목명']])
+                all_data.append(df)
         except: continue
     return pd.concat(all_data) if all_data else pd.DataFrame()
 
+# 3. 마켓 선택
 tabs = st.tabs(["🇰🇷 한국", "🇺🇸 미국(150위)", "🇺🇸 S&P 500"])
 configs = [("archive", "momentum_"), ("archive_us", "momentum_us_"), ("archive_sp500", "momentum_sp500_")]
 
 for tab, (folder, prefix) in zip(tabs, configs):
     with tab:
-        df_all = load_all_data(folder, prefix)
-        if df_all.empty:
-            st.warning("데이터가 부족합니다.")
+        df_master = load_total_archive(folder, prefix)
+        if df_master.empty:
+            st.warning("데이터가 부족합니다. 월말 성적표(monthly)가 아카이브에 쌓여야 분석이 가능합니다.")
             continue
 
-        # --- (1) 순위별 평균 수익률 분석 ---
-        # 순위별로 그룹화하여 평균 수익률 계산
-        rank_perf = df_all.groupby('순위')['다음달수익률(%)'].mean().reset_index()
+        # --- [분석 1: 10위 단위 블록 성적표] ---
+        st.subheader("📊 1. 순위권별 '블록' 성적표 (어느 구간이 가장 강한가?)")
+        st.write("1~10위, 11~20위 등 10개 단위 묶음의 역대 평균 수익률입니다.")
         
-        # 💡 노이즈 제거를 위한 이동평균(Rolling Average) 추가
-        rank_perf['수익률_추세선'] = rank_perf['다음달수익률(%)'].rolling(window=10, min_periods=1).mean()
+        block_res = []
+        for start in range(1, 101, 10):
+            end = start + 9
+            block_df = df_master[(df_master['순위'] >= start) & (df_master['순위'] <= end)]
+            if not block_df.empty:
+                block_res.append({
+                    "순위 구간": f"{start}위 ~ {end}위",
+                    "평균 수익률": f"{block_df['다음달수익률(%)'].mean():.2f}%",
+                    "상승 종목 비중": f"{(block_df['다음달수익률(%)'] > 0).mean()*100:.1f}%",
+                    "최고 수익률": f"{block_df['다음달수익률(%)'].max():.1f}%",
+                    "최저 수익률": f"{block_df['다음달수익률(%)'].min():.1f}%"
+                })
+        st.table(pd.DataFrame(block_res))
 
-        st.subheader("📉 순위가 낮아질수록 수익률은 어떻게 변하는가?")
-        fig = go.Figure()
-        # 원본 데이터 (연한 색)
-        fig.add_trace(go.Bar(x=rank_perf['순위'], y=rank_perf['다음달수익률(%)'], name='순위별 평균', marker_color='lightgrey'))
-        # 추세선 (진한 색)
-        fig.add_trace(go.Scatter(x=rank_perf['순위'], y=rank_perf['수익률_추세선'], name='수익률 추세(10일 이동평균)', line=dict(color='#FF4B4B', width=3)))
-        
-        fig.update_layout(xaxis_title="순위 (1위 -> 300위)", yaxis_title="평균 수익률 (%)", hovermode='x unified')
-        st.plotly_chart(fig, use_container_width=True)
-
-        # --- (2) 누적 종목 수에 따른 포트폴리오 수익률 ---
-        # 1위부터 N위까지 묶었을 때의 평균 수익률 변화
-        rank_perf['누적포트폴리오수익률'] = rank_perf['다음달수익률(%)'].expanding().mean()
-        
-        st.subheader("⚖️ 종목 수(N)를 늘릴 때 포트폴리오 전체 수익률 변화")
-        st.write("왼쪽에서 오른쪽으로 갈수록 종목을 더 많이 섞는 것입니다. 수익률이 꺾이기 시작하는 지점을 찾으세요.")
-        fig2 = px.line(rank_perf, x='순위', y='누적포트폴리오수익률', title="1위부터 N위까지 포함했을 때의 평균 수익률")
-        fig2.add_hline(y=0, line_dash="dash", line_color="red")
-        st.plotly_chart(fig2, use_container_width=True)
-
-        # --- (3) 데이터 기반 전략 제안 ---
+        # --- [분석 2: 최적의 시작점(Sweet Spot) 찾기] ---
         st.markdown("---")
-        st.subheader("💡 데이터 분석 결과 가이드")
+        st.subheader("💡 2. 최적의 '시작 순위' 탐색 (표로 비교)")
+        st.write("똑같이 20개를 사더라도, 몇 위부터 시작하느냐에 따라 성적이 달라집니다.")
         
-        # 가장 수익률이 높은 누적 종목 수 찾기
-        best_n = rank_perf.loc[rank_perf['누적포트폴리오수익률'].idxmax(), '순위']
-        max_ret = rank_perf['누적포트폴리오수익률'].max()
+        test_size = st.selectbox("가상 매수 종목 수 선택", [10, 20, 30], index=1, key=f"size_{prefix}")
         
-        # 수익률이 0 이하로 떨어지기 시작하는 '데드라인' 순위
-        under_zero = rank_perf[rank_perf['수익률_추세선'] < 0]
-        deadline = under_zero['순위'].min() if not under_zero.empty else len(rank_perf)
+        range_res = []
+        # 시작 지점을 1위, 11위, 21위, 31위, 41위, 51위로 테스트
+        for start_pos in [1, 11, 21, 31, 41, 51]:
+            end_pos = start_pos + test_size - 1
+            test_df = df_master[(df_master['순위'] >= start_pos) & (df_master['순위'] <= end_pos)]
+            
+            if not test_df.empty:
+                # 월별로 다시 그룹화하여 복리 누적 수익률 계산
+                monthly_avg = test_df.groupby('기준일(월말)')['다음달수익률(%)'].mean()
+                cum_ret = ((1 + monthly_avg/100).cumprod() - 1) * 100
+                
+                range_res.append({
+                    "전략 명칭": f"{start_pos}위부터 {test_size}개 매수",
+                    "대상 구간": f"{start_pos}위 ~ {end_pos}위",
+                    "월평균 수익률": f"{monthly_avg.mean():.2f}%",
+                    "역대 누적 수익률": f"{cum_ret.iloc[-1]:.2f}%",
+                    "월간 승률": f"{(monthly_avg > 0).mean()*100:.1f}%"
+                })
+        
+        # 성적순으로 정렬하여 표 표시
+        range_final = pd.DataFrame(range_res).sort_values("월평균 수익률", ascending=False)
+        st.table(range_final)
 
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.metric("수익률 정점 (종목 수)", f"TOP {int(best_n)}")
-            st.caption(f"1위부터 {int(best_n)}위까지 섞을 때 수익이 가장 극대화됩니다.")
-        with c2:
-            st.metric("최고 기대 수익률", f"{max_ret:.2f}%")
-            st.caption("해당 포트폴리오 구성 시의 월평균 기대치입니다.")
-        with c3:
-            st.metric("유효 모멘텀 한계선", f"{int(deadline)}위")
-            st.caption(f"{int(deadline)}위 이후부터는 모멘텀의 힘이 사라집니다.")
-
-        st.warning(f"**결론:** 사용자님의 데이터상 가장 유리한 포트폴리오는 **상위 {int(best_n)}~{int(best_n+10)}개**를 집중 보유하는 것입니다. {int(deadline)}위가 넘어가면 종목을 섞을수록 계좌 수익률을 깎아먹는 '물타기'가 됩니다.")
+        # --- [분석 3: 사용자 맞춤형 구간 계산기] ---
+        st.markdown("---")
+        st.subheader("🔍 3. 내 맘대로 구간 테스트")
+        col1, col2 = st.columns(2)
+        with col1:
+            u_start = st.number_input("시작 순위", min_value=1, max_value=200, value=1, key=f"u_s_{prefix}")
+        with col2:
+            u_count = st.number_input("매수 종목 수", min_value=1, max_value=100, value=20, key=f"u_c_{prefix}")
+        
+        u_end = u_start + u_count - 1
+        u_df = df_master[(df_master['순위'] >= u_start) & (df_master['순위'] <= u_end)]
+        
+        if not u_df.empty:
+            u_avg = u_df['다음달수익률(%)'].mean()
+            u_plus = (u_df['다음달수익률(%)'] > 0).mean() * 100
+            
+            st.success(f"✅ **{u_start}위 ~ {u_end}위** 구간 분석 결과")
+            res_col1, res_col2 = st.columns(2)
+            res_col1.metric("구간 평균 수익률", f"{u_avg:.2f}%")
+            res_col2.metric("상승 종목 확률", f"{u_plus:.1f}%")
