@@ -49,7 +49,7 @@ with tab1:
         idx_kr = get_idx_kr(pd.to_datetime(b_date_str))
         if not idx_kr.empty: 
             idx_disp = idx_kr.reset_index().copy()
-            idx_disp['현재가'] = idx_disp['현재가'].apply(lambda x: f"{x:,.1f}")
+            idx_disp['현재가'] = idx_disp['현재가'].apply(lambda x: f"{int(x):,}")
             for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
                 idx_disp[c] = idx_disp[c].apply(lambda x: f"{x:+.1f}%")
             st.table(idx_disp)
@@ -68,16 +68,17 @@ with tab1:
             else: df_kr['전달순위'] = "기록 없음"
         except: df_kr['전달순위'] = "-"
 
+        # 콤마 적용을 위해 문자열 변환
+        df_kr['현재가'] = df_kr['기준가'].apply(lambda x: f"{int(x):,}")
         df_kr.index = range(1, len(df_kr) + 1)
         df_kr['통합티커'] = df_kr['시장'] + ":" + df_kr['종목코드'].str.zfill(6)
         df_kr['종목명'] = df_kr.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
 
-        # ⭐ [수정] format=",d" 대신 ",.0f" 사용 (가장 확실한 콤마 포맷)
         st.dataframe(df_kr.style.apply(highlight_kr, idx_df=idx_kr, axis=1), use_container_width=True, height=560, 
-                     column_order=['통합티커', '종목명', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달순위'], 
+                     column_order=['통합티커', '종목명', '현재가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달순위'], 
                      column_config={
                          "종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
-                         "기준가": st.column_config.NumberColumn("현재가", format=",.0f"), 
+                         "현재가": st.column_config.TextColumn("현재가"),
                          "1개월(%)": st.column_config.NumberColumn(format="%.1f"), 
                          "3개월(%)": st.column_config.NumberColumn(format="%.1f"), 
                          "6개월(%)": st.column_config.NumberColumn(format="%.1f"), 
@@ -101,25 +102,36 @@ with tab2:
         idx_now = get_idx_kr()
         if not idx_now.empty: 
             idx_disp_now = idx_now.reset_index().copy()
-            idx_disp_now['현재가'] = idx_disp_now['현재가'].apply(lambda x: f"{x:,.1f}")
+            idx_disp_now['현재가'] = idx_disp_now['현재가'].apply(lambda x: f"{int(x):,}")
             for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
                 idx_disp_now[c] = idx_disp_now[c].apply(lambda x: f"{x:+.1f}%")
             st.table(idx_disp_now)
         
         st.markdown("---")
+        
+        # ⭐ [핵심 업그레이드] 전일거래량 만 단위 표시 로직
         if '전일거래량' not in df_d.columns: df_d['전일거래량'] = 0 
+        
+        # 1. 현재가는 콤마 찍은 문자열로 변환
+        df_d['현재가_표시'] = df_d['기준가'].apply(lambda x: f"{int(x):,}")
+        
+        # 2. 거래량은 만 단위(만)로 변환 (예: 1,520,000 -> 152만)
+        def format_volume(v):
+            if v >= 10000:
+                return f"{int(v/10000):,}만"
+            return f"{int(v):,}"
+        df_d['거래량(만)'] = df_d['전일거래량'].apply(format_volume)
 
         df_d.index = range(1, len(df_d) + 1)
         df_d['통합티커'] = df_d['시장'] + ":" + df_d['종목코드'].str.zfill(6)
         df_d['종목명'] = df_d.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
 
-        # ⭐ [수정] format=",d" 대신 ",.0f" 사용
         st.dataframe(df_d.style.apply(highlight_kr, idx_df=idx_now, axis=1), use_container_width=True, height=560, 
-                     column_order=['통합티커', '종목명', '기준가', '전일거래량', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전월순위'], 
+                     column_order=['통합티커', '종목명', '현재가_표시', '거래량(만)', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전월순위'], 
                      column_config={
                          "종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
-                         "기준가": st.column_config.NumberColumn("현재가", format=",.0f"), 
-                         "전일거래량": st.column_config.NumberColumn("전일 거래량", format=",.0f"), 
+                         "현재가_표시": st.column_config.TextColumn("현재가"), 
+                         "거래량(만)": st.column_config.TextColumn("전일 거래량"), 
                          "1개월(%)": st.column_config.NumberColumn(format="%.1f"), 
                          "3개월(%)": st.column_config.NumberColumn(format="%.1f"), 
                          "6개월(%)": st.column_config.NumberColumn(format="%.1f"), 
