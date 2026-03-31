@@ -222,3 +222,31 @@ with tab3:
                 st.info("조건에 맞는 종목이 없습니다.")
     else:
         st.warning("데이터 파일을 찾을 수 없습니다.")
+
+
+# --- 탭 3: KOSPI 200 집중 분석 ---
+with tab3:
+    if os.path.exists(f_kr):
+        # (기존 코드 생략: 데이터 로드 및 상단 필터링 로직...)
+        # ... 상단 col1, col2 레이아웃 출력 코드 바로 아래에 이어서 추가 ...
+
+        # --- 하단: KOSPI 200 전체 순위 표 추가 ---
+        st.markdown("---")
+        st.subheader("🏆 KOSPI 200 전체 순위 (시가총액 상위 200)")
+        
+        # 전체 리스트 순위 재설정 (1위~200위)
+        df_full_200 = df_k200.copy()
+        df_full_200.index = range(1, len(df_full_200) + 1)
+        
+        # 전체 리스트 출력
+        # 위에서 만든 common_codes를 그대로 전달하여 교집합 종목은 노란색으로 하이라이트 유지
+        st.dataframe(
+            df_full_200.style.apply(apply_k200_styling, idx_df=idx_now_k200, common_codes=common_codes, axis=1),
+            use_container_width=True,
+            height=600, # 200위까지 있으므로 높이를 조금 더 여유있게 설정
+            column_order=['통합티커', '종목명_L', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)'],
+            column_config=k200_col_config
+        )
+
+    else:
+        st.warning("데이터 파일을 찾을 수 없습니다.")
