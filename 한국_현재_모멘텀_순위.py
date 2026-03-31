@@ -33,7 +33,6 @@ def get_idx_kr(target_date=None):
                 ref_day = (last_idx_date.replace(day=1) - pd.DateOffset(months=m-1)) - timedelta(days=1)
                 p_df = df[df.index <= ref_day]
                 return round((curr_val - p_df['Close'].iloc[-1]) / p_df['Close'].iloc[-1] * 100, 1) if not p_df.empty else 0.0
-            # ⭐ 현재가를 가공하지 않은 상태(float)로 넘깁니다.
             res.append({'시장': name, '현재가': curr_val, '1개월(%)': get_ret(1), '3개월(%)': get_ret(3), '6개월(%)': get_ret(6), '12개월(%)': get_ret(12)})
         except: pass
     return pd.DataFrame(res).set_index('시장')
@@ -49,16 +48,15 @@ with tab1:
         
         idx_kr = get_idx_kr(pd.to_datetime(b_date_str))
         if not idx_kr.empty: 
-            # ⭐ 지수 테이블 출력 시 콤마(,) 추가
+            # ⭐ [수정] 지수 테이블: f-string을 사용하여 천 단위 콤마 강제 적용
             idx_disp = idx_kr.reset_index().copy()
-            idx_disp['현재가'] = idx_disp['현재가'].map('{:,.1f}'.format)
+            idx_disp['현재가'] = idx_disp['현재가'].apply(lambda x: f"{x:,.1f}")
             for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
-                idx_disp[c] = idx_disp[c].map('{:.1f}'.format)
+                idx_disp[c] = idx_disp[c].apply(lambda x: f"{x:+.1f}%")
             st.table(idx_disp)
         
         st.markdown("---")
         
-        # 순위 대조 로직 (정수 출력 유지)
         try:
             curr_dt = datetime.strptime(b_date_str, '%Y-%m-%d')
             prev_month_dt = curr_dt.replace(day=1) - timedelta(days=1)
@@ -75,11 +73,12 @@ with tab1:
         df_kr['통합티커'] = df_kr['시장'] + ":" + df_kr['종목코드'].str.zfill(6)
         df_kr['종목명'] = df_kr.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
 
+        # ⭐ [수정] 메인 테이블: format=",d" 적용 (d3-format 방식)
         st.dataframe(df_kr.style.apply(highlight_kr, idx_df=idx_kr, axis=1), use_container_width=True, height=560, 
                      column_order=['통합티커', '종목명', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달순위'], 
                      column_config={
                          "종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
-                         "기준가": st.column_config.NumberColumn(format="%d"), # ⭐ 기본적으로 콤마 적용
+                         "기준가": st.column_config.NumberColumn("현재가", format=",d"), 
                          "1개월(%)": st.column_config.NumberColumn(format="%.1f"), 
                          "3개월(%)": st.column_config.NumberColumn(format="%.1f"), 
                          "6개월(%)": st.column_config.NumberColumn(format="%.1f"), 
@@ -102,11 +101,11 @@ with tab2:
         st.title(f"🕒 데일리 모멘텀 (기준: {df_d['기준일'].iloc[0]})")
         idx_now = get_idx_kr()
         if not idx_now.empty: 
-            # ⭐ 데일리 지수 테이블 현재가 콤마 추가
+            # ⭐ [수정] 지수 테이블: 콤마 강제 적용
             idx_disp_now = idx_now.reset_index().copy()
-            idx_disp_now['현재가'] = idx_disp_now['현재가'].map('{:,.1f}'.format)
+            idx_disp_now['현재가'] = idx_disp_now['현재가'].apply(lambda x: f"{x:,.1f}")
             for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
-                idx_disp_now[c] = idx_disp_now[c].map('{:.1f}'.format)
+                idx_disp_now[c] = idx_disp_now[c].apply(lambda x: f"{x:+.1f}%")
             st.table(idx_disp_now)
         
         st.markdown("---")
@@ -116,12 +115,13 @@ with tab2:
         df_d['통합티커'] = df_d['시장'] + ":" + df_d['종목코드'].str.zfill(6)
         df_d['종목명'] = df_d.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
 
+        # ⭐ [수정] 메인 테이블: format=",d" 적용
         st.dataframe(df_d.style.apply(highlight_kr, idx_df=idx_now, axis=1), use_container_width=True, height=560, 
                      column_order=['통합티커', '종목명', '기준가', '전일거래량', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전월순위'], 
                      column_config={
                          "종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
-                         "기준가": st.column_config.NumberColumn("현재가", format="%d"), # ⭐ 콤마 자동 적용
-                         "전일거래량": st.column_config.NumberColumn("전일 거래량", format="%d"), # ⭐ 콤마 자동 적용
+                         "기준가": st.column_config.NumberColumn("현재가", format=",d"), 
+                         "전일거래량": st.column_config.NumberColumn("전일 거래량", format=",d"), 
                          "1개월(%)": st.column_config.NumberColumn(format="%.1f"), 
                          "3개월(%)": st.column_config.NumberColumn(format="%.1f"), 
                          "6개월(%)": st.column_config.NumberColumn(format="%.1f"), 
