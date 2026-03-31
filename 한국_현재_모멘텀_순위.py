@@ -227,25 +227,32 @@ with tab3:
 # --- 탭 3: KOSPI 200 집중 분석 ---
 with tab3:
     if os.path.exists(f_kr):
-        # (기존 코드 생략: 데이터 로드 및 상단 필터링 로직...)
-        # ... 상단 col1, col2 레이아웃 출력 코드 바로 아래에 이어서 추가 ...
+        # (상단 로직 생략: 데이터 로드 및 상단 2개 필터링 박스...)
+        # ...
 
-        # --- 하단: KOSPI 200 전체 순위 표 추가 ---
+        # --- 하단: KOSPI 200 시가총액 전체 순위 표 ---
         st.markdown("---")
-        st.subheader("🏆 KOSPI 200 전체 순위 (시가총액 상위 200)")
+        st.subheader("🏆 KOSPI 200 시가총액 순위 (1위 ~ 200위)")
+
+        # 1. 시가총액 기준으로 다시 정렬 (내림차순)
+        df_full_list = df_k200.sort_values(by='시가총액', ascending=False).head(200).copy()
         
-        # 전체 리스트 순위 재설정 (1위~200위)
-        df_full_200 = df_k200.copy()
-        df_full_200.index = range(1, len(df_full_200) + 1)
+        # 2. '순위' 컬럼 생성 (1부터 시작)
+        df_full_list['순위'] = range(1, len(df_full_list) + 1)
         
-        # 전체 리스트 출력
-        # 위에서 만든 common_codes를 그대로 전달하여 교집합 종목은 노란색으로 하이라이트 유지
+        # 3. 데이터프레임 출력
+        # 인덱스를 '순위'로 설정하여 표 가장 왼쪽에 번호가 보이게 함
+        df_full_list = df_full_list.set_index('순위')
+
         st.dataframe(
-            df_full_200.style.apply(apply_k200_styling, idx_df=idx_now_k200, common_codes=common_codes, axis=1),
+            df_full_list.style.apply(apply_k200_styling, idx_df=idx_now_k200, common_codes=common_codes, axis=1),
             use_container_width=True,
-            height=600, # 200위까지 있으므로 높이를 조금 더 여유있게 설정
-            column_order=['통합티커', '종목명_L', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)'],
-            column_config=k200_col_config
+            height=600, 
+            column_order=['통합티커', '종목명_L', '시가총액', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)'],
+            column_config={
+                **k200_col_config,
+                "시가총액": st.column_config.NumberColumn("시가총액", format="%,d억") # 시총 단위 추가
+            }
         )
 
     else:
