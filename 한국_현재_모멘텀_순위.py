@@ -48,7 +48,6 @@ with tab1:
         
         idx_kr = get_idx_kr(pd.to_datetime(b_date_str))
         if not idx_kr.empty: 
-            # ⭐ [수정] 지수 테이블: f-string을 사용하여 천 단위 콤마 강제 적용
             idx_disp = idx_kr.reset_index().copy()
             idx_disp['현재가'] = idx_disp['현재가'].apply(lambda x: f"{x:,.1f}")
             for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
@@ -73,12 +72,12 @@ with tab1:
         df_kr['통합티커'] = df_kr['시장'] + ":" + df_kr['종목코드'].str.zfill(6)
         df_kr['종목명'] = df_kr.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
 
-        # ⭐ [수정] 메인 테이블: format=",d" 적용 (d3-format 방식)
+        # ⭐ [수정] format=",d" 대신 ",.0f" 사용 (가장 확실한 콤마 포맷)
         st.dataframe(df_kr.style.apply(highlight_kr, idx_df=idx_kr, axis=1), use_container_width=True, height=560, 
                      column_order=['통합티커', '종목명', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달순위'], 
                      column_config={
                          "종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
-                         "기준가": st.column_config.NumberColumn("현재가", format=",d"), 
+                         "기준가": st.column_config.NumberColumn("현재가", format=",.0f"), 
                          "1개월(%)": st.column_config.NumberColumn(format="%.1f"), 
                          "3개월(%)": st.column_config.NumberColumn(format="%.1f"), 
                          "6개월(%)": st.column_config.NumberColumn(format="%.1f"), 
@@ -101,7 +100,6 @@ with tab2:
         st.title(f"🕒 데일리 모멘텀 (기준: {df_d['기준일'].iloc[0]})")
         idx_now = get_idx_kr()
         if not idx_now.empty: 
-            # ⭐ [수정] 지수 테이블: 콤마 강제 적용
             idx_disp_now = idx_now.reset_index().copy()
             idx_disp_now['현재가'] = idx_disp_now['현재가'].apply(lambda x: f"{x:,.1f}")
             for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
@@ -115,13 +113,13 @@ with tab2:
         df_d['통합티커'] = df_d['시장'] + ":" + df_d['종목코드'].str.zfill(6)
         df_d['종목명'] = df_d.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
 
-        # ⭐ [수정] 메인 테이블: format=",d" 적용
+        # ⭐ [수정] format=",d" 대신 ",.0f" 사용
         st.dataframe(df_d.style.apply(highlight_kr, idx_df=idx_now, axis=1), use_container_width=True, height=560, 
                      column_order=['통합티커', '종목명', '기준가', '전일거래량', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전월순위'], 
                      column_config={
                          "종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
-                         "기준가": st.column_config.NumberColumn("현재가", format=",d"), 
-                         "전일거래량": st.column_config.NumberColumn("전일 거래량", format=",d"), 
+                         "기준가": st.column_config.NumberColumn("현재가", format=",.0f"), 
+                         "전일거래량": st.column_config.NumberColumn("전일 거래량", format=",.0f"), 
                          "1개월(%)": st.column_config.NumberColumn(format="%.1f"), 
                          "3개월(%)": st.column_config.NumberColumn(format="%.1f"), 
                          "6개월(%)": st.column_config.NumberColumn(format="%.1f"), 
