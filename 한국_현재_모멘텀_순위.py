@@ -33,7 +33,8 @@ def get_idx_kr(target_date=None):
                 ref_day = (last_idx_date.replace(day=1) - pd.DateOffset(months=m-1)) - timedelta(days=1)
                 p_df = df[df.index <= ref_day]
                 return round((curr_val - p_df['Close'].iloc[-1]) / p_df['Close'].iloc[-1] * 100, 1) if not p_df.empty else 0.0
-            res.append({'시장': name, '현재가': round(curr_val, 1), '1개월(%)': get_ret(1), '3개월(%)': get_ret(3), '6개월(%)': get_ret(6), '12개월(%)': get_ret(12)})
+            # ⭐ 현재가를 가공하지 않은 상태(float)로 넘깁니다.
+            res.append({'시장': name, '현재가': curr_val, '1개월(%)': get_ret(1), '3개월(%)': get_ret(3), '6개월(%)': get_ret(6), '12개월(%)': get_ret(12)})
         except: pass
     return pd.DataFrame(res).set_index('시장')
 
@@ -45,10 +46,19 @@ with tab1:
         df_kr = pd.read_csv(f_kr, dtype={'종목코드': str})
         b_date_str = df_kr['기준일(월말)'].iloc[0]
         st.title(f"📊 한국 모멘텀 (기준: {b_date_str})")
+        
         idx_kr = get_idx_kr(pd.to_datetime(b_date_str))
-        if not idx_kr.empty: st.table(idx_kr.reset_index().assign(**{c: idx_kr.reset_index()[c].map('{:.1f}'.format) for c in idx_kr.columns if c != '시장'}))
+        if not idx_kr.empty: 
+            # ⭐ 지수 테이블 출력 시 콤마(,) 추가
+            idx_disp = idx_kr.reset_index().copy()
+            idx_disp['현재가'] = idx_disp['현재가'].map('{:,.1f}'.format)
+            for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
+                idx_disp[c] = idx_disp[c].map('{:.1f}'.format)
+            st.table(idx_disp)
+        
         st.markdown("---")
         
+        # 순위 대조 로직 (정수 출력 유지)
         try:
             curr_dt = datetime.strptime(b_date_str, '%Y-%m-%d')
             prev_month_dt = curr_dt.replace(day=1) - timedelta(days=1)
@@ -67,7 +77,16 @@ with tab1:
 
         st.dataframe(df_kr.style.apply(highlight_kr, idx_df=idx_kr, axis=1), use_container_width=True, height=560, 
                      column_order=['통합티커', '종목명', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달순위'], 
-                     column_config={"종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), "기준가": st.column_config.NumberColumn(format="%d"), "1개월(%)": st.column_config.NumberColumn(format="%.1f"), "3개월(%)": st.column_config.NumberColumn(format="%.1f"), "6개월(%)": st.column_config.NumberColumn(format="%.1f"), "12개월(%)": st.column_config.NumberColumn(format="%.1f"), "모멘텀스코어": st.column_config.NumberColumn(format="%.1f"), "전달순위": st.column_config.TextColumn("전달 순위")})
+                     column_config={
+                         "종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
+                         "기준가": st.column_config.NumberColumn(format="%d"), # ⭐ 기본적으로 콤마 적용
+                         "1개월(%)": st.column_config.NumberColumn(format="%.1f"), 
+                         "3개월(%)": st.column_config.NumberColumn(format="%.1f"), 
+                         "6개월(%)": st.column_config.NumberColumn(format="%.1f"), 
+                         "12개월(%)": st.column_config.NumberColumn(format="%.1f"), 
+                         "모멘텀스코어": st.column_config.NumberColumn(format="%.1f"),
+                         "전달순위": st.column_config.TextColumn("전달 순위")
+                     })
 
 with tab2:
     f_daily = 'data/momentum_data_daily.csv'
@@ -82,12 +101,16 @@ with tab2:
 
         st.title(f"🕒 데일리 모멘텀 (기준: {df_d['기준일'].iloc[0]})")
         idx_now = get_idx_kr()
-        if not idx_now.empty: st.table(idx_now.reset_index().assign(**{c: idx_now.reset_index()[c].map('{:.1f}'.format) for c in idx_now.columns if c != '시장'}))
-        st.markdown("---")
+        if not idx_now.empty: 
+            # ⭐ 데일리 지수 테이블 현재가 콤마 추가
+            idx_disp_now = idx_now.reset_index().copy()
+            idx_disp_now['현재가'] = idx_disp_now['현재가'].map('{:,.1f}'.format)
+            for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
+                idx_disp_now[c] = idx_disp_now[c].map('{:.1f}'.format)
+            st.table(idx_disp_now)
         
-        # ⭐ [핵심 수정] 파일에 '전일거래량' 컬럼이 없으면 빈 값으로라도 생성해서 에러 방지
-        if '전일거래량' not in df_d.columns:
-            df_d['전일거래량'] = 0 
+        st.markdown("---")
+        if '전일거래량' not in df_d.columns: df_d['전일거래량'] = 0 
 
         df_d.index = range(1, len(df_d) + 1)
         df_d['통합티커'] = df_d['시장'] + ":" + df_d['종목코드'].str.zfill(6)
@@ -97,8 +120,8 @@ with tab2:
                      column_order=['통합티커', '종목명', '기준가', '전일거래량', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전월순위'], 
                      column_config={
                          "종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
-                         "기준가": st.column_config.NumberColumn("현재가", format="%d"), 
-                         "전일거래량": st.column_config.NumberColumn("전일 거래량", format="%d"), # 천 단위 콤마 자동
+                         "기준가": st.column_config.NumberColumn("현재가", format="%d"), # ⭐ 콤마 자동 적용
+                         "전일거래량": st.column_config.NumberColumn("전일 거래량", format="%d"), # ⭐ 콤마 자동 적용
                          "1개월(%)": st.column_config.NumberColumn(format="%.1f"), 
                          "3개월(%)": st.column_config.NumberColumn(format="%.1f"), 
                          "6개월(%)": st.column_config.NumberColumn(format="%.1f"), 
