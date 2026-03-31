@@ -151,14 +151,11 @@ with tab2:
 # --- 탭 3: KOSPI 200 집중 분석 ---
 with tab3:
     if os.path.exists(f_kr):
-        # 1. 데이터 로드
         df_k200 = pd.read_csv(f_kr, dtype={'종목코드': str})
-        b_date_str = df_k200['기준일(월말)'].iloc[0] if '기준일(월말)' in df_k200.columns else "날짜 불명"
-        
+        b_date_str = df_k200['기준일(월말)'].iloc[0] if '기준일(월말)' in df_k200.columns else "날짜 정보 없음"
         st.title(f"🎯 KOSPI 200 집중 분석 (기준: {b_date_str})")
         
-        # 지수 정보 표시
-        idx_now_k200 = get_idx_kr(pd.to_datetime(b_date_str) if b_date_str != "날짜 불명" else None)
+        idx_now_k200 = get_idx_kr(pd.to_datetime(b_date_str) if b_date_str != "날짜 정보 없음" else None)
         if not idx_now_k200.empty: 
             idx_disp_k200 = idx_now_k200.reset_index().copy()
             idx_disp_k200['현재가'] = idx_disp_k200['현재가'].map('{:,.0f}'.format)
@@ -168,61 +165,65 @@ with tab3:
             
         st.markdown("---")
 
-        # ⭐ [핵심] 시가총액 컬럼 찾기 (대소문자 무시하고 다 뒤집니다)
-        # 사용자님 파일에 있는 'Marcap', 'marcap', '시가총액' 등을 모두 찾습니다.
-        m_col = None
-        for col in df_k200.columns:
-            if col.lower() in ['marcap', 'marketcap', '시가총액', 'market cap']:
-                m_col = col
-                break
-
-        # 2. 필터링 (보통주 & 코스피 상위 200개)
-        # 종목코드 열 이름도 유연하게 대응
-        c_col = '종목코드' if '종목코드' in df_k200.columns else 'Code'
+        # 1. 컬럼 매핑 (대소문자/한글 대응)
+        m_col = next((c for c in df_k200.columns if c.lower() in ['시가총액', 'marcap', 'marketcap']), '시가총액')
         
-        is_common = df_k200[c_col].str.endswith('0')
-        is_kospi = df_k200['시장'].str.contains('KOSPI|KOSPI', case=False) if '시장' in df_k200.columns else True
+        # 2. 기초 필터링 (보통주 & KOSPI)
+        is_common = df_k200['종목코드'].str.endswith('0')
+        is_kospi = df_k200['시장'] == 'KOSPI'
+        # 시가총액 상위 200개로 기본 셋업
+        df_base = df_k200[is_kospi & is_common].sort_values(by=m_col, ascending=False).head(200).copy()
         
-        # 시가총액 데이터가 있다면 정렬, 없다면 순서대로
-        if m_col:
-            df_k200_sorted = df_k200[is_kospi & is_common].sort_values(by=m_col, ascending=False).head(200).copy()
-        else:
-            df_k200_sorted = df_k200[is_kospi & is_common].head(200).copy()
-
         # 통합티커 및 링크 생성
-        df_k200_sorted['통합티커'] = "KOSPI:" + df_k200_sorted[c_col].str.zfill(6)
-        df_k200_sorted['종목명_L'] = df_k200_sorted.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r[c_col].zfill(6)}#{r['종목명']}", axis=1)
+        df_base['통합티커'] = "KOSPI:" + df_base['종목코드'].str.zfill(6)
+        df_base['종목명_L'] = df_base.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
 
-        # (상단 요약 박스용 common_codes 계산 로직 - 생략하지 말고 기존 것 유지하세요)
-        # ... [중략: 퍼펙트 상승 / 장기 주도 필터링 로직] ...
-        # [이후 common_codes 변수가 생성되었다고 가정]
+        # 3. 상단 필터링 (퍼펙트 상승 / 장기 주도)
+        t30_12m = df_base['12개월(%)'].quantile(0.7)
+        cond_all_pos = (df_base['1개월(%)'] > 0) & (df_base['3개월(%)'] > 0) & (df_base['6개월(%)'] > 0) & (df_base['12개월(%)'] > 0)
+        df_perfect = df_base[cond_all_pos & (df_base['12개월(%)'] >= t30_12m)].copy()
+        
+        t10_1m = df_base['1개월(%)'].quantile(0.9)
+        df_special = df_base[(df_base['12개월(%)'] >= t30_12m) & (df_base['1개월(%)'] >= t10_1m)].copy()
+        common_codes = set(df_perfect['종목코드']).intersection(set(df_special['종목코드']))
 
-        # --- 하단: KOSPI 200 시가총액 전체 순위 표 출력 ---
-        st.subheader("🏆 KOSPI 200 시가총액 순위 (1위 ~ 200위)")
+        # ⭐ 공통 컬럼 설정 (소수점 1자리 강제 적용)
+        k200_config = {
+            "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
+            "기준가": st.column_config.NumberColumn("현재가", format="%,d"), 
+            m_col: st.column_config.NumberColumn("시가총액", format="%,d"),
+            "1개월(%)": st.column_config.NumberColumn(format="%.1f"), 
+            "3개월(%)": st.column_config.NumberColumn(format="%.1f"), 
+            "6개월(%)": st.column_config.NumberColumn(format="%.1f"), 
+            "12개월(%)": st.column_config.NumberColumn(format="%.1f"),
+            "모멘텀스코어": st.column_config.NumberColumn("스코어", format="%.1f"),
+            "전달순위": st.column_config.NumberColumn("전달 순위", format="%d위")
+        }
 
-        if not df_k200_sorted.empty:
-            # 순위 인덱스 부여
-            df_display = df_k200_sorted.copy()
-            df_display['순위'] = range(1, len(df_display) + 1)
-            df_display = df_display.set_index('순위')
+        # 상단 레이아웃
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("🔥 퍼펙트 상승")
+            st.dataframe(df_perfect.style.apply(apply_k200_styling, idx_df=idx_now_k200, common_codes=common_codes, axis=1), 
+                         use_container_width=True, column_order=['통합티커', '종목명_L', '12개월(%)', '모멘텀스코어'], column_config=k200_config)
+        with col2:
+            st.subheader("🚀 장기 주도 & 단기 급등")
+            st.dataframe(df_special.style.apply(apply_k200_styling, idx_df=idx_now_k200, common_codes=common_codes, axis=1), 
+                         use_container_width=True, column_order=['통합티커', '종목명_L', '12개월(%)', '모멘텀스코어'], column_config=k200_config)
 
-            # 컬럼 설정
-            final_col_order = ['통합티커', '종목명_L', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']
-            if m_col: final_col_order.insert(2, m_col) # 시총 컬럼이 있으면 추가
+        # 4. 하단: KOSPI 200 시총 전체 순위 (스코어 포함)
+        st.markdown("---")
+        st.subheader("🏆 KOSPI 200 시가총액 전체 순위")
+        
+        df_full = df_base.copy()
+        df_full['시총순위'] = range(1, len(df_full) + 1)
+        df_full = df_full.set_index('시총순위')
 
-            st.dataframe(
-                df_display.style.apply(apply_k200_styling, idx_df=idx_now_k200, common_codes=common_codes if 'common_codes' in locals() else set(), axis=1),
-                use_container_width=True,
-                height=600, 
-                column_order=final_col_order,
-                column_config={
-                    "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"),
-                    "기준가": st.column_config.NumberColumn("현재가", format="%,d"),
-                    m_col: st.column_config.NumberColumn("시가총액", format="%,d") if m_col else None
-                }
-            )
-        else:
-            st.info("KOSPI 200 종목 데이터를 불러올 수 없습니다. 필터링 조건을 확인하세요.")
-            
+        st.dataframe(
+            df_full.style.apply(apply_k200_styling, idx_df=idx_now_k200, common_codes=common_codes, axis=1),
+            use_container_width=True, height=600,
+            column_order=['통합티커', '종목명_L', m_col, '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어'],
+            column_config=k200_config
+        )
     else:
-        st.warning("데이터 파일(data/momentum_data.csv)을 찾을 수 없습니다.")
+        st.warning("데이터 파일을 찾을 수 없습니다.")
