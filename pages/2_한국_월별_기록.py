@@ -36,14 +36,14 @@ else:
             data_struct[year].append(month)
         except: continue
 
-    # 연도는 최신순 (2026, 2025...)
+    # 연도는 최신순
     sorted_years = sorted(data_struct.keys(), reverse=True)
     
     col_y, col_m, _ = st.columns([1, 1, 4])
     with col_y:
         selected_year = st.selectbox("📅 연도", sorted_years)
     with col_m:
-        # 월은 1월부터 순서대로 (01, 02, 03...)
+        # 월은 1월부터 순서대로
         available_months = sorted(data_struct[selected_year], key=lambda x: int(x))
         selected_month = st.selectbox("🌙 월", available_months)
 
@@ -51,7 +51,7 @@ else:
     target_file = f"{folder}/{prefix}{selected_year}_{selected_month}.csv"
     df = pd.read_csv(target_file, dtype={'종목코드': str})
     
-    # ⭐ [문제 해결 핵심] 종목코드 세척: 문자 변환 -> 공백 제거 -> 6자리 빈칸 0으로 채우기
+    # 종목코드 세척
     df['종목코드'] = df['종목코드'].astype(str).str.strip().str.zfill(6)
     
     # --- [전달 순위 대조 로직] ---
@@ -65,11 +65,11 @@ else:
         
         if os.path.exists(prev_file):
             df_prev = pd.read_csv(prev_file, dtype={'종목코드': str})
-            
-            # ⭐ [문제 해결 핵심] 이전 달 종목코드도 똑같이 세척
             df_prev['종목코드'] = df_prev['종목코드'].astype(str).str.strip().str.zfill(6)
             
-            df_prev = df_prev.sort_values('모멘텀스코어', ascending=False).reset_index(drop=True)
+            # 모멘텀스코어 열이 있을 때만 정렬
+            if '모멘텀스코어' in df_prev.columns:
+                df_prev = df_prev.sort_values('모멘텀스코어', ascending=False).reset_index(drop=True)
             prev_rank_dict = {code: idx + 1 for idx, code in enumerate(df_prev['종목코드'])}
             
             df['전달순위'] = df['종목코드'].map(prev_rank_dict)
@@ -84,7 +84,7 @@ else:
     
     st.success(f"**{selected_year}년 {selected_month}월** (추출 기준일: {display_date})")
 
-    # 2. 메인 표 출력 (글자색 포인트)
+    # 2. 메인 표 출력
     def style_returns(val):
         try:
             num = float(val)
@@ -93,24 +93,36 @@ else:
         except: pass
         return ''
 
-    df = df.sort_values('모멘텀스코어', ascending=False).reset_index(drop=True)
+    # 모멘텀 스코어가 있으면 그것을 기준으로 정렬
+    if '모멘텀스코어' in df.columns:
+        df = df.sort_values('모멘텀스코어', ascending=False).reset_index(drop=True)
     df.index = range(1, len(df) + 1)
     
-    # 링크 생성 (이미 zfill(6)을 했으므로 바로 적용 가능)
+    # 링크 생성
     df['종목명_L'] = df.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드']}#{r['종목명']}", axis=1)
 
-    # 출력 컬럼 목록 (수익률이 있을 때만 추가)
-    display_cols = ['시장', '종목명_L', '기준가', '모멘텀스코어', '전달순위']
+    # ⭐ 출력 컬럼 목록 (모멘텀 스코어 제거, 과거 수익률 추가)
+    base_cols = ['시장', '종목명_L', '기준가', '전달순위']
+    
+    # 과거 수익률 컬럼이 파일에 존재하는지 확인 후 순서대로 추가
+    past_ret_cols = ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']
+    available_ret_cols = [c for c in past_ret_cols if c in df.columns]
+    
+    display_cols = base_cols[:3] + available_ret_cols + base_cols[3:]
+    
     if '다음달수익률(%)' in df.columns:
         display_cols.append('다음달수익률(%)')
 
-    # 컬럼 설정
+    # ⭐ 컬럼 설정 (과거 수익률 포맷팅 추가)
     config = {
         "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"),
-        "기준가": st.column_config.NumberColumn(format="%d"),
-        "모멘텀스코어": st.column_config.NumberColumn(format="%.1f"),
+        "기준가": st.column_config.NumberColumn(format="%,d"), # 콤마 포맷 추가
         "전달순위": st.column_config.NumberColumn("전달 순위", format="%d위")
     }
+    
+    for c in available_ret_cols:
+        config[c] = st.column_config.NumberColumn(format="%.1f %%")
+
     if '다음달수익률(%)' in df.columns:
         config["다음달수익률(%)"] = st.column_config.NumberColumn(format="%.2f %%")
 
@@ -125,7 +137,7 @@ else:
         column_config=config
     )
 
-    # 3. 상위권 포트폴리오 성적 (표 바로 밑 밀착 배치)
+    # 3. 상위권 포트폴리오 성적
     def get_stats(data, n):
         subset = data.head(n)
         if '다음달수익률(%)' not in subset.columns or subset.empty: 
