@@ -7,42 +7,36 @@ import os
 # 1. 페이지 설정
 st.set_page_config(page_title="S&P 500 모멘텀 순위", layout="wide")
 
-# CSS: 초밀착 레이아웃 및 디자인
+# CSS: 레이아웃 최적화
 st.markdown("""
     <style>
     .block-container { padding-top: 1.5rem !important; }
-    h1 { font-size: 2.rem !important; font-weight: 800; margin-bottom: 10px; }
+    h1 { font-size: 2.0rem !important; font-weight: 800; margin-bottom: 10px; }
     [data-testid="stTable"] { margin-bottom: -25px; }
     .stTabs [data-baseweb="tab"] { font-size: 18px; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-# 지수 비교 하이라이트 함수 (S&P 500 지수보다 낮으면 파란색)
-def highlight_sp500(row, idx_df):
+# ⭐ 스타일 함수: 지수 대비 약세(파랑) + 1,000만 주 이상(분홍)
+def apply_custom_styling(row, idx_df):
     target = 'S&P 500'
     styles = [''] * len(row)
+    
+    # 1. 지수 대비 수익률 하이라이트 (파란색)
     if target in idx_df.index:
         idx_r = idx_df.loc[target]
         for col in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
             if col in row.index:
                 col_idx = row.index.get_loc(col)
                 if row[col] < idx_r[col]:
-                    styles[col_idx] = 'background-color: #0047AB; color: #FFFFFF; font-weight: bold;'
-    return styles
+                    styles[col_idx] = 'background-color: #E3F2FD; color: #0047AB;'
 
-# 미국 대통령 집권 연차 필터 (2026년 = 6년차 정확히 반영)
-def get_pres_status():
-    now = datetime.now()
-    year, month = now.year, now.month
-    cycle_year = (year - 2020) % 8
-    if cycle_year == 0: cycle_year = 8
-    exclusion_rules = {
-        1: [2, 3, 8], 2: [1, 4, 6, 9], 3: [9], 4: [10],
-        5: [2, 3, 8], 6: [7, 8, 9], 7: [9], 8: [1, 2, 8, 9]
-    }
-    is_excluded = month in exclusion_rules.get(cycle_year, [])
-    status = "🔴 현재는 현금 비중 확대를 권장합니다" if is_excluded else "🟢 현재는 적극 투자하기 좋은 달입니다"
-    return cycle_year, status
+    # 2. 거래량 1,000만 주 이상 하이라이트 (연분홍색)
+    if '전일거래량' in row.index and row['전일거래량'] >= 10000000:
+        vol_idx = row.index.get_loc('전일거래량')
+        styles[vol_idx] = 'background-color: #FFEBEE; color: #B71C1C; font-weight: bold;'
+            
+    return styles
 
 @st.cache_data(ttl=3600)
 def get_idx_us(target_date=None):
@@ -58,26 +52,25 @@ def get_idx_us(target_date=None):
                 ref_day = (last_idx_date.replace(day=1) - pd.DateOffset(months=m-1)) - timedelta(days=1)
                 p_df = df[df.index <= ref_day]
                 return round((curr_val - p_df['Close'].iloc[-1]) / p_df['Close'].iloc[-1] * 100, 2) if not p_df.empty else 0.0
-            res.append({'시장': name, '현재가': round(curr_val, 1), '1개월(%)': get_ret(1), '3개월(%)': get_ret(3), '6개월(%)': get_ret(6), '12개월(%)': get_ret(12)})
+            res.append({'시장': name, '현재가': curr_val, '1개월(%)': get_ret(1), '3개월(%)': get_ret(3), '6개월(%)': get_ret(6), '12개월(%)': get_ret(12)})
         except: pass
     return pd.DataFrame(res).set_index('시장')
 
-# 상단 타이틀 및 필터 정보
+# 상단 타이틀 (집권연차 삭제)
 st.title("🇺🇸 S&P 500 모멘텀 순위")
-cy, status = get_pres_status()
-st.info(f"**미국 집권 {cy}년차** | {status}")
 
 tab1, tab2 = st.tabs(["📅 전월 말일 기준", "🕒 오늘(데일리) 기준"])
 
-# 공통 컬럼 설정 (소수점 2자리 고정)
+# 공통 컬럼 설정 (콤마 및 정렬 최적화)
 common_config = {
     "시장": st.column_config.TextColumn("거래소"),
     "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
-    "기준가": st.column_config.NumberColumn("기준가", format="$ %.2f"),
-    "1개월(%)": st.column_config.NumberColumn("1M (%)", format="%.2f%%"),
-    "3개월(%)": st.column_config.NumberColumn("3M (%)", format="%.2f%%"),
-    "6개월(%)": st.column_config.NumberColumn("6M (%)", format="%.2f%%"),
-    "12개월(%)": st.column_config.NumberColumn("12M (%)", format="%.2f%%"),
+    "기준가": st.column_config.NumberColumn("현재가", format="$ %,.2f"),
+    "전일거래량": st.column_config.NumberColumn("전일거래량", format="%,d"),
+    "1개월(%)": st.column_config.NumberColumn("1M (%)", format="%.1f%%"),
+    "3개월(%)": st.column_config.NumberColumn("3M (%)", format="%.1f%%"),
+    "6개월(%)": st.column_config.NumberColumn("6M (%)", format="%.1f%%"),
+    "12개월(%)": st.column_config.NumberColumn("12M (%)", format="%.1f%%"),
     "모멘텀스코어": st.column_config.NumberColumn("스코어", format="%.2f"),
 }
 
@@ -91,9 +84,14 @@ with tab1:
         
         idx_m = get_idx_us(pd.to_datetime(b_date_str))
         if not idx_m.empty:
-            st.table(idx_m.reset_index().assign(**{c: idx_m.reset_index()[c].map('{:.1f}'.format) for c in idx_m.columns if c != '시장'}))
+            # 지수 테이블 소수점 1자리 + 콤마 강제 적용
+            idx_disp = idx_m.reset_index().copy()
+            idx_disp['현재가'] = idx_disp['현재가'].map('{:,.1f}'.format)
+            for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
+                idx_disp[c] = idx_disp[c].map('{:+.1f}%'.format)
+            st.table(idx_disp)
         
-        # [지지난달 순위 대조]
+        # [순위 대조 - 숫자로 변환하여 정렬 지원]
         try:
             curr_dt = datetime.strptime(b_date_str, '%Y-%m-%d')
             prev_month_dt = curr_dt.replace(day=1) - timedelta(days=1)
@@ -103,21 +101,19 @@ with tab1:
             if os.path.exists(f_prev_archive):
                 df_prev_m = pd.read_csv(f_prev_archive, dtype={'종목코드': str})
                 prev_rank_map = {code: i+1 for i, code in enumerate(df_prev_m['종목코드'])}
-                df_m['전달순위'] = df_m['종목코드'].map(prev_rank_map).fillna("⭐ NEW")
-                df_m['전달순위'] = df_m['전달순위'].apply(lambda x: f"{x}위" if isinstance(x, int) else x)
-            else: df_m['전달순위'] = "기록 없음"
-        except: df_m['전달순위'] = "-"
+                df_m['전달순위'] = df_m['종목코드'].map(prev_rank_map)
+            else: df_m['전달순위'] = None
+        except: df_m['전달순위'] = None
 
         st.markdown("---")
         df_m.index = range(1, len(df_m) + 1)
-        # ⭐ 사용자님 요청 링크 방식 적용
         df_m['종목명_L'] = df_m.apply(lambda r: f"https://finance.yahoo.com/quote/{r['종목코드']}#{r['종목명']}", axis=1)
 
         st.dataframe(
-            df_m.style.apply(highlight_sp500, idx_df=idx_m, axis=1),
+            df_m.style.apply(apply_custom_styling, idx_df=idx_m, axis=1),
             use_container_width=True, height=600,
             column_order=['시장', '종목명_L', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달순위'],
-            column_config={**common_config, "전달순위": st.column_config.TextColumn("전달 순위")}
+            column_config={**common_config, "전달순위": st.column_config.NumberColumn("전달 순위", format="%d위")}
         )
     else: st.warning("월말 데이터 파일이 없습니다.")
 
@@ -129,30 +125,34 @@ with tab2:
     if os.path.exists(f_daily):
         df_d = pd.read_csv(f_daily, dtype={'종목코드': str})
         
-        # [전월 순위 대조]
+        # [전월 순위 대조 - 숫자로 변환]
         if os.path.exists(f_monthly_ref):
             df_m_ref = pd.read_csv(f_monthly_ref, dtype={'종목코드': str})
             rank_map = {code: i+1 for i, code in enumerate(df_m_ref['종목코드'])}
-            df_d['전월순위'] = df_d['종목코드'].map(rank_map).fillna("⭐ NEW")
-            df_d['전월순위'] = df_d['전월순위'].apply(lambda x: f"{x}위" if isinstance(x, int) else x)
-        else: df_d['전월순위'] = "-"
+            df_d['전월순위'] = df_d['종목코드'].map(rank_map)
+        else: df_d['전월순위'] = None
 
         d_date = df_d['기준일'].iloc[0]
         st.subheader(f"🕒 데일리 실시간 순위 (기준일: {d_date})")
         
         idx_now = get_idx_us() 
         if not idx_now.empty:
-            st.table(idx_now.reset_index().assign(**{c: idx_now.reset_index()[c].map('{:.1f}'.format) for c in idx_now.columns if c != '시장'}))
+            idx_disp_now = idx_now.reset_index().copy()
+            idx_disp_now['현재가'] = idx_disp_now['현재가'].map('{:,.1f}'.format)
+            for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
+                idx_disp_now[c] = idx_disp_now[c].map('{:+.1f}%'.format)
+            st.table(idx_disp_now)
         
         st.markdown("---")
+        if '전일거래량' not in df_d.columns: df_d['전일거래량'] = 0
+
         df_d.index = range(1, len(df_d) + 1)
-        # ⭐ 사용자님 요청 링크 방식 적용
         df_d['종목명_L'] = df_d.apply(lambda r: f"https://finance.yahoo.com/quote/{r['종목코드']}#{r['종목명']}", axis=1)
 
         st.dataframe(
-            df_d.style.apply(highlight_sp500, idx_df=idx_now, axis=1),
+            df_d.style.apply(apply_custom_styling, idx_df=idx_now, axis=1),
             use_container_width=True, height=600,
-            column_order=['시장', '종목명_L', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전월순위'],
-            column_config={**common_config, "전월순위": st.column_config.TextColumn("전월 순위")}
+            column_order=['시장', '종목명_L', '기준가', '전일거래량', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전월순위'],
+            column_config={**common_config, "전월순위": st.column_config.NumberColumn("전월 순위", format="%d위")}
         )
     else: st.warning("데일리 데이터 파일이 없습니다.")
