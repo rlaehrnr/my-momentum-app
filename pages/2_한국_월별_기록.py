@@ -36,35 +36,46 @@ else:
             data_struct[year].append(month)
         except: continue
 
-    # ⭐ 연도는 최신순 (2026, 2025...)
+    # 연도는 최신순 (2026, 2025...)
     sorted_years = sorted(data_struct.keys(), reverse=True)
     
     col_y, col_m, _ = st.columns([1, 1, 4])
     with col_y:
         selected_year = st.selectbox("📅 연도", sorted_years)
     with col_m:
-        # ⭐ 월은 1월부터 순서대로 (01, 02, 03...)
+        # 월은 1월부터 순서대로 (01, 02, 03...)
         available_months = sorted(data_struct[selected_year], key=lambda x: int(x))
         selected_month = st.selectbox("🌙 월", available_months)
 
-    # 데이터 로드
+    # 현재 달 데이터 로드
     target_file = f"{folder}/{prefix}{selected_year}_{selected_month}.csv"
     df = pd.read_csv(target_file, dtype={'종목코드': str})
     
-    # --- [추가 기능: 직전 달 순위 대조 (에러 방지용 try-except)] ---
+    # ⭐ [수정된 핵심 로직: 전달 순위 대조] ⭐
     try:
+        # 1. 현재 선택된 연/월을 datetime 객체로 변환 (예: 2026-03-01)
         curr_dt = datetime(int(selected_year), int(selected_month), 1)
+        # 2. 하루 전으로 돌려서 이전 달의 연/월 추출 (예: 2026-02-28 -> 2026_02)
         prev_dt = curr_dt - timedelta(days=1)
-        prev_file = f"{folder}/{prefix}{prev_dt.strftime('%Y_%m')}.csv"
+        p_year_str = prev_dt.strftime('%Y')
+        p_month_str = prev_dt.strftime('%m')
         
+        # 3. 이전 달 파일 경로 생성
+        prev_file = f"{folder}/{prefix}{p_year_str}_{p_month_str}.csv"
+        
+        # 4. 이전 달 파일이 존재하면 읽어와서 순위 계산
         if os.path.exists(prev_file):
-            df_p = pd.read_csv(prev_file, dtype={'종목코드': str})
-            df_p = df_p.sort_values('모멘텀스코어', ascending=False).reset_index(drop=True)
-            p_rank_map = {code: i+1 for i, code in enumerate(df_p['종목코드'])}
-            df['전달순위'] = df['종목코드'].map(p_rank_map)
+            df_prev = pd.read_csv(prev_file, dtype={'종목코드': str})
+            # 이전 달 데이터를 모멘텀 스코어 기준으로 '내림차순' 정렬
+            df_prev = df_prev.sort_values('모멘텀스코어', ascending=False).reset_index(drop=True)
+            # 종목코드: 순위(index+1) 형태의 딕셔너리 생성
+            prev_rank_dict = {code: idx + 1 for idx, code in enumerate(df_prev['종목코드'])}
+            # 현재 달 데이터프레임에 매핑
+            df['전달순위'] = df['종목코드'].map(prev_rank_dict)
         else:
             df['전달순위'] = None
-    except:
+    except Exception as e:
+        st.write(f"순위 계산 중 오류: {e}") # 디버깅용 (필요시 삭제)
         df['전달순위'] = None
 
     # 기준일 출력 시 KeyError 방지
@@ -82,15 +93,18 @@ else:
         except: pass
         return ''
 
+    # 현재 달 데이터의 인덱스(현재 순위) 재설정
+    df = df.sort_values('모멘텀스코어', ascending=False).reset_index(drop=True)
     df.index = range(1, len(df) + 1)
+    
     df['종목명_L'] = df.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
 
-    # ⭐ 출력 컬럼 목록 (수익률이 있을 때만 추가)
+    # 출력 컬럼 목록 (수익률이 있을 때만 추가)
     display_cols = ['시장', '종목명_L', '기준가', '모멘텀스코어', '전달순위']
     if '다음달수익률(%)' in df.columns:
         display_cols.append('다음달수익률(%)')
 
-    # ⭐ 컬럼 설정
+    # 컬럼 설정
     config = {
         "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"),
         "기준가": st.column_config.NumberColumn(format="%d"),
