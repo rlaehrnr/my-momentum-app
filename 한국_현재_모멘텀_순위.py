@@ -6,29 +6,27 @@ import os
 
 st.set_page_config(page_title="한국 모멘텀 순위", layout="wide")
 
-# CSS: 레이아웃 설정
+# CSS: 초밀착 레이아웃
 st.markdown("""<style>.block-container { padding-top: 2.5rem !important; } h1 { font-size: 2rem !important; } .stTabs [data-baseweb="tab"] { font-size: 18px; font-weight: bold; }</style>""", unsafe_allow_html=True)
 
-# ⭐ 통합 스타일 함수: 지수 대비 약세(파랑) + 1,000만 주 이상(분홍)
+# ⭐ 수정된 스타일 함수: 행 전체가 아니라 특정 '컬럼'만 조준 사격
 def apply_custom_styling(row, idx_df):
     styles = [''] * len(row)
     
-    # 1. 지수 대비 수익률 하이라이트 (파란색)
+    # 1. 지수 대비 수익률 하이라이트 (수익률 컬럼들만 파란색)
     if '시장' in row and row['시장'] in idx_df.index:
         idx_r = idx_df.loc[row['시장']]
         for col_name in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
             if col_name in row.index:
                 col_idx = row.index.get_loc(col_name)
                 if row[col_name] < idx_r[col_name]:
-                    styles[col_idx] = 'background-color: #E3F2FD; color: #0047AB; font-weight: bold;'
+                    styles[col_idx] = 'background-color: #E3F2FD; color: #0047AB;'
 
-    # 2. 거래량 1,000만 주 이상 하이라이트 (옅은 분홍색)
-    # '전일거래량' 컬럼이 있는 경우에만 작동
-    if '전일거래량' in row.index and row['전일거래량'] >= 10000000:
-        for i in range(len(styles)):
-            # 기존 파란색 하이라이트가 없는 칸만 분홍색으로 칠함 (중첩 방지)
-            if not styles[i]:
-                styles[i] = 'background-color: #FFEBEE;' 
+    # 2. 거래량 1,000만 주 이상 하이라이트 (거래량 컬럼'만' 연분홍색)
+    if '전일거래량' in row.index:
+        vol_idx = row.index.get_loc('전일거래량')
+        if row['전일거래량'] >= 10000000:
+            styles[vol_idx] = 'background-color: #FFEBEE; color: #B71C1C; font-weight: bold;'
             
     return styles
 
@@ -83,7 +81,7 @@ with tab1:
         df_kr['통합티커'] = df_kr['시장'] + ":" + df_kr['종목코드'].str.zfill(6)
         df_kr['종목명'] = df_kr.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
 
-        # ⭐ 스타일 적용 (지수 대비 약세는 파랑색 배경)
+        # 스타일 적용 (수익률 컬럼만 파랑)
         st.dataframe(df_kr.style.apply(apply_custom_styling, idx_df=idx_kr, axis=1), use_container_width=True, height=560, 
                      column_order=['통합티커', '종목명', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달순위'], 
                      column_config={
@@ -121,13 +119,13 @@ with tab2:
         df_d['통합티커'] = df_d['시장'] + ":" + df_d['종목코드'].str.zfill(6)
         df_d['종목명'] = df_d.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
 
-        # ⭐ 스타일 적용 및 컬럼 설정 (거래량 1천만 주 이상 연분홍색)
+        # 스타일 적용 (거래량 컬럼만 핑크)
         st.dataframe(df_d.style.apply(apply_custom_styling, idx_df=idx_now, axis=1), use_container_width=True, height=560, 
                      column_order=['통합티커', '종목명', '기준가', '전일거래량', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전월순위'], 
                      column_config={
                          "종목명": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
                          "기준가": st.column_config.NumberColumn("현재가", format="%,d"), 
-                         "전일거래량": st.column_config.NumberColumn("전일거래량", format="%,d"), # ⭐ 주 단위 콤마
+                         "전일거래량": st.column_config.NumberColumn("전일거래량", format="%,d"), 
                          "1개월(%)": st.column_config.NumberColumn(format="%.1f"), 
                          "3개월(%)": st.column_config.NumberColumn(format="%.1f"), 
                          "6개월(%)": st.column_config.NumberColumn(format="%.1f"), 
