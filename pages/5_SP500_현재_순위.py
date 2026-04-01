@@ -79,35 +79,46 @@ with tab1:
     f_monthly = 'data/momentum_data_sp500.csv'
     if os.path.exists(f_monthly):
         df_m = pd.read_csv(f_monthly, dtype={'종목코드': str})
+        
+        # 💡 [핵심] 컬럼명 공백 제거 (전달 순위 -> 전달순위 불일치 방지)
+        df_m.columns = df_m.columns.str.replace(' ', '')
+        
         b_date_str = df_m['기준일(월말)'].iloc[0]
         st.subheader(f"📅 월말 기준 데이터 (기준일: {b_date_str})")
         
         idx_m = get_idx_us(pd.to_datetime(b_date_str))
         if not idx_m.empty:
-            # 지수 테이블 소수점 1자리 + 콤마 강제 적용
             idx_disp = idx_m.reset_index().copy()
             idx_disp['현재가'] = idx_disp['현재가'].map('{:,.1f}'.format)
             for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
                 idx_disp[c] = idx_disp[c].map('{:+.1f}%'.format)
             st.table(idx_disp)
         
-        # [순위 대조 - 숫자로 변환하여 정렬 지원]
-        try:
-            curr_dt = datetime.strptime(b_date_str, '%Y-%m-%d')
-            prev_month_dt = curr_dt.replace(day=1) - timedelta(days=1)
-            prev_ym = prev_month_dt.strftime('%Y_%m')
-            f_prev_archive = f'archive_sp500/momentum_sp500_{prev_ym}.csv'
-            
-            if os.path.exists(f_prev_archive):
-                df_prev_m = pd.read_csv(f_prev_archive, dtype={'종목코드': str})
-                prev_rank_map = {code: i+1 for i, code in enumerate(df_prev_m['종목코드'])}
-                df_m['전달순위'] = df_m['종목코드'].map(prev_rank_map)
-            else: df_m['전달순위'] = None
-        except: df_m['전달순위'] = None
+        # 💡 [순위 대조 로직 개선]
+        # CSV에 이미 데이터가 있다면 그걸 쓰고, 없을 때만 아카이브를 뒤집니다.
+        if '전달순위' in df_m.columns and df_m['전달순위'].notnull().any():
+            df_m['전달순위'] = pd.to_numeric(df_m['전달순위'], errors='coerce')
+        else:
+            try:
+                curr_dt = datetime.strptime(b_date_str, '%Y-%m-%d')
+                prev_month_dt = curr_dt.replace(day=1) - timedelta(days=1)
+                prev_ym = prev_month_dt.strftime('%Y_%m')
+                f_prev_archive = f'archive_sp500/momentum_sp500_{prev_ym}.csv'
+                
+                if os.path.exists(f_prev_archive):
+                    df_prev_m = pd.read_csv(f_prev_archive, dtype={'종목코드': str})
+                    # 티커 매칭률을 높이기 위해 strip()과 upper() 적용
+                    prev_rank_map = {str(code).strip().upper(): i+1 for i, code in enumerate(df_prev_m['종목코드'])}
+                    df_m['전달순위'] = df_m['종목코드'].str.strip().str.upper().map(prev_rank_map)
+                else: 
+                    df_m['전달순위'] = None
+            except: 
+                df_m['전달순위'] = None
 
         st.markdown("---")
         df_m.index = range(1, len(df_m) + 1)
-        df_m['종목명_L'] = df_m.apply(lambda r: f"https://finance.yahoo.com/quote/{r['종목코드']}#{r['종목명']}", axis=1)
+        # 야후 파이낸스 링크 생성 시 종목코드 정제
+        df_m['종목명_L'] = df_m.apply(lambda r: f"https://finance.yahoo.com/quote/{str(r['종목코드']).replace('.', '-')}#{r['종목명']}", axis=1)
 
         st.dataframe(
             df_m.style.apply(apply_custom_styling, idx_df=idx_m, axis=1),
@@ -115,7 +126,8 @@ with tab1:
             column_order=['시장', '종목명_L', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달순위'],
             column_config={**common_config, "전달순위": st.column_config.NumberColumn("전달 순위", format="%d위")}
         )
-    else: st.warning("월말 데이터 파일이 없습니다.")
+    else: 
+        st.warning("월말 데이터 파일이 없습니다.")
 
 # --- [탭 2: 데일리 데이터] ---
 with tab2:
