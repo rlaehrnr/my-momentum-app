@@ -101,15 +101,16 @@ def run_monthly(market_type='KR'):
 
     # 💡 수정 3: 새 데이터를 뽑기 전, 기존 파일(2월 말 데이터)에서 순위표 만들기
     prev_rank_map = {}
-    if os.path.exists(file_path):
-        try:
-            # 기존 파일을 읽어서 스코어 순으로 정렬 후 순위 매기기
-            df_old_for_rank = pd.read_csv(file_path, dtype={'종목코드': str})
-            df_old_for_rank = df_old_for_rank.sort_values('모멘텀스코어', ascending=False).reset_index(drop=True)
-            for i, r in df_old_for_rank.iterrows():
-                prev_rank_map[str(r['종목코드'])] = i + 1 # 숫자로 1, 2, 3... 저장
-        except Exception as e:
-            print(f"⚠️ {name_tag} 이전 순위 로드 실패: {e}")
+   if os.path.exists(p_path):
+    try:
+        df_p = pd.read_csv(p_path, dtype={'종목코드': str})
+        # 스코어 기준 내림차순 정렬
+        df_p = df_p.sort_values('모멘텀스코어', ascending=False).reset_index(drop=True)
+        for i, r in df_p.iterrows():
+            # i+1은 숫자(int)입니다. '1위'라고 쓰면 에러 납니다!
+            prev_rank_map[str(r['종목코드'])] = i + 1 
+    except:
+        pass
 
     target_date_str = get_target_ref_date()
     target_date_dt = pd.to_datetime(target_date_str)
