@@ -126,18 +126,62 @@ def run_monthly(market_type='KR'):
     target_date_dt = pd.to_datetime(target_date_str)
     print(f"\n🚀 {name_tag} 월말 업데이트 시작 (기준일: {target_date_str})")
 
-    # --- 1. 아카이브 보관 로직 ---
+  # --- 1. 아카이브 보관 및 마스터 파일 자동 누적 로직 ---
     if os.path.exists(file_path):
         try:
-            df_old = pd.read_csv(file_path)
+            df_old = pd.read_csv(file_path, dtype={'종목코드': str})
             existing_date = str(df_old['기준일(월말)'].iloc[0])
+            
+            # 파일에 적힌 날짜와 오늘 뽑을 날짜가 다르다면 (= 달이 바뀌어 업데이트가 일어나는 상황이라면)
             if existing_date != target_date_str:
                 print(f"📦 기존 데이터({existing_date}) 성적표 작성 중...")
+                
+                # [🔥 핵심 1: 진짜 '다음달 수익률' 채점하기]
+                for idx, row in df_old.iterrows():
+                    code = str(row['종목코드'])
+                    clean_code = code.replace('.', '-') if market_type in ['US', 'SP500'] else code.split('.')[0]
+                    try:
+                        # 예전 기준일(예: 3월 말)부터 오늘 기준일(예: 4월 말) 사이의 실제 주가를 불러와 수익률 계산
+                        df_price = fdr.DataReader(clean_code, existing_date, target_date_str)
+                        if len(df_price) >= 2:
+                            old_price = df_price['Close'].iloc[0]
+                            new_price = df_price['Close'].iloc[-1]
+                            df_old.at[idx, '다음달수익률(%)'] = round(((new_price / old_price) - 1) * 100, 2)
+                    except: pass
+                
+                # 1) 일반 백업 (archive 폴더)
                 ym = (datetime.strptime(existing_date, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y_%m')
                 archive_name = f'{folder}/{prefix}{ym}.csv'
                 df_old.to_csv(archive_name, index=False, encoding='utf-8-sig')
-        except: pass
 
+                # [🔥 핵심 2: 한국 시장일 경우 마스터 CSV 파일에 '자동 누적(Append)'하기]
+                if market_type == 'KR':
+                    master_csv = 'data/한국 코스피 2014년부터 200위까지 자료.csv'
+                    if os.path.exists(master_csv):
+                        try:
+                            # KOSPI 대형주 필터링
+                            df_k200 = df_old[(df_old['시장'] == 'KOSPI') & (df_old['종목코드'].str.endswith('0'))].copy()
+                            
+                            # 현재 시가총액 데이터 병합
+                            kospi_info = fdr.StockListing('KOSPI')[['Code', 'Marcap']]
+                            df_k200 = df_k200.merge(kospi_info, left_on='종목코드', right_on='Code', how='left')
+                            df_k200['시가총액'] = df_k200['Marcap'].fillna(0)
+                            
+                            # 시총순위 정렬 및 200개 컷
+                            df_k200 = df_k200.sort_values(by='시가총액', ascending=False).head(200)
+                            df_k200['순위'] = range(1, len(df_k200) + 1)
+                            df_k200['기준일'] = existing_date
+                            
+                            # 마스터 파일과 똑같은 컬럼 모양으로 자르기
+                            df_append = df_k200[['순위', '종목코드', '종목명', '시가총액', '기준일', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '다음달수익률(%)']]
+                            
+                            # mode='a' 옵션으로 기존 2014년~ 파일 맨 밑에 새 데이터를 조용히 이어 붙임
+                            df_append.to_csv(master_csv, mode='a', header=False, index=False, encoding='utf-8-sig')
+                            print(f"✅ {existing_date} 실전 데이터를 마스터 과거 기록에 누적 완료!")
+                        except Exception as e:
+                            print(f"⚠️ 마스터 파일 누적 에러: {e}")
+        except Exception as e: 
+            print(f"⚠️ 아카이브 에러: {e}")
     # --- 2. 신규 데이터 수집 ---
     res = []
     for mkt_name in market_list:
