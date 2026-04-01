@@ -13,14 +13,27 @@ def get_top_stocks(market, limit=150):
         if df.empty: return pd.DataFrame()
 
         if market == 'S&P500': 
-            df = df.drop_duplicates(subset=['Symbol'])
+            return df.drop_duplicates(subset=['Symbol']).head(limit)
         
-        # 시가총액 컬럼 찾기
-        cap_col = [c for c in df.columns if 'market' in c.lower() and 'cap' in c.lower()]
-        if not cap_col: cap_col = [c for c in df.columns if 'mar' in c.lower() and 'cap' in c.lower()]
+        # 💡 [수정] 한글 '시가총액' 컬럼 추가 및 찾기
+        cap_col = [c for c in df.columns if '시가총액' in c or ('mar' in c.lower() and 'cap' in c.lower())]
         
         if cap_col:
-            return df.sort_values(cap_col[0], ascending=False).head(limit)
+            target_col = cap_col[0]
+            # 💡 [수정] 시가총액 콤마 제거 후 숫자로 변환하여 내림차순 정렬
+            df[target_col] = pd.to_numeric(df[target_col].astype(str).str.replace(',', ''), errors='coerce')
+            df = df.sort_values(target_col, ascending=False)
+        else:
+            print(f"⚠️ {market} 시가총액 컬럼을 찾을 수 없습니다. (알파벳 순 정렬됨)")
+            
+        # 💡 [추가] KOSPI, KOSDAQ인 경우 우선주 및 스팩주 필터링
+        if market in ['KOSPI', 'KOSDAQ']:
+            name_col = [c for c in df.columns if 'name' in c.lower() or '종목명' in c]
+            if name_col:
+                col = name_col[0]
+                df = df[~df[col].str.endswith(('우', '우B', '우C'))]
+                df = df[~df[col].str.contains('스팩')]
+
         return df.head(limit)
     except Exception as e:
         print(f"❌ {market} 리스트 가져오기 실패: {e}")
@@ -43,7 +56,10 @@ def run_daily(market_type='KR'):
     res = []
 
     for mkt_name in market_list:
-        target_stocks = get_top_stocks(mkt_name, limit)
+        # 💡 [핵심 수정] 코스피는 200위, 그 외(코스닥, 미국 등)는 기본 limit(150 등) 적용
+        current_limit = 200 if mkt_name == 'KOSPI' else limit
+        target_stocks = get_top_stocks(mkt_name, current_limit)
+        
         if target_stocks.empty:
             print(f"⚠️ {mkt_name} 종목 리스트가 비어있습니다. 건너뜁니다.")
             continue
