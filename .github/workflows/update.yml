@@ -2,7 +2,7 @@ name: Momentum Data Auto-Update
 
 on:
   schedule:
-    # ⭐ 매일 한국 시간 오전 8시 실행 (UTC 23:00)
+    # ⭐ 매일 한국 시간 오전 7시 실행 (UTC 22:00)
     - cron: '0 22 * * *'  
   workflow_dispatch:      # 필요할 때 언제든 수동으로 실행하는 버튼
 
@@ -23,16 +23,17 @@ jobs:
         with:
           python-version: '3.11'
 
+      # 라이브러리 설치 (fdr 작동을 위한 lxml, html5lib 포함)
       - name: Install dependencies
         run: |
-          pip install pandas finance-datareader openpyxl pyarrow requests
+          pip install pandas finance-datareader openpyxl pyarrow requests lxml html5lib
 
       - name: Run update scripts
         run: |
-          # 1. 월말/초 보관 및 고정 데이터 업데이트 (통합 로봇)
+          # 1. 월말/초 보관 및 고정 데이터 업데이트
           python update_monthly.py
           
-          # 2. 매일 아침 데일리 순위 업데이트 (통합 로봇)
+          # 2. 매일 아침 데일리 순위 업데이트
           python update_daily.py
 
       - name: Commit and push changes
@@ -40,19 +41,14 @@ jobs:
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           
-          # 변경된 모든 파일(data 폴더, archive 폴더 등)을 스테이징
+          # 변경된 모든 파일 스테이징
           git add .
           
-          # 변경 사항이 있는 경우에만 커밋 및 푸시 진행
+          # 변경 사항이 있는 경우에만 커밋 및 푸시
           if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "Daily Morning Update (KR/US Monthly & Daily)"
+            git commit -m "🤖 Daily Morning Update at 07:00 KST"
             git pull --rebase origin main
             git push
           else
             echo "No changes to commit today."
           fi
-
-
-      - name: Install dependencies
-        run: |
-          pip install pandas finance-datareader openpyxl pyarrow requests lxml html5lib
