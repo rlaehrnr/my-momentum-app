@@ -100,12 +100,21 @@ with tab2:
         df_d['통합티커'] = df_d['시장'] + ":" + df_d['종목코드'].str.zfill(6)
         df_d['종목명_L'] = df_d.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
         
+        # (혹시 데이터에 컬럼이 누락되었을 경우를 대비한 안전장치)
+        if '전달순위' not in df_d.columns: df_d['전달순위'] = '-'
+        if '모멘텀스코어' not in df_d.columns: df_d['모멘텀스코어'] = 0.0
+
         daily_cfg = main_cfg.copy()
         daily_cfg["기준가"] = st.column_config.NumberColumn("현재가", format="%,d") # 데일리는 현재가로 표기
+        # ⭐ 추가: 전일거래량, 스코어, 전달순위 컬럼 설정 추가
+        daily_cfg["전일거래량"] = st.column_config.NumberColumn("전일거래량", format="%,d")
+        daily_cfg["모멘텀스코어"] = st.column_config.NumberColumn("스코어", format="%.2f")
+        daily_cfg["전달순위"] = st.column_config.TextColumn("전달 순위")
         
-        st.dataframe(df_d.style.apply(apply_k200_styling, idx_df=idx_now, axis=1), use_container_width=True, height=550,
-                     column_order=['통합티커', '종목명_L', '기준가', '전일거래량', '1개월(%)', '12개월(%)'], 
-                     column_config={**daily_cfg, "전일거래량": st.column_config.NumberColumn(format="%,d")})
+        # ⭐ 수정 2: column_order에 1,3,6,12개월 및 전일거래량, 모멘텀스코어, 전달순위 모두 포함
+        st.dataframe(df_d.style.apply(apply_k200_styling, idx_df=idx_now, axis=1), use_container_width=True, height=600,
+                     column_order=['통합티커', '종목명_L', '기준가', '전일거래량', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달순위'], 
+                     column_config=daily_cfg)
 
 # --- 탭 3: KOSPI 200 집중 분석 ---
 with tab3:
