@@ -122,15 +122,21 @@ with tab3:
         kospi_1m = idx_k.loc['KOSPI', '1개월(%)'] if 'KOSPI' in idx_k.index else 0.0
         kospi_3m = idx_k.loc['KOSPI', '3개월(%)'] if 'KOSPI' in idx_k.index else 0.0
 
-        # 2. KOSPI 200 종목 필터링 및 시가총액 기준 정렬
-        m_col = next((c for c in df_raw.columns if '시가' in c or 'mar' in c.lower()), '시가총액')
+        # 2. KOSPI 200 종목 필터링
         df_k200 = df_raw[(df_raw['시장'] == 'KOSPI') & (df_raw['종목코드'].str.endswith('0'))].copy()
         
-        if m_col in df_k200.columns: 
-            df_k200[m_col] = pd.to_numeric(df_k200[m_col], errors='coerce')
-            df_k200 = df_k200.sort_values(by=m_col, ascending=False).head(200)
+        # 💡 [핵심] FDR에서 실시간 시가총액을 불러와 데이터에 병합 (CSV에 시총이 없기 때문)
+        try:
+            kospi_info = fdr.StockListing('KOSPI')[['Code', 'Marcap']]
+            df_k200 = df_k200.merge(kospi_info, left_on='종목코드', right_on='Code', how='left')
+            df_k200['시가총액'] = df_k200['Marcap']
+        except:
+            df_k200['시가총액'] = 0
+            
+        # 시가총액 기준으로 내림차순 정렬 후 상위 200개 컷
+        df_k200 = df_k200.sort_values(by='시가총액', ascending=False).head(200)
         
-        # 💡 [핵심] 모멘텀 순위 대신 '시가총액 순위'로 강제 지정
+        # 순위 인덱스 부여
         df_k200['시총순위'] = range(1, len(df_k200) + 1)
         df_k200 = df_k200.set_index('시총순위')
         
@@ -148,15 +154,18 @@ with tab3:
             invest_status, box_color, text_color = "✅ 투자 진행", "#E8F5E9", "#2E7D32"
 
         st.markdown("<br>", unsafe_allow_html=True)
-        col1, col2, col3, col4 = st.columns(4)
+        # 💡 [UI 수정] 1M, 3M을 같은 크기로 분리하고, 불필요한 텍스트 제거 (비율을 조정해 박스 크기 맞춤)
+        col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1.5])
         
         with col1:
-            st.metric(label="📈 KOSPI 지수", value=f"1M: {kospi_1m}%", delta=f"3M: {kospi_3m}%", delta_color="normal")
+            st.metric(label="📈 KOSPI 1M", value=f"{kospi_1m}%")
         with col2:
-            st.metric(label="📉 1개월 하락 종목", value=f"{neg_1m_cnt}개", delta="- 200종목 중", delta_color="inverse")
+            st.metric(label="📈 KOSPI 3M", value=f"{kospi_3m}%")
         with col3:
-            st.metric(label="📉 3개월 하락 종목", value=f"{neg_3m_cnt}개", delta="- 200종목 중", delta_color="inverse")
+            st.metric(label="📉 1개월 하락 종목", value=f"{neg_1m_cnt}개")
         with col4:
+            st.metric(label="📉 3개월 하락 종목", value=f"{neg_3m_cnt}개")
+        with col5:
             st.markdown(f"""
             <div style="background-color: {box_color}; padding: 15px; border-radius: 10px; text-align: center; border: 1px solid {text_color};">
                 <p style="margin: 0; font-size: 14px; color: {text_color}; font-weight: bold;">최종 판단 지표</p>
@@ -177,26 +186,27 @@ with tab3:
         common_codes = set(df_perf['종목코드']).intersection(set(df_spec['종목코드']))
 
         k_cfg = main_cfg.copy()
-        if m_col: k_cfg[m_col] = st.column_config.NumberColumn("시가총액", format="%,d")
+        k_cfg['시가총액'] = st.column_config.NumberColumn("시가총액", format="%,d")
 
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("🔥 퍼펙트 상승")
-            # 💡 '전달순위' 제거, '시가총액' 컬럼 추가
+            # 스코어/전달순위 제거 & 시가총액 추가
             st.dataframe(df_perf.style.apply(apply_k200_styling, idx_df=idx_k, common_codes=common_codes, axis=1), 
                          use_container_width=True, 
-                         column_order=['통합티커', '종목명_L', m_col, '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)'], 
+                         column_order=['통합티커', '종목명_L', '시가총액', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)'], 
                          column_config=k_cfg)
         with col2:
             st.subheader("🚀 장기 주도 & 단기 급등")
             st.dataframe(df_spec.style.apply(apply_k200_styling, idx_df=idx_k, common_codes=common_codes, axis=1), 
                          use_container_width=True, 
-                         column_order=['통합티커', '종목명_L', m_col, '1개월(%)', '12개월(%)'], 
+                         column_order=['통합티커', '종목명_L', '시가총액', '1개월(%)', '12개월(%)'], 
                          column_config=k_cfg)
 
         st.markdown("---")
         st.subheader("🏆 KOSPI 200 시가총액 전체 순위")
+        # 스코어 완전히 제거 & 시가총액 삽입
         st.dataframe(df_k200.style.apply(apply_k200_styling, idx_df=idx_k, common_codes=common_codes, axis=1), 
                      use_container_width=True, height=600, 
-                     column_order=['통합티커', '종목명_L', m_col, '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어'], 
+                     column_order=['통합티커', '종목명_L', '시가총액', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)'], 
                      column_config=k_cfg)
