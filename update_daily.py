@@ -11,7 +11,7 @@ for d in folders:
     if not os.path.exists(d): os.makedirs(d)
 
 def get_top_stocks(market, limit=150):
-    """시가총액 상위 종목 추출 (KRX, KOSPI, KOSDAQ 대응)"""
+    """시가총액 상위 종목 추출 (TSMC 등 ADR 대응 강화)"""
     try:
         if market in ['KOSPI', 'KOSDAQ']:
             df = fdr.StockListing('KRX')
@@ -28,7 +28,8 @@ def get_top_stocks(market, limit=150):
         cap_col = [c for c in df.columns if '시가총액' in c or ('mar' in c.lower() and 'cap' in c.lower())]
         if cap_col:
             target_col = cap_col[0]
-            df[target_col] = pd.to_numeric(df[target_col].astype(str).str.replace(',', ''), errors='coerce')
+            # 💡 [핵심 수정] 숫자와 마침표만 남기고 모두 제거하여 정확하게 숫자로 변환
+            df[target_col] = pd.to_numeric(df[target_col].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce')
             df = df.sort_values(target_col, ascending=False)
 
         if market in ['KOSPI', 'KOSDAQ']:
@@ -37,17 +38,29 @@ def get_top_stocks(market, limit=150):
                 col = name_col[0]
                 df = df[~df[col].astype(str).str.endswith(('우', '우B', '우C'))]
                 df = df[~df[col].astype(str).str.contains('스팩')]
+        
+        # 미국 시장 티커 중복 제거
+        symbol_col = 'Symbol' if 'Symbol' in df.columns else 'Code'
+        if symbol_col in df.columns:
+            df = df.drop_duplicates(subset=[symbol_col])
+            
         return df.head(limit)
     except Exception as e:
         print(f"❌ {market} 리스트 가져오기 실패: {e}")
         return pd.DataFrame()
+
 
 # 💡 수정 1: 데일리 프로세스 함수 (prev_rank_map 추가)
 def process_stock(row, mkt_name, market_type, today, prev_rank_map):
     """개별 종목 데일리 데이터 수집 및 스코어 계산"""
     try:
         code = str(row.get('Code', row.get('Symbol', '')))
-        clean_code = code.split('.')[0].replace('.', '-')
+        
+        # 💡 [핵심 수정] 미국 주식은 마침표를 하이픈으로 변경, 한국 주식은 마침표 앞만 추출
+        if market_type in ['US', 'SP500']:
+            clean_code = code.replace('.', '-') # BRK.B -> BRK-B
+        else:
+            clean_code = code.split('.')[0] # 005930.KS -> 005930
         
         # 데이터 로드 (최근 16개월)
         df = fdr.DataReader(clean_code, today - pd.DateOffset(months=16), today)
@@ -68,13 +81,12 @@ def process_stock(row, mkt_name, market_type, today, prev_rank_map):
         
         display_mkt = row.get('Exchange', 'NYSE') if market_type == 'SP500' else mkt_name
 
-        # 💡 수정 2: 전달순위 매핑 (숫자로 저장)
         return {
             '기준일': last_date, '시장': display_mkt, '종목명': row['Name'], 
             '종목코드': code, '기준가': round(curr_price, 2), '전일거래량': curr_volume,
             '1개월(%)': round(r1, 1), '3개월(%)': round(r3, 1), '6개월(%)': round(r6, 1),
             '12개월(%)': round(r12, 1), '모멘텀스코어': score, 
-            '전달순위': prev_rank_map.get(code, None) # 숫자 1, 2, 3... 혹은 None
+            '전달순위': prev_rank_map.get(code, None)
         }
     except Exception:
         return None
