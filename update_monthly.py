@@ -16,7 +16,7 @@ def get_target_ref_date():
     return (today.replace(day=1) - timedelta(days=1)).strftime('%Y-%m-%d')
 
 def get_top_stocks(market, limit=150):
-    """안정적인 KRX 전체 리스트를 사용해 시가총액 상위 종목 추출"""
+    """시가총액 상위 종목 추출 (미국 ADR 및 특수 티커 대응 강화)"""
     try:
         if market in ['KOSPI', 'KOSDAQ']:
             df = fdr.StockListing('KRX')
@@ -33,7 +33,8 @@ def get_top_stocks(market, limit=150):
         cap_col = [c for c in df.columns if '시가총액' in c or ('mar' in c.lower() and 'cap' in c.lower())]
         if cap_col:
             target_col = cap_col[0]
-            df[target_col] = pd.to_numeric(df[target_col].astype(str).str.replace(',', ''), errors='coerce')
+            # 💡 [핵심 수정] 시가총액 데이터에서 숫자와 마침표만 추출 (TSMC 등 누락 방지)
+            df[target_col] = pd.to_numeric(df[target_col].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce')
             df = df.sort_values(target_col, ascending=False)
 
         if market in ['KOSPI', 'KOSDAQ']:
@@ -42,18 +43,29 @@ def get_top_stocks(market, limit=150):
                 col = name_col[0]
                 df = df[~df[col].astype(str).str.endswith(('우', '우B', '우C'))]
                 df = df[~df[col].astype(str).str.contains('스팩')]
+        
+        # 미국 시장 티커 중복 제거 (Symbol 또는 Code 기준)
+        symbol_col = 'Symbol' if 'Symbol' in df.columns else 'Code'
+        if symbol_col in df.columns:
+            df = df.drop_duplicates(subset=[symbol_col])
+            
         return df.head(limit)
     except Exception as e:
         print(f"❌ {market} 리스트 가져오기 실패: {e}")
         return pd.DataFrame()
 
-# 💡 수정 1: 매개변수에 prev_rank_map 추가
 def process_monthly_stock(row, mkt_name, market_type, target_date_dt, target_date_str, mkt_map, prev_rank_map):
     """개별 종목 데이터 수집 및 스코어 계산 (병렬 처리용)"""
     try:
         code = str(row.get('Code', row.get('Symbol', '')))
-        clean_code = code.split('.')[0].replace('.', '-')
         
+        # 💡 [핵심 수정] 미국 주식은 BRK.B -> BRK-B 변환, 한국 주식은 마침표 제거
+        if market_type in ['US', 'SP500']:
+            clean_code = code.replace('.', '-')
+        else:
+            clean_code = code.split('.')[0]
+        
+        # 데이터 로드
         df = fdr.DataReader(clean_code, target_date_dt - pd.DateOffset(months=16), target_date_dt)
         if df.empty: return None
         
@@ -65,17 +77,18 @@ def process_monthly_stock(row, mkt_name, market_type, target_date_dt, target_dat
             return (base_price - past['Close'].iloc[-1]) / past['Close'].iloc[-1] * 100 if not past.empty else 0.0
         
         r1, r3, r6, r12 = get_ret(1), get_ret(3), get_ret(6), get_ret(12)
+        
+        # 💡 [공식 수정] 1개월 가중치 -0.5 반영
         score = round((r1*-0.5) + (r3*0.8) + (r6*0.5) + (r12*0.2), 2)
         
         display_mkt = mkt_map.get(code, 'NYSE') if market_type == 'SP500' else mkt_name
 
-        # 💡 수정 2: 결과값에 '전달순위' 추가 (숫자로 저장)
         return {
             '기준일(월말)': target_date_str, '시장': display_mkt,
             '종목명': row['Name'], '종목코드': code, '기준가': round(base_price, 2),
             '1개월(%)': round(r1, 2), '3개월(%)': round(r3, 2), '6개월(%)': round(r6, 2),
             '12개월(%)': round(r12, 2), '모멘텀스코어': score, 
-            '전달순위': prev_rank_map.get(code, None), # 지난달 순위 매핑
+            '전달순위': prev_rank_map.get(code, None),
             '다음달수익률(%)': 0.0
         }
     except: return None
@@ -95,13 +108,13 @@ def run_monthly(market_type='KR'):
         try:
             nyse = fdr.StockListing('NYSE')[['Symbol']]
             nasdaq = fdr.StockListing('NASDAQ')[['Symbol']]
-            mkt_map = {s: 'NYSE' for s in nyse['Symbol']}
-            mkt_map.update({s: 'NASDAQ' for s in nasdaq['Symbol']})
+            mkt_map = {str(s): 'NYSE' for s in nyse['Symbol']}
+            mkt_map.update({str(s): 'NASDAQ' for s in nasdaq['Symbol']})
         except: pass
 
-    # 💡 [중요] 이전 순위표 만들기 (들여쓰기 주의!)
+    # 💡 [순위 로직] 새 데이터를 뽑기 전 기존 파일에서 순위표 생성
     prev_rank_map = {}
-    if os.path.exists(file_path): # 👈 여기 변수 이름을 file_path로 써야 합니다!
+    if os.path.exists(file_path):
         try:
             df_old_for_rank = pd.read_csv(file_path, dtype={'종목코드': str})
             df_old_for_rank = df_old_for_rank.sort_values('모멘텀스코어', ascending=False).reset_index(drop=True)
@@ -113,7 +126,6 @@ def run_monthly(market_type='KR'):
     target_date_str = get_target_ref_date()
     target_date_dt = pd.to_datetime(target_date_str)
     print(f"\n🚀 {name_tag} 월말 업데이트 시작 (기준일: {target_date_str})")
-    
 
     # --- 1. 아카이브 보관 로직 ---
     if os.path.exists(file_path):
@@ -137,14 +149,12 @@ def run_monthly(market_type='KR'):
 
         print(f"📊 {mkt_name} {len(target_stocks)}개 종목 분석 중...")
         with ThreadPoolExecutor(max_workers=10) as executor:
-            # 💡 수정 4: executor에 prev_rank_map 전달
             futures = [executor.submit(process_monthly_stock, row, mkt_name, market_type, target_date_dt, target_date_str, mkt_map, prev_rank_map) for _, row in target_stocks.iterrows()]
             for future in as_completed(futures):
                 result = future.result()
                 if result: res.append(result)
                     
     if res:
-        # 결과를 저장할 때도 모멘텀스코어 순으로 정렬해서 저장
         pd.DataFrame(res).sort_values('모멘텀스코어', ascending=False).to_csv(file_path, index=False, encoding='utf-8-sig')
         print(f"✨ {name_tag} 파일 저장 완료!")
 
