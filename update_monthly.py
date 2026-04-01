@@ -65,7 +65,7 @@ def process_monthly_stock(row, mkt_name, market_type, target_date_dt, target_dat
             return (base_price - past['Close'].iloc[-1]) / past['Close'].iloc[-1] * 100 if not past.empty else 0.0
         
         r1, r3, r6, r12 = get_ret(1), get_ret(3), get_ret(6), get_ret(12)
-        score = round((r1*-0.2) + (r3*0.8) + (r6*0.5) + (r12*0.2), 2)
+        score = round((r1*-0.5) + (r3*0.8) + (r6*0.5) + (r12*0.2), 2)
         
         display_mkt = mkt_map.get(code, 'NYSE') if market_type == 'SP500' else mkt_name
 
