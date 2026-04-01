@@ -73,12 +73,12 @@ def get_perf_html(title, df):
     
     return f"### {title} <span style='font-size: 15px; font-weight: normal; color: #666;'> &nbsp; | &nbsp; 📊 다음달 성적 ➔ Top5(12M순): <span style='color:{t5_col}; font-weight:bold;'>{t5_str}</span> &nbsp; Top10(12M순): <span style='color:{t10_col}; font-weight:bold;'>{t10_str}</span> &nbsp; 모두매수: <span style='color:{a_col}; font-weight:bold;'>{a_str}</span></span>"
 
-# 💡 [핵심] 날짜를 '투자하는 달'로 예쁘게 바꿔주는 포맷 함수
+# 💡 [핵심 버그 수정] +1일이 아니라, 정확히 '+1개월'을 더하도록 판다스의 DateOffset을 사용합니다.
 def format_invest_month(date_str):
-    dt = datetime.strptime(date_str, '%Y-%m-%d')
-    # 기준일에 하루를 더하면 무조건 다음 달로 넘어감 (예: 3월 31일 + 1일 = 4월 1일)
-    invest_dt = dt + timedelta(days=1)
-    return f"💰 {invest_dt.year}년 {invest_dt.month}월 투자 (데이터 기준일: {date_str})"
+    dt = pd.to_datetime(date_str)
+    invest_dt = dt + pd.DateOffset(months=1)
+    # 앞에 있던 이모지도 뺐습니다.
+    return f"{invest_dt.year}년 {invest_dt.month}월 투자 (데이터 기준일: {date_str})"
 
 # --- [3. 메인 로직] ---
 f_csv = 'data/한국 코스피 2014년부터 200위까지 자료.csv'
@@ -92,11 +92,10 @@ df_all = load_historical_data(f_csv)
 dates = sorted(df_all['기준일'].unique(), reverse=True)
 
 st.markdown("<h4 style='margin-bottom: 5px;'>📅 확인하고 싶은 '투자 월'을 선택하세요</h4>", unsafe_allow_html=True)
-# 💡 format_func를 사용해 화면에 보이는 글씨만 바꿈
 selected_date = st.selectbox("조회일", dates, format_func=format_invest_month, label_visibility="collapsed")
 
-# 타이틀에도 직관적인 이름 적용
-invest_title = format_invest_month(selected_date).replace("💰 ", "")
+# 타이틀 업데이트
+invest_title = format_invest_month(selected_date)
 st.markdown(f'<p class="main-title">🎯 KOSPI 200 과거 기록 분석 ➔ {invest_title}</p>', unsafe_allow_html=True)
 
 df_k200 = df_all[df_all['기준일'] == selected_date].copy()
