@@ -52,7 +52,7 @@ tab1, tab2, tab3 = st.tabs(["📅 전월 말일 기준", "🕒 오늘(데일리)
 f_kr = 'data/momentum_data.csv'
 f_daily = 'data/momentum_data_daily.csv'
 
-# 공통 Config 수정
+# 공통 Config
 main_cfg = {
     "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
     "기준가": st.column_config.NumberColumn("종가", format="%,d"),
@@ -61,38 +61,14 @@ main_cfg = {
     "6개월(%)": st.column_config.NumberColumn(format="%.1f"), 
     "12개월(%)": st.column_config.NumberColumn(format="%.1f"),
     "모멘텀스코어": st.column_config.NumberColumn("스코어", format="%.2f"),
-    
-    # 💡 [핵심 수정] 숫자형으로 인식하되, 화면에만 '위'를 붙여서 출력
     "전달순위": st.column_config.NumberColumn("전달 순위", format="%d위")
-}
-
-기존 코드의 탭 1과 탭 2 부분에 데이터를 숫자로 강제 변환하는 로직을 추가하고, 정렬 에러가 나지 않도록 column_config 설정을 적용한 수정본입니다.
-
-이 코드를 적용하기 전에 main_cfg 설정이 먼저 선언되어 있어야 하므로, 설정 부분부터 탭 2까지 한 번에 바꿀 수 있도록 정리해 드립니다.
-
-Python
-# --- [수정된 공통 Config 설정] ---
-# 이 부분을 코드 상단 main_cfg 정의하는 곳에 덮어쓰세요.
-main_cfg = {
-    "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
-    "기준가": st.column_config.NumberColumn("종가", format="%,d"),
-    "1개월(%)": st.column_config.NumberColumn(format="%.1f"), 
-    "3개월(%)": st.column_config.NumberColumn(format="%.1f"), 
-    "6개월(%)": st.column_config.NumberColumn(format="%.1f"), 
-    "12개월(%)": st.column_config.NumberColumn(format="%.1f"),
-    "모멘텀스코어": st.column_config.NumberColumn("스코어", format="%.2f"),
-    # 💡 숫자로 인식시키되 화면에만 '위'를 붙여서 정렬 문제 해결
-    "전달순위": st.column_config.NumberColumn("전달 순위", format="%d위") 
 }
 
 # --- 탭 1: 전월 말일 기준 ---
 with tab1:
     if os.path.exists(f_kr):
         df_m = pd.read_csv(f_kr, dtype={'종목코드': str})
-        
-        # 💡 [핵심 추가] 전달순위 데이터를 숫자로 강제 변환 (글자가 섞여있어도 에러 방지)
         df_m['전달순위'] = pd.to_numeric(df_m['전달순위'], errors='coerce')
-        
         b_date = df_m['기준일(월말)'].iloc[0]
         st.markdown(f'<p class="main-title">📊 월간 모멘텀 (기준: {b_date})</p>', unsafe_allow_html=True)
         
@@ -104,9 +80,6 @@ with tab1:
         df_m['통합티커'] = df_m['시장'] + ":" + df_m['종목코드'].str.zfill(6)
         df_m['종목명_L'] = df_m.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
         
-        if '전달순위' not in df_m.columns: df_m['전달순위'] = None
-
-        # ⭐ 수정: column_order에 전달순위 포함
         st.dataframe(df_m.style.apply(apply_k200_styling, idx_df=idx_m, axis=1), 
                      use_container_width=True, height=550,
                      column_order=['통합티커', '종목명_L', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달순위'], 
@@ -116,10 +89,7 @@ with tab1:
 with tab2:
     if os.path.exists(f_daily):
         df_d = pd.read_csv(f_daily, dtype={'종목코드': str})
-        
-        # 💡 [핵심 추가] 전달순위 데이터를 숫자로 강제 변환 (정렬 에러 해결)
         df_d['전달순위'] = pd.to_numeric(df_d['전달순위'], errors='coerce')
-
         b_date_d = df_d['기준일'].iloc[0]
         st.markdown(f'<p class="main-title">🕒 데일리 모멘텀 (기준: {b_date_d})</p>', unsafe_allow_html=True)
         
@@ -131,18 +101,15 @@ with tab2:
         df_d['통합티커'] = df_d['시장'] + ":" + df_d['종목코드'].str.zfill(6)
         df_d['종목명_L'] = df_d.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
         
-        if '전달순위' not in df_d.columns: df_d['전달순위'] = None
-        if '모멘텀스코어' not in df_d.columns: df_d['모멘텀스코어'] = 0.0
-
         daily_cfg = main_cfg.copy()
         daily_cfg["기준가"] = st.column_config.NumberColumn("현재가", format="%,d") 
         daily_cfg["전일거래량"] = st.column_config.NumberColumn("전일거래량", format="%,d")
         
-        # ⭐ 모든 컬럼이 표시되도록 배치
         st.dataframe(df_d.style.apply(apply_k200_styling, idx_df=idx_now, axis=1), 
                      use_container_width=True, height=600,
                      column_order=['통합티커', '종목명_L', '기준가', '전일거래량', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달순위'], 
                      column_config=daily_cfg)
+
 # --- 탭 3: KOSPI 200 집중 분석 ---
 with tab3:
     if os.path.exists(f_kr):
