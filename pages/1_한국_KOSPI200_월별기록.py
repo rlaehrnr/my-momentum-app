@@ -17,7 +17,7 @@ st.markdown("""
 def apply_k200_styling(row, common_codes=None):
     styles = [''] * len(row)
     
-    # 💡 다음달수익률 색상 처리 (수익: 빨강, 손실: 파랑)
+    # 다음달수익률 색상 처리 (수익: 빨강, 손실: 파랑)
     if '다음달수익률(%)' in row.index:
         col_idx = row.index.get_loc('다음달수익률(%)')
         val = row['다음달수익률(%)']
@@ -52,9 +52,7 @@ def get_idx_kr(target_date_str):
 @st.cache_data
 def load_historical_data(filepath):
     df = pd.read_csv(filepath)
-    # 종목코드를 6자리 문자열로 고정 (예: 5930 -> 005930)
     df['종목코드'] = df['종목코드'].astype(str).str.zfill(6)
-    # 시가총액을 '억' 단위로 변환
     df['시가총액(억)'] = (df['시가총액'] / 100000000).fillna(0).astype(int)
     return df
 
@@ -85,7 +83,7 @@ df_k200 = df_k200.set_index('시총순위')
 
 kospi_1m, kospi_3m = get_idx_kr(selected_date)
 
-# --- [상단 요약 박스 (Metrics)] ---
+# --- [상단 요약 박스 (Metrics) - 4열로 복구하여 잘림 현상 방지] ---
 neg_1m_cnt = (df_k200['1개월(%)'] < 0).sum()
 neg_3m_cnt = (df_k200['3개월(%)'] < 0).sum()
 
@@ -95,13 +93,15 @@ else:
     invest_status, box_color, text_color = "✅ 투자 진행", "#E8F5E9", "#2E7D32"
 
 st.markdown("<br>", unsafe_allow_html=True)
-col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1.5])
+col1, col2, col3, col4 = st.columns(4)
 
-with col1: st.metric(label="📈 과거 KOSPI 1M", value=f"{kospi_1m}%")
-with col2: st.metric(label="📈 과거 KOSPI 3M", value=f"{kospi_3m}%")
-with col3: st.metric(label="📉 1개월 하락 종목", value=f"{neg_1m_cnt}개")
-with col4: st.metric(label="📉 3개월 하락 종목", value=f"{neg_3m_cnt}개")
-with col5:
+with col1:
+    st.metric(label="📈 과거 KOSPI 지수", value=f"1M: {kospi_1m}%", delta=f"3M: {kospi_3m}%", delta_color="normal")
+with col2:
+    st.metric(label="📉 1개월 하락 종목", value=f"{neg_1m_cnt}개")
+with col3:
+    st.metric(label="📉 3개월 하락 종목", value=f"{neg_3m_cnt}개")
+with col4:
     st.markdown(f"""
     <div style="background-color: {box_color}; padding: 15px; border-radius: 10px; text-align: center; border: 1px solid {text_color};">
         <p style="margin: 0; font-size: 14px; color: {text_color}; font-weight: bold;">당시 최종 판단 지표</p>
@@ -115,11 +115,15 @@ st.markdown("<br><hr>", unsafe_allow_html=True)
 q30 = {c: df_k200[c].quantile(0.7) for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']}
 t10_1m = df_k200['1개월(%)'].quantile(0.9)
 
+# 퍼펙트 상승 & 장기주도 조건
 cond_perf = (df_k200['1개월(%)']>=q30['1개월(%)'])&(df_k200['3개월(%)']>=q30['3개월(%)'])&(df_k200['6개월(%)']>=q30['6개월(%)'])&(df_k200['12개월(%)']>=q30['12개월(%)']) & \
             (df_k200['1개월(%)']>0)&(df_k200['3개월(%)']>0)&(df_k200['6개월(%)']>0)&(df_k200['12개월(%)']>0)
 df_perf = df_k200[cond_perf].copy()
 df_spec = df_k200[(df_k200['12개월(%)']>=q30['12개월(%)']) & (df_k200['1개월(%)']>=t10_1m)].copy()
+
+# 💡 [핵심] 두 조건 모두 만족하는 교집합 추출
 common_codes = set(df_perf['종목코드']).intersection(set(df_spec['종목코드']))
+df_common = df_k200[df_k200['종목코드'].isin(common_codes)].copy()
 
 # --- [결과 출력용 설정] ---
 main_cfg = {
@@ -129,13 +133,13 @@ main_cfg = {
     "3개월(%)": st.column_config.NumberColumn(format="%.1f"), 
     "6개월(%)": st.column_config.NumberColumn(format="%.1f"), 
     "12개월(%)": st.column_config.NumberColumn(format="%.1f"),
-    # 💡 [핵심] 사용자가 가장 궁금해할 '실제 성적표'
     "다음달수익률(%)": st.column_config.NumberColumn("다음달수익률(%)", format="%.2f") 
 }
 
-# 💡 선택된 종목들이 다음달에 평균적으로 얼마나 올랐는지 요약 계산
+# 그룹별 다음달 평균 수익률 계산
 perf_avg_ret = df_perf['다음달수익률(%)'].mean() if not df_perf.empty else 0.0
 spec_avg_ret = df_spec['다음달수익률(%)'].mean() if not df_spec.empty else 0.0
+common_avg_ret = df_common['다음달수익률(%)'].mean() if not df_common.empty else 0.0
 
 col1, col2 = st.columns(2)
 with col1:
@@ -150,6 +154,18 @@ with col2:
                  use_container_width=True, 
                  column_order=['통합티커', '종목명_L', '시가총액(억)', '1개월(%)', '12개월(%)', '다음달수익률(%)'], 
                  column_config=main_cfg)
+
+st.markdown("---")
+
+# 💡 교집합 전용 표 추가
+st.subheader(f"🌟 강력 추천 교집합 종목 (퍼펙트 + 장기주도) (실제 성적: {common_avg_ret:+.2f}%)")
+if not df_common.empty:
+    st.dataframe(df_common.style.apply(apply_k200_styling, common_codes=common_codes, axis=1), 
+                 use_container_width=True, 
+                 column_order=['통합티커', '종목명_L', '시가총액(억)', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '다음달수익률(%)'], 
+                 column_config=main_cfg)
+else:
+    st.info("해당 월에는 두 조건을 모두 만족하는 교집합 종목이 없습니다.")
 
 st.markdown("---")
 st.subheader("🏆 KOSPI 200 시가총액 전체 순위 (과거)")
