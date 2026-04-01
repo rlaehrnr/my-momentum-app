@@ -53,7 +53,6 @@ def load_historical_data(filepath):
     df['시가총액(억)'] = (df['시가총액'] / 100000000).fillna(0).astype(int)
     return df
 
-# 💡 [추가] 실제 성적(Top5, Top10, 전체) HTML 헤더 생성 함수
 def get_perf_html(title, df):
     if df.empty:
         return f"### {title} <span style='font-size: 15px; color: gray; font-weight: normal;'>(해당 종목 없음)</span>"
@@ -71,9 +70,7 @@ def get_perf_html(title, df):
     t5_str, t5_col = format_val(top5_avg)
     t10_str, t10_col = format_val(top10_avg)
     
-    # 제목은 크고 굵게, 성적표는 작고(15px) 얇게
     return f"### {title} <span style='font-size: 15px; font-weight: normal; color: #666;'> &nbsp; | &nbsp; 📊 다음달 성적 ➔ Top5: <span style='color:{t5_col}; font-weight:bold;'>{t5_str}</span> &nbsp; Top10: <span style='color:{t10_col}; font-weight:bold;'>{t10_str}</span> &nbsp; 모두매수: <span style='color:{a_col}; font-weight:bold;'>{a_str}</span></span>"
-
 
 # --- [3. 메인 로직] ---
 f_csv = 'data/한국 코스피 2014년부터 200위까지 자료.csv'
@@ -85,7 +82,10 @@ if not os.path.exists(f_csv):
 df_all = load_historical_data(f_csv)
 
 dates = sorted(df_all['기준일'].unique(), reverse=True)
-selected_date = st.selectbox("📅 조회 기준일 선택", dates)
+
+# 💡 [핵심 수정] 라벨 잘림 현상을 완벽하게 해결하기 위해 마크다운으로 분리
+st.markdown("<h4 style='margin-bottom: 5px;'>📅 조회 기준일(월말) 선택</h4>", unsafe_allow_html=True)
+selected_date = st.selectbox("조회일", dates, label_visibility="collapsed")
 
 st.markdown(f'<p class="main-title">🎯 KOSPI 200 과거 기록 분석 (기준일: {selected_date})</p>', unsafe_allow_html=True)
 
@@ -145,7 +145,6 @@ main_cfg = {
     "다음달수익률(%)": st.column_config.NumberColumn("다음달수익률(%)", format="%.2f") 
 }
 
-# 💡 [핵심] 제목 부분에 HTML 포맷팅 함수를 적용하여 글씨 크기 조절 및 구분
 col1, col2 = st.columns(2)
 with col1:
     st.markdown(get_perf_html("🔥 퍼펙트 상승", df_perf), unsafe_allow_html=True)
@@ -154,7 +153,7 @@ with col1:
                  column_order=['통합티커', '종목명_L', '시가총액(억)', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '다음달수익률(%)'], 
                  column_config=main_cfg)
 with col2:
-    st.markdown(get_perf_html("🚀 장기 주도 & 단기 급등", df_spec), unsafe_allow_html=True)
+    st.markdown(get_perf_html("🚀 달리는 말", df_spec), unsafe_allow_html=True)
     st.dataframe(df_spec.style.apply(apply_k200_styling, common_codes=common_codes, axis=1), 
                  use_container_width=True, 
                  column_order=['통합티커', '종목명_L', '시가총액(억)', '1개월(%)', '12개월(%)', '다음달수익률(%)'], 
