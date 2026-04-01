@@ -19,7 +19,8 @@ st.markdown("""
 
 # ⭐ 통합 스타일 함수: 지수 대비 약세(파랑) + 1,000만 주 이상(분홍) + 교집합(노랑)
 def apply_custom_styling(row, idx_df, common_codes=None):
-    m_map = {'NYSE': 'S&P 500', 'NASDAQ': 'NASDAQ'}
+    # S&P 대신 '미국 시장'이라는 이름으로 통일합니다.
+    m_map = {'NYSE': '미국 시장', 'NASDAQ': 'NASDAQ'}
     target = m_map.get(row.get('시장', 'NYSE'))
     styles = [''] * len(row)
     
@@ -46,7 +47,8 @@ def apply_custom_styling(row, idx_df, common_codes=None):
 
 @st.cache_data(ttl=3600)
 def get_idx_us(target_date=None):
-    indices = {'S&P 500': 'US500', 'NASDAQ': 'IXIC'}
+    # 기준 지수 이름에서 S&P를 빼고 '미국 시장'으로 변경 (비교 용도로만 사용)
+    indices = {'미국 시장': 'US500', 'NASDAQ': 'IXIC'}
     today = datetime.today()
     res = []
     for name, code in indices.items():
@@ -81,7 +83,7 @@ common_config = {
     "모멘텀스코어": st.column_config.NumberColumn("스코어", format="%.2f"),
 }
 
-# --- [탭 1: 미국 시총상위 강세 종목 (CSV 순수 로딩)] ---
+# --- [탭 1: 미국 시총상위 강세 종목] ---
 with tab1:
     f_us = 'data/momentum_data_us.csv'
     if os.path.exists(f_us):
@@ -92,13 +94,12 @@ with tab1:
         st.markdown(f'<p style="font-size: 1.6rem !important; font-weight: bold; margin-bottom: 1rem;">🎯 미국 시총상위 강세 종목 집중 분석 (기준: {b_date_str})</p>', unsafe_allow_html=True)
         
         idx_us = get_idx_us(pd.to_datetime(b_date_str))
-        sp500_1m = idx_us.loc['S&P 500', '1개월(%)'] if 'S&P 500' in idx_us.index else 0.0
-        sp500_3m = idx_us.loc['S&P 500', '3개월(%)'] if 'S&P 500' in idx_us.index else 0.0
+        us_idx_1m = idx_us.loc['미국 시장', '1개월(%)'] if '미국 시장' in idx_us.index else 0.0
+        us_idx_3m = idx_us.loc['미국 시장', '3개월(%)'] if '미국 시장' in idx_us.index else 0.0
 
-        # 💡 [핵심 보완] CSV 파일에서 위에서부터 정확히 300개만 잘라서 시총 상위 300종목을 보장합니다.
+        # CSV 파일의 상위 300종목(NYSE 150 + NASDAQ 150)
         df_us_300 = df_raw_us.head(300).copy()
         
-        # 300종목 순위 부여
         df_us_300['순위'] = range(1, len(df_us_300) + 1)
         df_us_300 = df_us_300.set_index('순위')
         
@@ -108,7 +109,7 @@ with tab1:
         neg_1m_cnt = (df_us_300['1개월(%)'] < 0).sum()
         neg_3m_cnt = (df_us_300['3개월(%)'] < 0).sum()
         
-        # 시총 상위 300개 기준이므로 150개가 하락하면 투자 중지
+        # 300개 중 절반인 150개가 하락이면 투자 중지
         if neg_1m_cnt >= 150 and neg_3m_cnt >= 150:
             invest_status, box_color, text_color = "🛑 투자 중지", "#FFEBEE", "#C62828"
         else:
@@ -117,9 +118,9 @@ with tab1:
         st.markdown("<br>", unsafe_allow_html=True)
         col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1.5])
         
-        # 💡 지수 이름을 '미국 대표지수(S&P)'로 바꾸어 혼동을 방지했습니다.
-        with col1: st.metric(label="📈 미국 대표지수(S&P) 1M", value=f"{sp500_1m}%")
-        with col2: st.metric(label="📈 미국 대표지수(S&P) 3M", value=f"{sp500_3m}%")
+        # 요약 박스에서도 S&P라는 말을 뺐습니다.
+        with col1: st.metric(label="📈 미국 시장 1M", value=f"{us_idx_1m}%")
+        with col2: st.metric(label="📈 미국 시장 3M", value=f"{us_idx_3m}%")
         with col3: st.metric(label="📉 1개월 하락 종목", value=f"{neg_1m_cnt}개")
         with col4: st.metric(label="📉 3개월 하락 종목", value=f"{neg_3m_cnt}개")
         with col5:
