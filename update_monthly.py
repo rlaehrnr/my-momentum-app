@@ -110,16 +110,19 @@ def run_monthly(market_type='KR'):
     # --- 2. 신규 월말 데이터 수집 ---
     res = []
     for mkt_name in market_list:
-        # 💡 [핵심 수정] KOSPI는 200위까지, 그 외(KOSDAQ 등)는 기존 limit(150) 적용
+        # 💡 KOSPI는 200위까지, 그 외(KOSDAQ 등)는 기존 limit(150) 적용
         current_limit = 200 if mkt_name == 'KOSPI' else limit
         target_stocks = get_top_stocks(mkt_name, current_limit)
         print(f"📊 {mkt_name} {len(target_stocks)}개 종목 분석 시작...")
         
         for i, row in target_stocks.iterrows():
             try:
-                code = row['Code'] if 'Code' in row else row['Symbol']
-                # 데이터 로드
-                df = fdr.DataReader(code.replace('.', '-'), target_date_dt - pd.DateOffset(months=16), target_date_dt)
+                # 💡 [핵심 수정] 종목 코드가 숫자(예: 5930)로 들어와도 에러가 나지 않도록 문자열(str)로 강제 변환
+                code = str(row.get('Code', row.get('Symbol', '')))
+                clean_code = code.split('.')[0].replace('.', '-')
+                
+                # 데이터 로드 (clean_code 사용)
+                df = fdr.DataReader(clean_code, target_date_dt - pd.DateOffset(months=16), target_date_dt)
                 if df.empty: continue
                 
                 base_price = df['Close'].iloc[-1]
@@ -142,13 +145,8 @@ def run_monthly(market_type='KR'):
                     '12개월(%)': round(r12, 2), '모멘텀스코어': score, '다음달수익률(%)': 0.0
                 })
                 time.sleep(0.05) # 서버 부하 방지
-            except: continue
-    
-    if res:
-        pd.DataFrame(res).sort_values('모멘텀스코어', ascending=False).to_csv(file_path, index=False, encoding='utf-8-sig')
-        print(f"✨ {name_tag} 월말 업데이트 완료!")
-
-if __name__ == "__main__":
-    # 순차적 실행
-    for m in ['KR', 'US', 'SP500']:
+            except Exception as e: 
+                # 에러 발생 시 로그를 찍어서 어떤 종목에서 뻗었는지 확인 가능하게 변경
+                print(f"⚠️ {row.get('Name', '알수없음')} 처리 중 에러: {e}")
+                continue
         run_monthly(m)
