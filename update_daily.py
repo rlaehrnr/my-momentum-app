@@ -86,19 +86,21 @@ def run_daily(market_type='KR'):
         'US': ("미국", 'data/momentum_data_daily_us.csv', 'data/momentum_data_us.csv', ['NYSE', 'NASDAQ'], 150),
         'SP500': ("S&P 500", 'data/momentum_data_daily_sp500.csv', 'data/momentum_data_sp500.csv', ['S&P500'], 505)
     }
+    
+    # 설정값 풀기
     name_tag, file_path, p_path, market_list, limit = conf[market_type]
 
-    # 💡 수정 3: 월말 파일(momentum_data.csv 등)을 읽어 전달 순위표 생성
- if os.path.exists(p_path):
-    try:
-        df_p = pd.read_csv(p_path, dtype={'종목코드': str})
-        # 스코어 기준 내림차순 정렬
-        df_p = df_p.sort_values('모멘텀스코어', ascending=False).reset_index(drop=True)
-        for i, r in df_p.iterrows():
-            # i+1은 숫자(int)입니다. '1위'라고 쓰면 에러 납니다!
-            prev_rank_map[str(r['종목코드'])] = i + 1 
-    except:
-        pass
+    # 💡 [들여쓰기 주의!] 지난달 월말 데이터를 읽어 전달 순위표 생성
+    prev_rank_map = {}
+    if os.path.exists(p_path):
+        try:
+            df_p = pd.read_csv(p_path, dtype={'종목코드': str})
+            # 스코어 기준 내림차순 정렬 후 인덱스로 순위 부여
+            df_p = df_p.sort_values('모멘텀스코어', ascending=False).reset_index(drop=True)
+            for i, r in df_p.iterrows():
+                prev_rank_map[str(r['종목코드'])] = i + 1
+        except Exception as e:
+            print(f"⚠️ {name_tag} 이전 순위 로드 실패: {e}")
 
     today = datetime.today()
     print(f"🕒 {name_tag} 데일리 데이터 수집 시작... (기준일: {today.strftime('%Y-%m-%d')})")
@@ -108,25 +110,19 @@ def run_daily(market_type='KR'):
         current_limit = 200 if mkt_name == 'KOSPI' else limit
         target_stocks = get_top_stocks(mkt_name, current_limit)
         
-        if target_stocks.empty: continue
+        if target_stocks.empty: 
+            continue
             
         print(f"🔎 {mkt_name} {len(target_stocks)}개 종목 분석 중 (병렬 처리)...")
         
         with ThreadPoolExecutor(max_workers=10) as executor:
-            # 💡 수정 4: prev_rank_map 전달
             futures = [executor.submit(process_stock, row, mkt_name, market_type, today, prev_rank_map) for _, row in target_stocks.iterrows()]
             for future in as_completed(futures):
                 result = future.result()
-                if result: res.append(result)
+                if result: 
+                    res.append(result)
                     
     if res:
         final_df = pd.DataFrame(res).sort_values('모멘텀스코어', ascending=False)
         final_df.to_csv(file_path, index=False, encoding='utf-8-sig')
         print(f"✅ {name_tag} 데일리 업데이트 완료!")
-
-if __name__ == "__main__":
-    for m_type in ['KR', 'US', 'SP500']:
-        try:
-            run_daily(m_type)
-        except Exception as e:
-            print(f"🔥 {m_type} 실행 중 오류: {e}")
