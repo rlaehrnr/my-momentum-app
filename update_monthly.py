@@ -99,22 +99,21 @@ def run_monthly(market_type='KR'):
             mkt_map.update({s: 'NASDAQ' for s in nasdaq['Symbol']})
         except: pass
 
-    # 💡 수정 3: 새 데이터를 뽑기 전, 기존 파일(2월 말 데이터)에서 순위표 만들기
+    # 💡 [중요] 이전 순위표 만들기 (들여쓰기 주의!)
     prev_rank_map = {}
-   if os.path.exists(p_path):
-    try:
-        df_p = pd.read_csv(p_path, dtype={'종목코드': str})
-        # 스코어 기준 내림차순 정렬
-        df_p = df_p.sort_values('모멘텀스코어', ascending=False).reset_index(drop=True)
-        for i, r in df_p.iterrows():
-            # i+1은 숫자(int)입니다. '1위'라고 쓰면 에러 납니다!
-            prev_rank_map[str(r['종목코드'])] = i + 1 
-    except:
-        pass
+    if os.path.exists(file_path): # 👈 여기 변수 이름을 file_path로 써야 합니다!
+        try:
+            df_old_for_rank = pd.read_csv(file_path, dtype={'종목코드': str})
+            df_old_for_rank = df_old_for_rank.sort_values('모멘텀스코어', ascending=False).reset_index(drop=True)
+            for i, r in df_old_for_rank.iterrows():
+                prev_rank_map[str(r['종목코드'])] = i + 1
+        except Exception as e:
+            print(f"⚠️ {name_tag} 이전 순위 로드 실패: {e}")
 
     target_date_str = get_target_ref_date()
     target_date_dt = pd.to_datetime(target_date_str)
     print(f"\n🚀 {name_tag} 월말 업데이트 시작 (기준일: {target_date_str})")
+    
 
     # --- 1. 아카이브 보관 로직 ---
     if os.path.exists(file_path):
