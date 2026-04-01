@@ -21,12 +21,28 @@ def get_top_stocks(market, limit=150):
         if df.empty: return pd.DataFrame()
         
         if market == 'S&P500': 
-            return df.drop_duplicates('Symbol')
+            return df.drop_duplicates('Symbol').head(limit)
             
-        cap_col = [c for c in df.columns if 'market' in c.lower() and 'cap' in c.lower()]
-        if not cap_col: cap_col = [c for c in df.columns if 'mar' in c.lower() and 'cap' in c.lower()]
+        # 💡 [핵심 수정] 한글 '시가총액' 컬럼도 찾을 수 있도록 조건 추가
+        cap_col = [c for c in df.columns if '시가총액' in c or ('mar' in c.lower() and 'cap' in c.lower())]
         
-        return df.sort_values(cap_col[0], ascending=False).head(limit) if cap_col else df.head(limit)
+        if cap_col:
+            target_col = cap_col[0]
+            # 💡 [핵심 수정] 시가총액 데이터가 문자열(콤마 포함)일 경우를 대비해 숫자로 확실히 변환 후 정렬
+            df[target_col] = pd.to_numeric(df[target_col].astype(str).str.replace(',', ''), errors='coerce')
+            df = df.sort_values(target_col, ascending=False)
+        else:
+            print(f"⚠️ {market} 시가총액 컬럼을 찾지 못했습니다. 컬럼 확인 필요: {df.columns.tolist()}")
+            
+        # 💡 [추가] 코스피/코스닥의 경우 '우선주' 및 '스팩' 종목 제외
+        if market in ['KOSPI', 'KOSDAQ']:
+            name_col = [c for c in df.columns if 'name' in c.lower() or '종목명' in c]
+            if name_col:
+                col = name_col[0]
+                df = df[~df[col].str.endswith(('우', '우B', '우C'))]
+                df = df[~df[col].str.contains('스팩')]
+                
+        return df.head(limit)
     except Exception as e:
         print(f"⚠️ {market} 리스트 가져오기 실패: {e}")
         return pd.DataFrame()
@@ -83,10 +99,13 @@ def run_monthly(market_type='KR'):
             df_old.to_csv(archive_name, index=False, encoding='utf-8-sig')
             print(f"✅ 아카이브 완료: {archive_name}")
 
+    
     # --- 2. 신규 월말 데이터 수집 ---
     res = []
     for mkt_name in market_list:
-        target_stocks = get_top_stocks(mkt_name, limit)
+        # 💡 [핵심 수정] KOSPI는 200위까지, 그 외(KOSDAQ 등)는 기존 limit(150) 적용
+        current_limit = 200 if mkt_name == 'KOSPI' else limit
+        target_stocks = get_top_stocks(mkt_name, current_limit)
         print(f"📊 {mkt_name} {len(target_stocks)}개 종목 분석 시작...")
         
         for i, row in target_stocks.iterrows():
