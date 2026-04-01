@@ -66,7 +66,7 @@ def get_idx_us(target_date=None):
 st.title("🇺🇸 미국 시총상위 모멘텀")
 
 # 탭 순서
-tab1, tab2, tab3 = st.tabs(["🎯 미국 강세 종목", "📅 전월 말일 기준", "🕒 오늘(데일리) 기준"])
+tab1, tab2, tab3 = st.tabs(["🎯 미국 시총상위 300 강세 종목", "📅 전월 말일 기준", "🕒 오늘(데일리) 기준"])
 
 # 공통 컬럼 설정
 common_config = {
@@ -95,10 +95,10 @@ with tab1:
         sp500_1m = idx_us.loc['S&P 500', '1개월(%)'] if 'S&P 500' in idx_us.index else 0.0
         sp500_3m = idx_us.loc['S&P 500', '3개월(%)'] if 'S&P 500' in idx_us.index else 0.0
 
-        # 인터넷 다운로드 로직 전부 삭제! 순수 CSV 데이터만 사용
-        df_us_300 = df_raw_us.copy()
+        # 💡 [핵심 보완] CSV 파일에서 위에서부터 정확히 300개만 잘라서 시총 상위 300종목을 보장합니다.
+        df_us_300 = df_raw_us.head(300).copy()
         
-        # CSV에 있는 300종목 순위 부여 (스코어 순)
+        # 300종목 순위 부여
         df_us_300['순위'] = range(1, len(df_us_300) + 1)
         df_us_300 = df_us_300.set_index('순위')
         
@@ -108,6 +108,7 @@ with tab1:
         neg_1m_cnt = (df_us_300['1개월(%)'] < 0).sum()
         neg_3m_cnt = (df_us_300['3개월(%)'] < 0).sum()
         
+        # 시총 상위 300개 기준이므로 150개가 하락하면 투자 중지
         if neg_1m_cnt >= 150 and neg_3m_cnt >= 150:
             invest_status, box_color, text_color = "🛑 투자 중지", "#FFEBEE", "#C62828"
         else:
@@ -116,8 +117,9 @@ with tab1:
         st.markdown("<br>", unsafe_allow_html=True)
         col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1.5])
         
-        with col1: st.metric(label="📈 S&P 500 1M", value=f"{sp500_1m}%")
-        with col2: st.metric(label="📈 S&P 500 3M", value=f"{sp500_3m}%")
+        # 💡 지수 이름을 '미국 대표지수(S&P)'로 바꾸어 혼동을 방지했습니다.
+        with col1: st.metric(label="📈 미국 대표지수(S&P) 1M", value=f"{sp500_1m}%")
+        with col2: st.metric(label="📈 미국 대표지수(S&P) 3M", value=f"{sp500_3m}%")
         with col3: st.metric(label="📉 1개월 하락 종목", value=f"{neg_1m_cnt}개")
         with col4: st.metric(label="📉 3개월 하락 종목", value=f"{neg_3m_cnt}개")
         with col5:
@@ -149,7 +151,6 @@ with tab1:
         common_codes = set(df_perf['종목코드']).intersection(set(df_spec['종목코드']))
         df_common = df_us_300[df_us_300['종목코드'].isin(common_codes)].copy()
 
-        # 💡 [핵심 버그 수정] main_cfg 대신 common_config를 복사합니다.
         us_cfg = common_config.copy()
 
         col1, col2 = st.columns(2)
@@ -177,7 +178,7 @@ with tab1:
             st.info("해당 기준일에는 두 조건을 모두 만족하는 교집합 종목이 없습니다.")
 
         st.markdown("---")
-        st.subheader("🏆 미국 시총상위 모멘텀 전체 순위")
+        st.subheader("🏆 미국 시총상위 300종목 전체 순위")
         st.dataframe(df_us_300.style.apply(apply_custom_styling, idx_df=idx_us, common_codes=common_codes, axis=1), 
                      use_container_width=True, height=600, 
                      column_order=['통합티커', '종목명_L', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어'], 
