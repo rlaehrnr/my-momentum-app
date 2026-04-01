@@ -10,66 +10,41 @@ if not os.path.exists('data'): os.makedirs('data')
 
 def get_top_stocks(market, limit=150):
     try:
-        # 💡 [필살기] KOSPI, KOSDAQ 개별 조회 대신 '전체 시가총액 전용 순위' 데이터를 불러와서 필터링
+        # 1. 가장 안정적인 'KRX' 전체 리스트에서 필터링 우선 시도
         if market in ['KOSPI', 'KOSDAQ']:
-            df = fdr.StockListing('KRX-MARCAP') # KRX 전체 시가총액 순위 데이터
-            if not df.empty:
-                # 'Market' 컬럼에서 KOSPI 또는 KOSDAQ만 걸러내기
-                mkt_col = [c for c in df.columns if 'market' in c.lower() or '시장' in c]
-                if mkt_col:
-                    target_mkt_col = mkt_col[0]
-                    # MarketId(STK 등)가 섞일 수 있으니 정확한 Market 컬럼을 우선 찾음
-                    exact_mkt = [c for c in mkt_col if c.lower() == 'market' or c == '시장구분']
-                    if exact_mkt: target_mkt_col = exact_mkt[0]
-                    
-                    df = df[df[target_mkt_col].astype(str).str.upper() == market.upper()]
+            df = fdr.StockListing('KRX')
+            # KRX 리스트 조회가 실패하거나 시장 구분이 없으면 개별 시장으로 재시도
+            if df.empty or not any(c for c in df.columns if 'market' in c.lower() or '시장' in c):
+                df = fdr.StockListing(market)
             else:
-                df = fdr.StockListing(market) # 만약 실패 시 기존 방식으로 우회
+                mkt_col = [c for c in df.columns if 'market' in c.lower() or '시장' in c][0]
+                df = df[df[mkt_col].astype(str).str.upper().str.contains(market.upper())]
         else:
             df = fdr.StockListing(market)
 
         if df.empty: return pd.DataFrame()
-        
+
         if market == 'S&P500': 
             return df.drop_duplicates(subset=['Symbol']).head(limit)
 
-        # 시가총액 컬럼 찾기 및 내림차순 정렬
+        # 2. 시가총액 컬럼 찾기 및 문자를 숫자로 안전하게 변환 후 정렬
         cap_col = [c for c in df.columns if '시가총액' in c or ('mar' in c.lower() and 'cap' in c.lower())]
-        
         if cap_col:
             target_col = cap_col[0]
-            # 콤마 제거 및 숫자로 강제 변환
             df[target_col] = pd.to_numeric(df[target_col].astype(str).str.replace(',', ''), errors='coerce')
-            
-            # 🚨 시가총액이 전부 0이나 빈 값인지 검증
-            if df[target_col].sum() == 0:
-                print(f"🚨 [경고] {market} 시가총액 데이터가 API 서버에서 0으로 넘어오고 있습니다!")
-            else:
-                df = df.sort_values(target_col, ascending=False)
-        else:
-            print(f"⚠️ {market} 시가총액 컬럼을 찾을 수 없습니다. 컬럼명: {df.columns.tolist()}")
+            df = df.sort_values(target_col, ascending=False)
 
-        # 우선주 및 스팩주 필터링 (가장 안전한 방법)
+        # 3. 우선주 및 스팩주 필터링 (💡 NaN 에러 방지를 위해 astype(str) 필수 적용)
         if market in ['KOSPI', 'KOSDAQ']:
             name_col = [c for c in df.columns if 'name' in c.lower() or '종목명' in c]
             if name_col:
                 col = name_col[0]
-                df = df[~df[col].str.endswith(('우', '우B', '우C'))]
-                df = df[~df[col].str.contains('스팩')]
-        
-        result_df = df.head(limit)
-        
-        # ✅ [눈으로 확인하는 검증 로그] 정상이라면 '삼성전자', 'SK하이닉스'가 출력되어야 함
-        if market in ['KOSPI', 'KOSDAQ']:
-            name_col = [c for c in df.columns if 'name' in c.lower() or '종목명' in c]
-            if name_col:
-                top_3 = result_df[name_col[0]].tolist()[:3]
-                print(f"✅ {market} 시총 상위 3개 확인: {top_3}")
+                df = df[~df[col].astype(str).str.endswith(('우', '우B', '우C'))]
+                df = df[~df[col].astype(str).str.contains('스팩')]
 
-        return result_df
-
+        return df.head(limit)
     except Exception as e:
-        print(f"❌ {market} 리스트 가져오기 실패: {e}")
+        print(f"❌ {market} 시가총액 리스트 가져오기 실패: {e}")
         return pd.DataFrame()
 
 def process_stock(row, mkt_name, market_type, today):
