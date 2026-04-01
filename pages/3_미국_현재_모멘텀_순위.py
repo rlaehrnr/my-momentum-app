@@ -92,8 +92,8 @@ with tab1:
         st.markdown(f'<p style="font-size: 1.6rem !important; font-weight: bold; margin-bottom: 1rem;">🎯 미국 시총상위 강세 종목 집중 분석 (기준: {b_date_str})</p>', unsafe_allow_html=True)
         
         idx_us = get_idx_us(pd.to_datetime(b_date_str))
-        sp500_1m = idx_us.loc['S&P 500', '1개월(%)'] if 'S&P 500' in idx_us.index else 0.0
-        sp500_3m = idx_us.loc['S&P 500', '3개월(%)'] if 'S&P 500' in idx_us.index else 0.0
+        sp500_1m = idx_us.loc['상위 300위', '1개월(%)'] if 'S&P 500' in idx_us.index else 0.0
+        sp500_3m = idx_us.loc['상위 300위', '3개월(%)'] if 'S&P 500' in idx_us.index else 0.0
 
         # 💡 [핵심 보완] CSV 파일에서 위에서부터 정확히 300개만 잘라서 시총 상위 300종목을 보장합니다.
         df_us_300 = df_raw_us.head(300).copy()
