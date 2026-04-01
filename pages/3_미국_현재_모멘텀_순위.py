@@ -95,6 +95,7 @@ with tab1:
         sp500_1m = idx_us.loc['S&P 500', '1개월(%)'] if 'S&P 500' in idx_us.index else 0.0
         sp500_3m = idx_us.loc['S&P 500', '3개월(%)'] if 'S&P 500' in idx_us.index else 0.0
 
+        # 인터넷 다운로드 로직 전부 삭제! 순수 CSV 데이터만 사용
         df_us_300 = df_raw_us.copy()
         
         # CSV에 있는 300종목 순위 부여 (스코어 순)
@@ -132,7 +133,6 @@ with tab1:
         q30 = {c: df_us_300[c].quantile(0.7) for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']}
         t10_1m = df_us_300['1개월(%)'].quantile(0.9)
         
-        # 💡 SyntaxError 방지를 위해 역슬래시(\)를 제거하고 괄호()로 깔끔하게 묶었습니다.
         cond_perf = (
             (df_us_300['1개월(%)'] >= q30['1개월(%)']) & 
             (df_us_300['3개월(%)'] >= q30['3개월(%)']) & 
@@ -149,7 +149,8 @@ with tab1:
         common_codes = set(df_perf['종목코드']).intersection(set(df_spec['종목코드']))
         df_common = df_us_300[df_us_300['종목코드'].isin(common_codes)].copy()
 
-        us_cfg = main_cfg.copy()
+        # 💡 [핵심 버그 수정] main_cfg 대신 common_config를 복사합니다.
+        us_cfg = common_config.copy()
 
         col1, col2 = st.columns(2)
         with col1:
