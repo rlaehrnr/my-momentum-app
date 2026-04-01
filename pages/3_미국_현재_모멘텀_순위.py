@@ -80,37 +80,47 @@ with tab1:
     f_us = 'data/momentum_data_us.csv'
     if os.path.exists(f_us):
         df_us = pd.read_csv(f_us, dtype={'종목코드': str})
+        
+        # 💡 [추가] 컬럼 이름의 공백 제거 및 전달순위 숫자 변환
+        df_us.columns = df_us.columns.str.replace(' ', '')
+        
         b_date_str = df_us['기준일(월말)'].iloc[0]
         st.subheader(f"📅 월말 기준 데이터 (기준일: {b_date_str})")
         
         idx_us = get_idx_us(pd.to_datetime(b_date_str))
         if not idx_us.empty:
-            # 지수 테이블 소수점 1자리 + 콤마 강제 적용
             idx_disp = idx_us.reset_index().copy()
             idx_disp['현재가'] = idx_disp['현재가'].map('{:,.1f}'.format)
             for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
                 idx_disp[c] = idx_disp[c].map('{:+.1f}%'.format)
             st.table(idx_disp)
         
-        # [순위 대조 - 숫자로 변환]
-        try:
-            curr_dt = datetime.strptime(b_date_str, '%Y-%m-%d')
-            prev_month_dt = curr_dt.replace(day=1) - timedelta(days=1)
-            prev_ym = prev_month_dt.strftime('%Y_%m')
-            f_prev_archive = f'archive_us/momentum_us_{prev_ym}.csv'
-            
-            if os.path.exists(f_prev_archive):
-                df_prev = pd.read_csv(f_prev_archive, dtype={'종목코드': str})
-                prev_rank_map = {code: i+1 for i, code in enumerate(df_prev['종목코드'])}
-                df_us['전달순위'] = df_us['종목코드'].map(prev_rank_map)
-            else: df_us['전달순위'] = None
-        except: df_us['전달순위'] = None
+        # 💡 [순위 로직 수정] 
+        # CSV에 이미 '전달순위'가 있다면 그걸 숫자로 바꾸고, 없을 때만 아카이브를 찾습니다.
+        if '전달순위' in df_us.columns and df_us['전달순위'].notnull().any():
+            df_us['전달순위'] = pd.to_numeric(df_us['전달순위'], errors='coerce')
+        else:
+            try:
+                curr_dt = datetime.strptime(b_date_str, '%Y-%m-%d')
+                prev_month_dt = curr_dt.replace(day=1) - timedelta(days=1)
+                prev_ym = prev_month_dt.strftime('%Y_%m')
+                f_prev_archive = f'archive_us/momentum_us_{prev_ym}.csv'
+                
+                if os.path.exists(f_prev_archive):
+                    df_prev = pd.read_csv(f_prev_archive, dtype={'종목코드': str})
+                    prev_rank_map = {str(code).strip().upper(): i+1 for i, code in enumerate(df_prev['종목코드'])}
+                    df_us['전달순위'] = df_us['종목코드'].str.strip().str.upper().map(prev_rank_map)
+                else: 
+                    df_us['전달순위'] = None
+            except: 
+                df_us['전달순위'] = None
 
         st.markdown("---")
         df_us.index = range(1, len(df_us) + 1)
         df_us['통합티커'] = df_us['시장'] + ":" + df_us['종목코드']
-        df_us['종목명_L'] = df_us.apply(lambda r: f"https://finance.yahoo.com/chart/{r['종목코드'].replace('.', '-')}#{r['종목명']}", axis=1)
+        df_us['종목명_L'] = df_us.apply(lambda r: f"https://finance.yahoo.com/chart/{str(r['종목코드']).replace('.', '-')}#{r['종목명']}", axis=1)
 
+        # 💡 column_config와 정렬이 잘 작동하도록 설정
         st.dataframe(
             df_us.style.apply(apply_custom_styling, idx_df=idx_us, axis=1),
             use_container_width=True, height=600,
