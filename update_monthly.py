@@ -55,17 +55,15 @@ def get_top_stocks(market, limit=150):
         return pd.DataFrame()
 
 def process_monthly_stock(row, mkt_name, market_type, target_date_dt, target_date_str, mkt_map, prev_rank_map):
-    """개별 종목 데이터 수집 및 스코어 계산 (병렬 처리용)"""
     try:
         code = str(row.get('Code', row.get('Symbol', '')))
         
-        # 💡 [핵심 수정] 미국 주식은 BRK.B -> BRK-B 변환, 한국 주식은 마침표 제거
+        # 미국/S&P500 티커 정제 (BRK.B -> BRK-B)
         if market_type in ['US', 'SP500']:
             clean_code = code.replace('.', '-')
         else:
             clean_code = code.split('.')[0]
         
-        # 데이터 로드
         df = fdr.DataReader(clean_code, target_date_dt - pd.DateOffset(months=16), target_date_dt)
         if df.empty: return None
         
@@ -78,17 +76,18 @@ def process_monthly_stock(row, mkt_name, market_type, target_date_dt, target_dat
         
         r1, r3, r6, r12 = get_ret(1), get_ret(3), get_ret(6), get_ret(12)
         
-        # 💡 [공식 수정] 1개월 가중치 -0.5 반영
-        score = round((r1*-0.5) + (r3*0.8) + (r6*0.5) + (r12*0.2), 2)
+        # 💡 [공식 확정] S&P 500 포함 모든 시장에 동일 적용
+        score = round((r1 * -0.5) + (r3 * 0.8) + (r6 * 0.5) + (r12 * 0.2), 2)
         
-        display_mkt = mkt_map.get(code, 'NYSE') if market_type == 'SP500' else mkt_name
+        # 시장 이름 매핑 (S&P 500은 NYSE/NASDAQ으로 표시)
+        display_mkt = mkt_map.get(code.upper(), 'NYSE') if market_type == 'SP500' else mkt_name
 
         return {
             '기준일(월말)': target_date_str, '시장': display_mkt,
             '종목명': row['Name'], '종목코드': code, '기준가': round(base_price, 2),
             '1개월(%)': round(r1, 2), '3개월(%)': round(r3, 2), '6개월(%)': round(r6, 2),
             '12개월(%)': round(r12, 2), '모멘텀스코어': score, 
-            '전달순위': prev_rank_map.get(code, None),
+            '전달순위': prev_rank_map.get(code.upper(), None),
             '다음달수익률(%)': 0.0
         }
     except: return None
