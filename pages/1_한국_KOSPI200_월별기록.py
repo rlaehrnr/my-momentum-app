@@ -53,13 +53,18 @@ def load_historical_data(filepath):
     df['시가총액(억)'] = (df['시가총액'] / 100000000).fillna(0).astype(int)
     return df
 
+# 💡 [핵심 수정] Top 5, Top 10 선정 기준을 12개월 수익률 내림차순으로 변경
 def get_perf_html(title, df):
     if df.empty:
         return f"### {title} <span style='font-size: 15px; color: gray; font-weight: normal;'>(해당 종목 없음)</span>"
     
+    # 1. 모두 매수 시 평균
     all_avg = df['다음달수익률(%)'].mean()
-    top5_avg = df.head(5)['다음달수익률(%)'].mean()
-    top10_avg = df.head(10)['다음달수익률(%)'].mean()
+    
+    # 2. 12개월(%) 기준으로 내림차순 정렬 후 Top 5, Top 10 추출
+    df_sorted = df.sort_values(by='12개월(%)', ascending=False)
+    top5_avg = df_sorted.head(5)['다음달수익률(%)'].mean()
+    top10_avg = df_sorted.head(10)['다음달수익률(%)'].mean()
     
     def format_val(v):
         if pd.isna(v): return "0.00%", "gray"
@@ -70,7 +75,7 @@ def get_perf_html(title, df):
     t5_str, t5_col = format_val(top5_avg)
     t10_str, t10_col = format_val(top10_avg)
     
-    return f"### {title} <span style='font-size: 15px; font-weight: normal; color: #666;'> &nbsp; | &nbsp; 📊 다음달 성적 ➔ Top5: <span style='color:{t5_col}; font-weight:bold;'>{t5_str}</span> &nbsp; Top10: <span style='color:{t10_col}; font-weight:bold;'>{t10_str}</span> &nbsp; 모두매수: <span style='color:{a_col}; font-weight:bold;'>{a_str}</span></span>"
+    return f"### {title} <span style='font-size: 15px; font-weight: normal; color: #666;'> &nbsp; | &nbsp; 📊 다음달 성적 ➔ Top5(12M순): <span style='color:{t5_col}; font-weight:bold;'>{t5_str}</span> &nbsp; Top10(12M순): <span style='color:{t10_col}; font-weight:bold;'>{t10_str}</span> &nbsp; 모두매수: <span style='color:{a_col}; font-weight:bold;'>{a_str}</span></span>"
 
 # --- [3. 메인 로직] ---
 f_csv = 'data/한국 코스피 2014년부터 200위까지 자료.csv'
@@ -83,7 +88,7 @@ df_all = load_historical_data(f_csv)
 
 dates = sorted(df_all['기준일'].unique(), reverse=True)
 
-# 💡 [핵심 수정] 라벨 잘림 현상을 완벽하게 해결하기 위해 마크다운으로 분리
+# 💡 글씨 잘림 방지를 위해 라벨을 마크다운으로 따로 뺐습니다.
 st.markdown("<h4 style='margin-bottom: 5px;'>📅 조회 기준일(월말) 선택</h4>", unsafe_allow_html=True)
 selected_date = st.selectbox("조회일", dates, label_visibility="collapsed")
 
@@ -153,7 +158,7 @@ with col1:
                  column_order=['통합티커', '종목명_L', '시가총액(억)', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '다음달수익률(%)'], 
                  column_config=main_cfg)
 with col2:
-    st.markdown(get_perf_html("🚀 달리는 말", df_spec), unsafe_allow_html=True)
+    st.markdown(get_perf_html("🚀 장기 주도 & 단기 급등", df_spec), unsafe_allow_html=True)
     st.dataframe(df_spec.style.apply(apply_k200_styling, common_codes=common_codes, axis=1), 
                  use_container_width=True, 
                  column_order=['통합티커', '종목명_L', '시가총액(억)', '1개월(%)', '12개월(%)', '다음달수익률(%)'], 
