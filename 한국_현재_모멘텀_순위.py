@@ -4,40 +4,25 @@ import FinanceDataReader as fdr
 from datetime import datetime, timedelta
 import os
 
-# --- [1. 기본 설정 및 스타일] ---
 st.set_page_config(page_title="한국 모멘텀 순위", layout="wide")
+
+# CSS: 레이아웃 설정
 st.markdown("""<style>.block-container { padding-top: 2.5rem !important; } h1 { font-size: 2rem !important; } .stTabs [data-baseweb="tab"] { font-size: 18px; font-weight: bold; }</style>""", unsafe_allow_html=True)
 
-# 🔍 지능형 컬럼 매퍼 (파일의 실제 이름을 변수에 연결)
-def get_col_map(df):
-    mapping = {}
-    cols = df.columns
-    mapping['1M'] = next((c for c in cols if '1개월' in c or '1M' in c), None)
-    mapping['3M'] = next((c for c in cols if '3개월' in c or '3M' in c), None)
-    mapping['6M'] = next((c for c in cols if '6개월' in c or '6M' in c), None)
-    mapping['12M'] = next((c for c in cols if '12개월' in c or '12M' in c), None)
-    mapping['MC'] = next((c for c in cols if '시가' in c or 'mar' in c.lower()), None)
-    mapping['CD'] = next((c for c in cols if '코드' in c or 'Code' in c), '종목코드')
-    mapping['NM'] = next((c for c in cols if '종목명' in c or 'Name' in c), '종목명')
-    mapping['PR'] = next((c for c in cols if '가' in c and '기준' in c or '현재' in c), '기준가')
-    return mapping
-
-# 스타일 함수 (수정됨)
-def apply_custom_styling(row, idx_df, col_map, common_codes=None):
+# 스타일 함수 (지수보다 낮으면 파란색, 교집합은 노란색)
+def apply_k200_styling(row, idx_df, common_codes):
     styles = [''] * len(row)
     market = row.get('시장', 'KOSPI')
     if market in idx_df.index:
         idx_r = idx_df.loc[market]
-        for key in ['1M', '3M', '6M', '12M']:
-            col_name = col_map.get(key)
-            if col_name and col_name in row.index and col_name in idx_r.index:
-                if row[col_name] < idx_r[col_name]:
-                    styles[row.index.get_loc(col_name)] = 'background-color: #E3F2FD; color: #0047AB;'
+        for col in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
+            if col in row.index and col in idx_r.index:
+                col_idx = row.index.get_loc(col)
+                if row[col] < idx_r[col]:
+                    styles[col_idx] = 'background-color: #E3F2FD; color: #0047AB;'
     
-    # 교집합 종목명 하이라이트
-    cd_col = col_map.get('CD')
-    if common_codes and cd_col in row.index and row[cd_col] in common_codes:
-        if '종목명_L' in row.index:
+    if '종목명_L' in row.index and '종목코드' in row.index:
+        if row['종목코드'] in common_codes:
             styles[row.index.get_loc('종목명_L')] = 'background-color: #FFF59D; color: #D84315; font-weight: bold;'
     return styles
 
@@ -59,77 +44,92 @@ def get_idx_kr(target_date=None):
         except: pass
     return pd.DataFrame(res).set_index('시장')
 
-# --- [2. 탭 구성] ---
-tab1, tab2, tab3 = st.tabs(["📅 전월 말일 기준", "🕒 오늘(데일리) 기준", "🎯 KOSPI 200 집중 분석"])
-idx_now = get_idx_kr()
+tab1, tab2, tab3 = st.tabs(["📅 전월 말일 기준", "🕒 오늘(데일리) 기준", "🎯 KOSPI 200 강세 종목"])
 
-# --- 탭 3: KOSPI 200 집중 분석 (여기에 모든 요청 집중 반영) ---
+# --- 공통 설정 ---
+f_kr = 'data/momentum_data.csv'
+k200_col_config = {
+    "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
+    "기준가": st.column_config.NumberColumn("현재가", format="%,d"), 
+    "시가총액": st.column_config.NumberColumn("시가총액", format="%,d"),
+    "1개월(%)": st.column_config.NumberColumn(format="%.1f"), 
+    "3개월(%)": st.column_config.NumberColumn(format="%.1f"), 
+    "6개월(%)": st.column_config.NumberColumn(format="%.1f"), 
+    "12개월(%)": st.column_config.NumberColumn(format="%.1f")
+}
+
+with tab1:
+    if os.path.exists(f_kr):
+        df_m = pd.read_csv(f_kr, dtype={'종목코드': str})
+        st.title(f"📊 한국 모멘텀 (기준: {df_m['기준일(월말)'].iloc[0]})")
+        # 탭 1 내용 생략 (필요시 추가)
+
+with tab2:
+    f_daily = 'data/momentum_data_daily.csv'
+    if os.path.exists(f_daily):
+        df_d = pd.read_csv(f_daily, dtype={'종목코드': str})
+        st.title(f"🕒 데일리 모멘텀 (기준: {df_d['기준일'].iloc[0]})")
+        # 탭 2 내용 생략 (필요시 추가)
+
+# --- 탭 3: 어제 성공했던 그 버전 ---
 with tab3:
-    f_path = 'data/momentum_data.csv'
-    if os.path.exists(f_path):
-        df_raw = pd.read_csv(f_path, dtype={'종목코드': str, 'Code': str})
-        cmap = get_col_map(df_raw)
+    if os.path.exists(f_kr):
+        df_k200 = pd.read_csv(f_kr, dtype={'종목코드': str})
+        b_date_str = df_k200['기준일(월말)'].iloc[0]
+        st.title(f"🎯 KOSPI 200 집중 분석 (기준: {b_date_str})")
         
-        # 날짜 확인
-        d_col = next((c for c in df_raw.columns if '기준' in c or '날짜' in c), None)
-        b_date = df_raw[d_col].iloc[0] if d_col else "알 수 없음"
-        st.title(f"🎯 KOSPI 200 집중 분석 (기준: {b_date})")
-
-        # 1. 수치형 변환 및 필터링 (KOSPI 보통주)
-        for k in ['1M', '3M', '6M', '12M']:
-            if cmap[k]: df_raw[cmap[k]] = pd.to_numeric(df_raw[cmap[k]], errors='coerce').round(1)
-        
-        df_k = df_raw[(df_raw['시장'] == 'KOSPI') & (df_raw[cmap['CD']].str.endswith('0'))].copy()
-        if cmap['MC']: df_k = df_k.sort_values(by=cmap['MC'], ascending=False).head(200)
-
-        # 2. 로직 적용 (요청하신 상위 30%, 10% 기준)
-        q30 = {k: df_k[cmap[k]].quantile(0.7) for k in ['1M', '3M', '6M', '12M'] if cmap[k]}
-        q10_1m = df_k[cmap['1M']].quantile(0.9) if cmap['1M'] else 0
-        
-        # 퍼펙트 상승 (모든 기간 상위 30% & 양수)
-        cond_perf = (df_k[cmap['1M']] >= q30['1M']) & (df_k[cmap['3M']] >= q30['3M']) & \
-                    (df_k[cmap['6M']] >= q30['6M']) & (df_k[cmap['12M']] >= q30['12M']) & \
-                    (df_k[cmap['1M']] > 0) & (df_k[cmap['3M']] > 0) & (df_k[cmap['6M']] > 0) & (df_k[cmap['12M']] > 0)
-        df_perf = df_k[cond_perf].copy()
-        
-        # 장기주도 단기급등 (12M 상위 30% & 1M 상위 10%)
-        cond_spec = (df_k[cmap['12M']] >= q30['12M']) & (df_k[cmap['1M']] >= q10_1m)
-        df_spec = df_k[cond_spec].copy()
-        
-        common_codes = set(df_perf[cmap['CD']]).intersection(set(df_spec[cmap['CD']]))
-
-        # 3. 출력용 전처리
-        for d in [df_perf, df_spec, df_k]:
-            d['통합티커'] = "KOSPI:" + d[cmap['CD']].str.zfill(6)
-            d['종목명_L'] = d.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r[cmap['CD']].zfill(6)}#{r[cmap['NM']]}", axis=1)
-
-        # 컬럼 설정 (소수점 1자리 & 스코어 제외)
-        cfg = {
-            "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"),
-            cmap['PR']: st.column_config.NumberColumn("현재가", format="%,d"),
-            cmap['1M']: st.column_config.NumberColumn(format="%.1f"),
-            cmap['3M']: st.column_config.NumberColumn(format="%.1f"),
-            cmap['6M']: st.column_config.NumberColumn(format="%.1f"),
-            cmap['12M']: st.column_config.NumberColumn(format="%.1f")
-        }
-        if cmap['MC']: cfg[cmap['MC']] = st.column_config.NumberColumn("시가총액", format="%,d")
-
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("🔥 퍼펙트 상승 (전 기간 상위 30%)")
-            st.dataframe(df_perf.style.apply(apply_custom_styling, idx_df=idx_now, col_map=cmap, common_codes=common_codes, axis=1), 
-                         column_order=['통합티커', '종목명_L', cmap['1M'], cmap['3M'], cmap['6M'], cmap['12M']], column_config=cfg, use_container_width=True)
-        with col2:
-            st.subheader("🚀 장기 주도 & 단기 급등")
-            st.dataframe(df_spec.style.apply(apply_custom_styling, idx_df=idx_now, col_map=cmap, common_codes=common_codes, axis=1), 
-                         column_order=['통합티커', '종목명_L', cmap['1M'], cmap['12M']], column_config=cfg, use_container_width=True)
+        # 지수 정보 가져오기 (NameError 방지 위해 미리 선언)
+        idx_now_k200 = get_idx_kr(pd.to_datetime(b_date_str))
+        if not idx_now_k200.empty:
+            idx_disp = idx_now_k200.reset_index().copy()
+            idx_disp['현재가'] = idx_disp['현재가'].map('{:,.0f}'.format)
+            for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
+                idx_disp[c] = idx_disp[c].map('{:+.1f}%'.format)
+            st.table(idx_disp)
 
         st.markdown("---")
-        st.subheader("🏆 KOSPI 200 시가총액 순위")
-        df_k['순위'] = range(1, len(df_k) + 1)
-        st.dataframe(df_k.set_index('순위').style.apply(apply_custom_styling, idx_df=idx_now, col_map=cmap, common_codes=common_codes, axis=1), 
-                     column_order=['통합티커', '종목명_L', cmap['MC'], cmap['PR'], cmap['1M'], cmap['3M'], cmap['6M'], cmap['12M']], 
-                     column_config=cfg, use_container_width=True, height=600)
-    else: st.warning("데이터 파일을 찾을 수 없습니다.")
 
-# (참고: 탭 1, 2도 유사한 방식으로 cmap을 적용하면 에러가 안 납니다.)
+        # 데이터 전처리
+        df_k200 = df_k200[(df_k200['시장'] == 'KOSPI') & (df_k200['종목코드'].str.endswith('0'))].copy()
+        # 시가총액 혹은 Marcap 컬럼 대응
+        m_col = '시가총액' if '시가총액' in df_k200.columns else 'Marcap'
+        df_k200 = df_k200.sort_values(by=m_col, ascending=False).head(200)
+        
+        df_k200['통합티커'] = "KOSPI:" + df_k200['종목코드'].str.zfill(6)
+        df_k200['종목명_L'] = df_k200.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
+
+        # 수익률 수치형 변환 및 소수점 1자리
+        for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
+            df_k200[c] = pd.to_numeric(df_k200[c], errors='coerce').round(1)
+
+        # ⭐ 사용자 로직 적용
+        t30_1m, t30_3m, t30_6m, t30_12m = df_k200['1개월(%)'].quantile(0.7), df_k200['3개월(%)'].quantile(0.7), df_k200['6개월(%)'].quantile(0.7), df_k200['12개월(%)'].quantile(0.7)
+        t10_1m = df_k200['1개월(%)'].quantile(0.9)
+
+        # 퍼펙트 상승
+        cond_perf = (df_k200['1개월(%)']>=t30_1m) & (df_k200['3개월(%)']>=t30_3m) & (df_k200['6개월(%)']>=t30_6m) & (df_k200['12개월(%)']>=t30_12m) & \
+                    (df_k200['1개월(%)']>0) & (df_k200['3개월(%)']>0) & (df_k200['6개월(%)']>0) & (df_k200['12개월(%)']>0)
+        df_perfect = df_k200[cond_perf].copy()
+
+        # 장기주도 단기급등
+        cond_spec = (df_k200['12개월(%)']>=t30_12m) & (df_k200['1개월(%)']>=t10_1m)
+        df_special = df_k200[cond_spec].copy()
+
+        common_codes = set(df_perfect['종목코드']).intersection(set(df_special['종목코드']))
+
+        # 화면 출력
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("🔥 퍼펙트 상승")
+            st.dataframe(df_perfect.style.apply(apply_k200_styling, idx_df=idx_now_k200, common_codes=common_codes, axis=1), 
+                         use_container_width=True, column_order=['통합티커', '종목명_L', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)'], column_config=k200_col_config)
+        with col2:
+            st.subheader("🚀 장기 주도 & 단기 급등")
+            st.dataframe(df_special.style.apply(apply_k200_styling, idx_df=idx_now_k200, common_codes=common_codes, axis=1), 
+                         use_container_width=True, column_order=['통합티커', '종목명_L', '1개월(%)', '12개월(%)'], column_config=k200_col_config)
+
+        st.markdown("---")
+        st.subheader("🏆 KOSPI 200 시가총액 전체 순위")
+        df_k200['순위'] = range(1, len(df_k200) + 1)
+        st.dataframe(df_k200.set_index('순위').style.apply(apply_k200_styling, idx_df=idx_now_k200, common_codes=common_codes, axis=1), 
+                     use_container_width=True, height=600, column_order=['통합티커', '종목명_L', m_col, '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)'], column_config=k200_col_config)
