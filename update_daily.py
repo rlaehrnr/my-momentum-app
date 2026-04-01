@@ -48,12 +48,11 @@ def get_top_stocks(market, limit=150):
         return pd.DataFrame()
 
 def process_stock(row, mkt_name, market_type, today):
-    """개별 종목의 데이터를 다운로드하고 모멘텀 스코어를 계산하는 함수 (병렬 처리용)"""
     try:
-        code = row['Code'] if 'Code' in row else row['Symbol']
+        # 💡 [핵심 수정] Code가 숫자로 들어와서 split() 에러가 나는 것을 원천 차단
+        code = str(row.get('Code', row.get('Symbol', '')))
         clean_code = code.split('.')[0].replace('.', '-')
         
-        # 데이터 로드 (최근 16개월)
         df = fdr.DataReader(clean_code, today - pd.DateOffset(months=16), today)
         if df.empty: return None
         
@@ -75,19 +74,14 @@ def process_stock(row, mkt_name, market_type, today):
             display_mkt = row.get('Exchange', 'NYSE')
 
         return {
-            '기준일': last_date,
-            '시장': display_mkt,
-            '종목명': row['Name'], 
-            '종목코드': code, 
-            '기준가': round(curr_price, 2),
-            '전일거래량': curr_volume,
-            '1개월(%)': round(r1, 1), 
-            '3개월(%)': round(r3, 1), 
-            '6개월(%)': round(r6, 1),
-            '12개월(%)': round(r12, 1), 
-            '모멘텀스코어': score
+            '기준일': last_date, '시장': display_mkt, '종목명': row['Name'], 
+            '종목코드': code, '기준가': round(curr_price, 2), '전일거래량': curr_volume,
+            '1개월(%)': round(r1, 1), '3개월(%)': round(r3, 1), 
+            '6개월(%)': round(r6, 1), '12개월(%)': round(r12, 1), '모멘텀스코어': score
         }
-    except Exception:
+    except Exception as e:
+        # 에러 발생 시 조용히 넘어가지 않고 로그 출력
+        print(f"⚠️ {row.get('Name', '알수없음')} 처리 중 에러: {e}")
         return None
 
 def run_daily(market_type='KR'):
