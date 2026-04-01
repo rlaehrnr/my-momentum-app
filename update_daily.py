@@ -9,34 +9,65 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 if not os.path.exists('data'): os.makedirs('data')
 
 def get_top_stocks(market, limit=150):
-    """시장별 시가총액 상위 종목을 가져오고 우선주/스팩을 필터링하는 함수"""
     try:
-        df = fdr.StockListing(market)
-        if df.empty: return pd.DataFrame()
+        # 💡 [필살기] KOSPI, KOSDAQ 개별 조회 대신 '전체 시가총액 전용 순위' 데이터를 불러와서 필터링
+        if market in ['KOSPI', 'KOSDAQ']:
+            df = fdr.StockListing('KRX-MARCAP') # KRX 전체 시가총액 순위 데이터
+            if not df.empty:
+                # 'Market' 컬럼에서 KOSPI 또는 KOSDAQ만 걸러내기
+                mkt_col = [c for c in df.columns if 'market' in c.lower() or '시장' in c]
+                if mkt_col:
+                    target_mkt_col = mkt_col[0]
+                    # MarketId(STK 등)가 섞일 수 있으니 정확한 Market 컬럼을 우선 찾음
+                    exact_mkt = [c for c in mkt_col if c.lower() == 'market' or c == '시장구분']
+                    if exact_mkt: target_mkt_col = exact_mkt[0]
+                    
+                    df = df[df[target_mkt_col].astype(str).str.upper() == market.upper()]
+            else:
+                df = fdr.StockListing(market) # 만약 실패 시 기존 방식으로 우회
+        else:
+            df = fdr.StockListing(market)
 
+        if df.empty: return pd.DataFrame()
+        
         if market == 'S&P500': 
             return df.drop_duplicates(subset=['Symbol']).head(limit)
-        
-        # 시가총액 컬럼 찾기 (한글 '시가총액' 포함)
+
+        # 시가총액 컬럼 찾기 및 내림차순 정렬
         cap_col = [c for c in df.columns if '시가총액' in c or ('mar' in c.lower() and 'cap' in c.lower())]
         
         if cap_col:
             target_col = cap_col[0]
-            # 문자열로 들어온 시가총액을 숫자로 변환 후 내림차순 정렬
+            # 콤마 제거 및 숫자로 강제 변환
             df[target_col] = pd.to_numeric(df[target_col].astype(str).str.replace(',', ''), errors='coerce')
-            df = df.sort_values(target_col, ascending=False)
+            
+            # 🚨 시가총액이 전부 0이나 빈 값인지 검증
+            if df[target_col].sum() == 0:
+                print(f"🚨 [경고] {market} 시가총액 데이터가 API 서버에서 0으로 넘어오고 있습니다!")
+            else:
+                df = df.sort_values(target_col, ascending=False)
         else:
-            print(f"⚠️ {market} 시가총액 컬럼을 찾을 수 없습니다.")
+            print(f"⚠️ {market} 시가총액 컬럼을 찾을 수 없습니다. 컬럼명: {df.columns.tolist()}")
 
-        # 우선주 및 스팩 종목 제외
+        # 우선주 및 스팩주 필터링 (가장 안전한 방법)
         if market in ['KOSPI', 'KOSDAQ']:
             name_col = [c for c in df.columns if 'name' in c.lower() or '종목명' in c]
             if name_col:
                 col = name_col[0]
                 df = df[~df[col].str.endswith(('우', '우B', '우C'))]
                 df = df[~df[col].str.contains('스팩')]
+        
+        result_df = df.head(limit)
+        
+        # ✅ [눈으로 확인하는 검증 로그] 정상이라면 '삼성전자', 'SK하이닉스'가 출력되어야 함
+        if market in ['KOSPI', 'KOSDAQ']:
+            name_col = [c for c in df.columns if 'name' in c.lower() or '종목명' in c]
+            if name_col:
+                top_3 = result_df[name_col[0]].tolist()[:3]
+                print(f"✅ {market} 시총 상위 3개 확인: {top_3}")
 
-        return df.head(limit)
+        return result_df
+
     except Exception as e:
         print(f"❌ {market} 리스트 가져오기 실패: {e}")
         return pd.DataFrame()
