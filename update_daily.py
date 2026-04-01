@@ -52,17 +52,14 @@ def get_top_stocks(market, limit=150):
 
 # 💡 수정 1: 데일리 프로세스 함수 (prev_rank_map 추가)
 def process_stock(row, mkt_name, market_type, today, prev_rank_map):
-    """개별 종목 데일리 데이터 수집 및 스코어 계산"""
     try:
         code = str(row.get('Code', row.get('Symbol', '')))
         
-        # 💡 [핵심 수정] 미국 주식은 마침표를 하이픈으로 변경, 한국 주식은 마침표 앞만 추출
         if market_type in ['US', 'SP500']:
-            clean_code = code.replace('.', '-') # BRK.B -> BRK-B
+            clean_code = code.replace('.', '-')
         else:
-            clean_code = code.split('.')[0] # 005930.KS -> 005930
+            clean_code = code.split('.')[0]
         
-        # 데이터 로드 (최근 16개월)
         df = fdr.DataReader(clean_code, today - pd.DateOffset(months=16), today)
         if df.empty: return None
         
@@ -77,7 +74,9 @@ def process_stock(row, mkt_name, market_type, today, prev_rank_map):
             return (curr_price - past['Close'].iloc[-1]) / past['Close'].iloc[-1] * 100
         
         r1, r3, r6, r12 = get_ret(1), get_ret(3), get_ret(6), get_ret(12)
-        score = round((r1*-0.5) + (r3*0.8) + (r6*0.5) + (r12*0.2), 1)
+        
+        # 💡 [공식 확정] 1개월 가중치 -0.5로 통일
+        score = round((r1 * -0.5) + (r3 * 0.8) + (r6 * 0.5) + (r12 * 0.2), 1)
         
         display_mkt = row.get('Exchange', 'NYSE') if market_type == 'SP500' else mkt_name
 
@@ -86,7 +85,7 @@ def process_stock(row, mkt_name, market_type, today, prev_rank_map):
             '종목코드': code, '기준가': round(curr_price, 2), '전일거래량': curr_volume,
             '1개월(%)': round(r1, 1), '3개월(%)': round(r3, 1), '6개월(%)': round(r6, 1),
             '12개월(%)': round(r12, 1), '모멘텀스코어': score, 
-            '전달순위': prev_rank_map.get(code, None)
+            '전달순위': prev_rank_map.get(code.upper(), None)
         }
     except Exception:
         return None
