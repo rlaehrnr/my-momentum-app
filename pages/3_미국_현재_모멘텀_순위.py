@@ -17,7 +17,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# ⭐ 통합 스타일 함수: 지수 대비 약세(파랑) + 1,000만 주 이상(분홍)
+# ⭐ 통합 스타일 함수: 지수 대비 약세(파랑) + 1,000만 주 이상(분홍) + 교집합(노랑)
 def apply_custom_styling(row, idx_df, common_codes=None):
     m_map = {'NYSE': 'S&P 500', 'NASDAQ': 'NASDAQ'}
     target = m_map.get(row.get('시장', 'NYSE'))
@@ -37,7 +37,7 @@ def apply_custom_styling(row, idx_df, common_codes=None):
         vol_idx = row.index.get_loc('전일거래량')
         styles[vol_idx] = 'background-color: #FFEBEE; color: #B71C1C; font-weight: bold;'
         
-    # 3. 💡 [추가] 교집합 종목 하이라이트 (노란색) - 새 탭용
+    # 3. 교집합 종목 하이라이트 (노란색)
     if common_codes and '종목코드' in row.index and row['종목코드'] in common_codes:
         if '종목명_L' in row.index:
             styles[row.index.get_loc('종목명_L')] = 'background-color: #FFF59D; color: #D84315; font-weight: bold;'
@@ -65,10 +65,10 @@ def get_idx_us(target_date=None):
 # 상단 타이틀
 st.title("🇺🇸 미국 시총상위 모멘텀")
 
-# 💡 [핵심] 탭 순서 변경: 강세 종목 탭을 가장 앞으로!
+# 탭 순서
 tab1, tab2, tab3 = st.tabs(["🎯 미국 강세 종목", "📅 전월 말일 기준", "🕒 오늘(데일리) 기준"])
 
-# 공통 컬럼 설정 (정렬 및 콤마 적용)
+# 공통 컬럼 설정
 common_config = {
     "통합티커": st.column_config.TextColumn("티커"),
     "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
@@ -81,7 +81,7 @@ common_config = {
     "모멘텀스코어": st.column_config.NumberColumn("스코어", format="%.2f"),
 }
 
-# --- [탭 1: 미국 시총상위 강세 종목 (새로 추가됨!)] ---
+# --- [탭 1: 미국 시총상위 강세 종목 (CSV 순수 로딩)] ---
 with tab1:
     f_us = 'data/momentum_data_us.csv'
     if os.path.exists(f_us):
@@ -95,31 +95,12 @@ with tab1:
         sp500_1m = idx_us.loc['S&P 500', '1개월(%)'] if 'S&P 500' in idx_us.index else 0.0
         sp500_3m = idx_us.loc['S&P 500', '3개월(%)'] if 'S&P 500' in idx_us.index else 0.0
 
+        # 인터넷 다운로드 로직 전부 삭제! 순수 CSV 데이터만 사용
         df_us_300 = df_raw_us.copy()
         
-        try:
-            nyse = fdr.StockListing('NYSE')
-            nasdaq = fdr.StockListing('NASDAQ')
-            us_info = pd.concat([nyse, nasdaq])
-            
-            cap_col = [c for c in us_info.columns if '시가총액' in c or ('mar' in c.lower() and 'cap' in c.lower())]
-            sym_col = 'Symbol' if 'Symbol' in us_info.columns else 'Code'
-            
-            if cap_col and sym_col:
-                us_info = us_info[[sym_col, cap_col[0]]]
-                us_info.columns = ['Code', 'Marcap']
-                us_info['Marcap'] = pd.to_numeric(us_info['Marcap'].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce')
-                
-                df_us_300 = df_us_300.merge(us_info, left_on='종목코드', right_on='Code', how='left')
-                df_us_300['시가총액'] = (df_us_300['Marcap'] / 100000000).fillna(0).astype(int)
-            else:
-                df_us_300['시가총액'] = 0
-        except:
-            df_us_300['시가총액'] = 0
-            
-        df_us_300 = df_us_300.sort_values(by='시가총액', ascending=False).head(300)
-        df_us_300['시총순위'] = range(1, len(df_us_300) + 1)
-        df_us_300 = df_us_300.set_index('시총순위')
+        # CSV에 있는 300종목 순위 부여 (스코어 순)
+        df_us_300['순위'] = range(1, len(df_us_300) + 1)
+        df_us_300 = df_us_300.set_index('순위')
         
         df_us_300['통합티커'] = df_us_300['시장'] + ":" + df_us_300['종목코드']
         df_us_300['종목명_L'] = df_us_300.apply(lambda r: f"https://finance.yahoo.com/quote/{str(r['종목코드']).replace('.', '-')}#{r['종목명']}", axis=1)
@@ -153,130 +134,4 @@ with tab1:
         t10_1m = df_us_300['1개월(%)'].quantile(0.9)
         
         cond_perf = (df_us_300['1개월(%)']>=q30['1개월(%)'])&(df_us_300['3개월(%)']>=q30['3개월(%)'])&(df_us_300['6개월(%)']>=q30['6개월(%)'])&(df_us_300['12개월(%)']>=q30['12개월(%)']) & \
-                    (df_us_300['1개월(%)']>0)&(df_us_300['3개월(%)']>0)&(df_us_300['6개월(%)']>0)&(df_us_300['12개월(%)']>0)
-        
-        df_perf = df_us_300[cond_perf].copy()
-        df_spec = df_us_300[(df_us_300['12개월(%)']>=q30['12개월(%)']) & (df_us_300['1개월(%)']>=t10_1m)].copy()
-        common_codes = set(df_perf['종목코드']).intersection(set(df_spec['종목코드']))
-        df_common = df_us_300[df_us_300['종목코드'].isin(common_codes)].copy()
-
-        us_cfg = main_cfg.copy()
-        us_cfg['시가총액'] = st.column_config.NumberColumn("시가총액(억$)", format="%,d")
-
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("🔥 퍼펙트 상승")
-            st.dataframe(df_perf.style.apply(apply_custom_styling, idx_df=idx_us, common_codes=common_codes, axis=1), 
-                         use_container_width=True, 
-                         column_order=['통합티커', '종목명_L', '시가총액', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)'], 
-                         column_config=us_cfg)
-        with col2:
-            st.subheader("🐎 달리는 말")
-            st.dataframe(df_spec.style.apply(apply_custom_styling, idx_df=idx_us, common_codes=common_codes, axis=1), 
-                         use_container_width=True, 
-                         column_order=['통합티커', '종목명_L', '시가총액', '1개월(%)', '12개월(%)'], 
-                         column_config=us_cfg)
-
-        st.markdown("---")
-        st.subheader("🌟 강력 추천 교집합 종목 (퍼펙트 + 달리는 말)")
-        if not df_common.empty:
-            st.dataframe(df_common.style.apply(apply_custom_styling, idx_df=idx_us, common_codes=common_codes, axis=1), 
-                         use_container_width=True, 
-                         column_order=['통합티커', '종목명_L', '시가총액', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)'], 
-                         column_config=us_cfg)
-        else:
-            st.info("해당 기준일에는 두 조건을 모두 만족하는 교집합 종목이 없습니다.")
-
-        st.markdown("---")
-        st.subheader("🏆 미국 시총상위 (NYSE + NASDAQ 300종목) 전체 순위")
-        st.dataframe(df_us_300.style.apply(apply_custom_styling, idx_df=idx_us, common_codes=common_codes, axis=1), 
-                     use_container_width=True, height=600, 
-                     column_order=['통합티커', '종목명_L', '시가총액', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)'], 
-                     column_config=us_cfg)
-
-# --- [탭 2: 월말 고정 데이터 (기존 탭 1)] ---
-with tab2:
-    f_us = 'data/momentum_data_us.csv'
-    if os.path.exists(f_us):
-        df_us = pd.read_csv(f_us, dtype={'종목코드': str})
-        df_us.columns = df_us.columns.str.replace(' ', '')
-        
-        b_date_str = df_us['기준일(월말)'].iloc[0]
-        st.subheader(f"📅 월말 기준 데이터 (기준일: {b_date_str})")
-        
-        idx_us = get_idx_us(pd.to_datetime(b_date_str))
-        if not idx_us.empty:
-            idx_disp = idx_us.reset_index().copy()
-            idx_disp['현재가'] = idx_disp['현재가'].map('{:,.1f}'.format)
-            for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
-                idx_disp[c] = idx_disp[c].map('{:+.1f}%'.format)
-            st.table(idx_disp)
-        
-        if '전달순위' in df_us.columns and df_us['전달순위'].notnull().any():
-            df_us['전달순위'] = pd.to_numeric(df_us['전달순위'], errors='coerce')
-        else:
-            try:
-                curr_dt = datetime.strptime(b_date_str, '%Y-%m-%d')
-                prev_month_dt = curr_dt.replace(day=1) - timedelta(days=1)
-                prev_ym = prev_month_dt.strftime('%Y_%m')
-                f_prev_archive = f'archive_us/momentum_us_{prev_ym}.csv'
-                
-                if os.path.exists(f_prev_archive):
-                    df_prev = pd.read_csv(f_prev_archive, dtype={'종목코드': str})
-                    prev_rank_map = {str(code).strip().upper(): i+1 for i, code in enumerate(df_prev['종목코드'])}
-                    df_us['전달순위'] = df_us['종목코드'].str.strip().str.upper().map(prev_rank_map)
-                else: 
-                    df_us['전달순위'] = None
-            except: 
-                df_us['전달순위'] = None
-
-        st.markdown("---")
-        df_us.index = range(1, len(df_us) + 1)
-        df_us['통합티커'] = df_us['시장'] + ":" + df_us['종목코드']
-        df_us['종목명_L'] = df_us.apply(lambda r: f"https://finance.yahoo.com/chart/{str(r['종목코드']).replace('.', '-')}#{r['종목명']}", axis=1)
-
-        st.dataframe(
-            df_us.style.apply(apply_custom_styling, idx_df=idx_us, axis=1),
-            use_container_width=True, height=600,
-            column_order=['통합티커', '종목명_L', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달순위'],
-            column_config={**common_config, "전달순위": st.column_config.NumberColumn("전달 순위", format="%d위")}
-        )
-
-# --- [탭 3: 데일리 데이터 (기존 탭 2)] ---
-with tab3:
-    f_daily_us = 'data/momentum_data_daily_us.csv'
-    f_monthly_ref = 'data/momentum_data_us.csv'
-    
-    if os.path.exists(f_daily_us):
-        df_d_us = pd.read_csv(f_daily_us, dtype={'종목코드': str})
-        
-        if os.path.exists(f_monthly_ref):
-            df_m_ref = pd.read_csv(f_monthly_ref, dtype={'종목코드': str})
-            rank_map = {code: i+1 for i, code in enumerate(df_m_ref['종목코드'])}
-            df_d_us['전월순위'] = df_d_us['종목코드'].map(rank_map)
-        else: df_d_us['전월순위'] = None
-
-        d_date = df_d_us['기준일'].iloc[0]
-        st.subheader(f"🕒 미국 데일리 실시간 (기준일: {d_date})")
-        
-        idx_now = get_idx_us() 
-        if not idx_now.empty:
-            idx_disp_now = idx_now.reset_index().copy()
-            idx_disp_now['현재가'] = idx_disp_now['현재가'].map('{:,.1f}'.format)
-            for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
-                idx_disp_now[c] = idx_disp_now[c].map('{:+.1f}%'.format)
-            st.table(idx_disp_now)
-        
-        st.markdown("---")
-        if '전일거래량' not in df_d_us.columns: df_d_us['전일거래량'] = 0
-
-        df_d_us.index = range(1, len(df_d_us) + 1)
-        df_d_us['통합티커'] = df_d_us['시장'] + ":" + df_d_us['종목코드']
-        df_d_us['종목명_L'] = df_d_us.apply(lambda r: f"https://finance.yahoo.com/chart/{r['종목코드'].replace('.', '-')}#{r['종목명']}", axis=1)
-
-        st.dataframe(
-            df_d_us.style.apply(apply_custom_styling, idx_df=idx_now, axis=1),
-            use_container_width=True, height=600,
-            column_order=['통합티커', '종목명_L', '기준가', '전일거래량', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전월순위'],
-            column_config={**common_config, "전월순위": st.column_config.NumberColumn("전월 순위", format="%d위")}
-        )
+                    (df_us_300['1개월(%)']>0)&(df_us_300['3개월(%)']>0)&(df_
