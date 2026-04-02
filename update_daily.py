@@ -133,7 +133,16 @@ def run_daily(market_type='KR'):
                 if result: 
                     res.append(result)
                     
-    if res:
-        final_df = pd.DataFrame(res).sort_values('모멘텀스코어', ascending=False)
+  if res:
+        final_df = pd.DataFrame(res)
+        
+        # ⭐ [여기에 복리 역산 코드를 추가합니다!] ⭐
+        # 각 종목의 1, 3, 6, 12개월 수익률 데이터를 바탕으로 1개월 제외 수익률 계산
+        final_df['3-1개월(%)'] = round(((1 + final_df['3개월(%)']/100) / (1 + final_df['1개월(%)']/100) - 1) * 100, 2)
+        final_df['6-1개월(%)'] = round(((1 + final_df['6개월(%)']/100) / (1 + final_df['1개월(%)']/100) - 1) * 100, 2)
+        final_df['12-1개월(%)'] = round(((1 + final_df['12개월(%)']/100) / (1 + final_df['1개월(%)']/100) - 1) * 100, 2)
+
+        # 원래 있던 정렬 및 저장 코드 (이 코드 바로 위에 넣는 것입니다)
+        final_df = final_df.sort_values('모멘텀스코어', ascending=False)
         final_df.to_csv(file_path, index=False, encoding='utf-8-sig')
         print(f"✅ {name_tag} 데일리 업데이트 완료!")
