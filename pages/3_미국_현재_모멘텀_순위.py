@@ -46,16 +46,15 @@ def highlight_name_only(row, common_tickers):
             styles[name_idx] = 'background-color: #FFF9C4; color: #1F2937; font-weight: bold;'
     return styles
 
-# 💡 [핵심] 픽셀 단위 정밀 너비 조정
-# 순위에서 '위'를 제거하고 폭을 40으로 줄여 공간을 극대화했습니다.
+# 💡 [핵심] 컬럼 너비 및 레이블 정밀 세팅 (잘림 방지)
 common_config = {
-    "순위": st.column_config.NumberColumn("순위", format="%d", width=40),
-    "통합티커": st.column_config.TextColumn("티커", width=110),
-    "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)", width="large"), 
-    "기준가": st.column_config.NumberColumn("현재가", format="$ %,.2f", width=100),
-    "3-1개월(%)": st.column_config.NumberColumn("3-1M", format="%.1f%%", width=90),
-    "6-1개월(%)": st.column_config.NumberColumn("6-1M", format="%.1f%%", width=90),
-    "12-1개월(%)": st.column_config.NumberColumn("12-1M", format="%.1f%%", width=90),
+    "순위": st.column_config.NumberColumn("순위", format="%d", width=40), # 숫자만 표시, 아주 좁게
+    "통합티커": st.column_config.TextColumn("티커", width=105),           # 티커 잘림 방지
+    "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)", width=None), # 유연한 확장
+    "기준가": st.column_config.NumberColumn("현재가", format="$ %,.2f", width=95),
+    "12-1개월(%)": st.column_config.NumberColumn("12-1M", format="%.1f%%", width=85),
+    "6-1개월(%)": st.column_config.NumberColumn("6-1M", format="%.1f%%", width=85),
+    "3-1개월(%)": st.column_config.NumberColumn("3-1M", format="%.1f%%", width=85),
 }
 
 @st.cache_data(ttl=3600)
@@ -79,9 +78,8 @@ def get_idx_us(target_date=None):
 def display_momentum_dashboard(df_raw, target_date_str):
     df_300 = df_raw.head(300).copy()
     
-    # 데이터 전처리
-    m_cols = ['3-1개월(%)', '6-1개월(%)', '12-1개월(%)']
-    for c in m_cols:
+    # 데이터 타입 강제 변환 (수치 누락 방지)
+    for c in ['3-1개월(%)', '6-1개월(%)', '12-1개월(%)']:
         if c in df_300.columns:
             df_300[c] = pd.to_numeric(df_300[c], errors='coerce').fillna(0.0)
 
@@ -108,7 +106,7 @@ def display_momentum_dashboard(df_raw, target_date_str):
             st.dataframe(overlap_12_6.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
                          use_container_width=True, hide_index=True,
                          column_order=['순위', '통합티커', '종목명_L', '12-1개월(%)', '6-1개월(%)'], column_config=common_config)
-        else: st.info("중복 없음")
+        else: st.info("중복 종목 없음")
 
     with c_over2:
         st.markdown('<div class="overlap-header">⚡ 6-1M & 3-1M 중복</div>', unsafe_allow_html=True)
@@ -117,9 +115,9 @@ def display_momentum_dashboard(df_raw, target_date_str):
             st.dataframe(overlap_6_3.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
                          use_container_width=True, hide_index=True,
                          column_order=['순위', '통합티커', '종목명_L', '6-1개월(%)', '3-1개월(%)'], column_config=common_config)
-        else: st.info("중복 없음")
+        else: st.info("중복 종목 없음")
 
-    # --- 중단: 상위 30위 ---
+    # --- 중단: 상위 30위 (여기가 핵심!) ---
     st.markdown("<br>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
     
@@ -130,6 +128,7 @@ def display_momentum_dashboard(df_raw, target_date_str):
             st.markdown(f'<div class="section-header">{title}</div>', unsafe_allow_html=True)
             df_sub = df_300.sort_values(sort_col, ascending=False).head(30).copy()
             df_sub['순위'] = range(1, 31)
+            # 💡 column_order에 sort_col(실제 수치 데이터)을 정확히 포함시켜 누락 방지
             st.dataframe(df_sub.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
                          use_container_width=True, height=450, hide_index=True,
                          column_order=['순위', '통합티커', '종목명_L', sort_col], column_config=common_config)
@@ -145,7 +144,7 @@ def display_momentum_dashboard(df_raw, target_date_str):
                  column_order=['순위', '통합티커', '종목명_L', '기준가', '3-1개월(%)', '6-1개월(%)', '12-1개월(%)'],
                  column_config=common_config)
 
-# 실행부
+# 실행
 st.title("🇺🇸 미국 시총상위 모멘텀")
 t1, t2 = st.tabs(["📅 전월 말일 기준", "🕒 오늘(데일리) 기준"])
 
@@ -153,11 +152,11 @@ f_us, f_daily = 'data/momentum_data_us.csv', 'data/momentum_data_daily_us.csv'
 
 with t1:
     if os.path.exists(f_us):
-        df_m = pd.read_csv(f_us, dtype={'종목코드': str})
-        df_m.columns = df_m.columns.str.replace(' ', '')
-        display_momentum_dashboard(df_m, df_m['기준일(월말)'].iloc[0])
+        df = pd.read_csv(f_us, dtype={'종목코드': str})
+        df.columns = df.columns.str.replace(' ', '')
+        display_momentum_dashboard(df, df['기준일(월말)'].iloc[0])
 with t2:
     if os.path.exists(f_daily):
-        df_d = pd.read_csv(f_daily, dtype={'종목코드': str})
-        df_d.columns = df_d.columns.str.replace(' ', '')
-        display_momentum_dashboard(df_d, df_d['기준일'].iloc[0])
+        df = pd.read_csv(f_daily, dtype={'종목코드': str})
+        df.columns = df.columns.str.replace(' ', '')
+        display_momentum_dashboard(df, df['기준일'].iloc[0])
