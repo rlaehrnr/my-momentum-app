@@ -37,7 +37,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# ⭐ 신규: 지수 이동평균선 데이터 수집 (링크 추가)
+# 지수 이동평균선 데이터 수집 (링크 추가)
 @st.cache_data(ttl=3600)
 def get_index_ma_status():
     indices = {'S&P 500': 'US500', 'NASDAQ': 'IXIC'}
@@ -52,7 +52,6 @@ def get_index_ma_status():
             
             curr_price = df['Close'].iloc[-1]
             
-            # 💡 [핵심] 네이버 금융 차트 링크 연동
             url = f"https://m.stock.naver.com/fchart/foreign/index/.INX#{name}" if name == 'S&P 500' else f"https://m.stock.naver.com/fchart/foreign/index/.IXIC#{name}"
             
             ma_values = {
@@ -68,7 +67,7 @@ def get_index_ma_status():
         except: pass
     return pd.DataFrame(res)
 
-# ⭐ 신규: 이동평균선 색상 스타일 함수
+# 이동평균선 색상 스타일 함수
 def style_index_ma(df):
     def apply_color(row):
         price = row['현재가']
@@ -83,7 +82,6 @@ def style_index_ma(df):
         return styles
     return df.style.apply(apply_color, axis=1)
 
-# 이동평균선 표 전용 컬럼 설정 (소수점 2자리 고정)
 ma_config = {
     "지수_L": st.column_config.LinkColumn("지수", display_text=r"#(.+)"),
     "현재가": st.column_config.NumberColumn("현재가", format="%.2f"),
@@ -94,7 +92,7 @@ ma_config = {
     "200일선": st.column_config.NumberColumn("200일선", format="%.2f")
 }
 
-# ⭐ 겹치는 종목 하이라이트
+# 겹치는 종목 하이라이트
 def highlight_name_only(row, common_tickers):
     styles = [''] * len(row)
     if row.get('종목코드') in common_tickers:
@@ -103,7 +101,7 @@ def highlight_name_only(row, common_tickers):
             styles[name_idx] = 'background-color: #FFF9C4; color: #1F2937; font-weight: bold; border-radius: 4px;'
     return styles
 
-# 💡 [핵심] 컬럼 설정: 1M, 3M, 6M, 12M, 스코어 추가
+# 💡 [추가] 거래량과 전월순위 컬럼 설정 추가
 base_config = {
     "순위": st.column_config.NumberColumn("순위", format="%d", width=40),
     "통합티커": st.column_config.TextColumn("티커", width=105),
@@ -117,6 +115,8 @@ base_config = {
     "6-1개월(%)": st.column_config.NumberColumn("6-1M", format="%.1f%%", width=85),
     "12-1개월(%)": st.column_config.NumberColumn("12-1M", format="%.1f%%", width=85),
     "모멘텀스코어": st.column_config.NumberColumn("스코어", format="%.2f", width=80),
+    "전일거래량": st.column_config.NumberColumn("거래량", format="%,d", width=85),
+    "전달순위": st.column_config.NumberColumn("전월순위", format="%d위", width=75),
 }
 
 @st.cache_data(ttl=3600)
@@ -137,8 +137,8 @@ def get_idx_us(target_date=None):
         except: pass
     return pd.DataFrame(res).set_index('시장')
 
-def display_momentum_dashboard(df_raw, target_date_str):
-    # --- 상단: 지수 이동평균선 현황판 ---
+# 💡 [핵심] is_daily 파라미터 추가
+def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
     st.markdown("### 📊 주요 지수 이동평균선 현황")
     ma_df = get_index_ma_status()
     if not ma_df.empty:
@@ -146,6 +146,14 @@ def display_momentum_dashboard(df_raw, target_date_str):
     st.markdown("<br>", unsafe_allow_html=True)
 
     df_300 = df_raw.head(300).copy()
+    
+    # 데일리 데이터인 경우 거래량/전달순위 숫자 변환 안전처리
+    if is_daily:
+        if '전일거래량' in df_300.columns:
+            df_300['전일거래량'] = pd.to_numeric(df_300['전일거래량'], errors='coerce').fillna(0)
+        if '전달순위' in df_300.columns:
+            df_300['전달순위'] = pd.to_numeric(df_300['전달순위'], errors='coerce')
+
     for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '3-1개월(%)', '6-1개월(%)', '12-1개월(%)', '모멘텀스코어']:
         if c in df_300.columns:
             df_300[c] = pd.to_numeric(df_300[c], errors='coerce').fillna(0.0)
@@ -204,8 +212,14 @@ def display_momentum_dashboard(df_raw, target_date_str):
     df_300_all = df_300.copy()
     df_300_all['순위'] = range(1, len(df_300_all) + 1)
     
-    # 💡 [핵심] 하단 표 전체 데이터 노출 적용 (1M, 3M, 6M, 12M, 스코어 포함)
-    full_order = ['순위', '통합티커', '종목명_L', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '3-1개월(%)', '6-1개월(%)', '12-1개월(%)', '모멘텀스코어']
+    # 💡 [핵심] 데일리 탭일 경우에만 거래량, 전달순위 노출
+    if is_daily:
+        full_order = ['순위', '통합티커', '종목명_L', '기준가', '전일거래량', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '3-1개월(%)', '6-1개월(%)', '12-1개월(%)', '모멘텀스코어', '전달순위']
+    else:
+        full_order = ['순위', '통합티커', '종목명_L', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '3-1개월(%)', '6-1개월(%)', '12-1개월(%)', '모멘텀스코어']
+    
+    # CSV에 없는 컬럼이 호출되어 에러가 나지 않도록 방어 로직 추가
+    full_order = [col for col in full_order if col in df_300_all.columns or col == '순위']
     
     st.dataframe(df_300_all.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
                  use_container_width=True, height=600, hide_index=True,
@@ -221,9 +235,9 @@ with t1:
     if os.path.exists(f_us):
         df = pd.read_csv(f_us, dtype={'종목코드': str})
         df.columns = df.columns.str.replace(' ', '')
-        display_momentum_dashboard(df, df['기준일(월말)'].iloc[0])
+        display_momentum_dashboard(df, df['기준일(월말)'].iloc[0], is_daily=False)
 with t2:
     if os.path.exists(f_daily):
         df = pd.read_csv(f_daily, dtype={'종목코드': str})
         df.columns = df.columns.str.replace(' ', '')
-        display_momentum_dashboard(df, df['기준일'].iloc[0])
+        display_momentum_dashboard(df, df['기준일'].iloc[0], is_daily=True) # 👈 데일리 플래그 활성화!
