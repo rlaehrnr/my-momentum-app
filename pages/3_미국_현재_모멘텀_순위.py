@@ -46,16 +46,16 @@ def highlight_name_only(row, common_tickers):
             styles[name_idx] = 'background-color: #FFF9C4; color: #1F2937; font-weight: bold;'
     return styles
 
-# 💡 [핵심] 컬럼 너비 재배정
-# 순위는 최소한으로(small), 종목명은 최대한으로(large) 설정했습니다.
+# 💡 [핵심] 컬럼 너비 픽셀 단위 정밀 배정
+# 텍스트가 잘리지 않도록 최소 너비를 확보하면서 종목명을 최대한 넓게 잡았습니다.
 common_config = {
-    "순위": st.column_config.NumberColumn("순위", format="%d위", width="small"),
-    "통합티커": st.column_config.TextColumn("티커", width="small"),
-    "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)", width="large"), # 👈 넓게 확장
-    "기준가": st.column_config.NumberColumn("현재가", format="$ %,.2f", width="small"),
-    "3-1개월(%)": st.column_config.NumberColumn("3-1M", format="%.1f%%", width="small"),
-    "6-1개월(%)": st.column_config.NumberColumn("6-1M", format="%.1f%%", width="small"),
-    "12-1개월(%)": st.column_config.NumberColumn("12-1M", format="%.1f%%", width="small"),
+    "순위": st.column_config.NumberColumn("순위", format="%d위", width=60),
+    "통합티커": st.column_config.TextColumn("티커", width=110),
+    "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)", width="large"), 
+    "기준가": st.column_config.NumberColumn("현재가", format="$ %,.2f", width=90),
+    "3-1개월(%)": st.column_config.NumberColumn("3-1M", format="%.1f%%", width=90),
+    "6-1개월(%)": st.column_config.NumberColumn("6-1M", format="%.1f%%", width=90),
+    "12-1개월(%)": st.column_config.NumberColumn("12-1M", format="%.1f%%", width=90),
 }
 
 @st.cache_data(ttl=3600)
@@ -69,7 +69,7 @@ def get_idx_us(target_date=None):
             curr_val = df.loc[df.index <= target_date]['Close'].iloc[-1] if target_date else df['Close'].iloc[-1]
             last_idx_date = df.index[df.index <= (target_date if target_date else today)][-1]
             def get_ret(m):
-                ref_day = (last_idx_date.replace(day=1) - pd.DateOffset(months=m-1)) - timedelta(days=1)
+                ref_day = (last_idx_date.replace(day=1) - pd.Offset(months=m-1)) - timedelta(days=1)
                 p_df = df[df.index <= ref_day]
                 return round((curr_val - p_df['Close'].iloc[-1]) / p_df['Close'].iloc[-1] * 100, 2) if not p_df.empty else 0.0
             res.append({'시장': name, '현재가': curr_val, '1개월(%)': get_ret(1), '3개월(%)': get_ret(3), '6개월(%)': get_ret(6), '12개월(%)': get_ret(12)})
