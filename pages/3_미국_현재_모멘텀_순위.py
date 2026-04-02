@@ -37,17 +37,18 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 지수 이동평균선 데이터 수집 (링크 추가)
+# 💡 [핵심 수정] 무조건 오늘이 아닌, 'target_date_str'을 기준으로 데이터를 가져오도록 수정
 @st.cache_data(ttl=3600)
-def get_index_ma_status():
+def get_index_ma_status(target_date_str):
     indices = {'S&P 500': 'US500', 'NASDAQ': 'IXIC'}
-    today = datetime.today()
-    start_date = today - timedelta(days=400) 
+    target_date = pd.to_datetime(target_date_str)
+    start_date = target_date - timedelta(days=400) 
     
     res = []
     for name, code in indices.items():
         try:
-            df = fdr.DataReader(code, start_date, today)
+            # 타겟 날짜까지만 데이터를 불러옴
+            df = fdr.DataReader(code, start_date, target_date)
             if df.empty: continue
             
             curr_price = df['Close'].iloc[-1]
@@ -101,7 +102,7 @@ def highlight_name_only(row, common_tickers):
             styles[name_idx] = 'background-color: #FFF9C4; color: #1F2937; font-weight: bold; border-radius: 4px;'
     return styles
 
-# 💡 [추가] 거래량과 전월순위 컬럼 설정 추가
+# 컬럼 설정
 base_config = {
     "순위": st.column_config.NumberColumn("순위", format="%d", width=40),
     "통합티커": st.column_config.TextColumn("티커", width=105),
@@ -137,17 +138,16 @@ def get_idx_us(target_date=None):
         except: pass
     return pd.DataFrame(res).set_index('시장')
 
-# 💡 [핵심] is_daily 파라미터 추가
 def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
-    st.markdown("### 📊 주요 지수 이동평균선 현황")
-    ma_df = get_index_ma_status()
+    # 💡 [적용] 기준일 명시 및 해당 기준일의 MA 계산
+    st.markdown(f"### 📊 주요 지수 이동평균선 현황 (기준일: {target_date_str})")
+    ma_df = get_index_ma_status(target_date_str)
     if not ma_df.empty:
         st.dataframe(style_index_ma(ma_df), use_container_width=True, hide_index=True, column_config=ma_config)
     st.markdown("<br>", unsafe_allow_html=True)
 
     df_300 = df_raw.head(300).copy()
     
-    # 데일리 데이터인 경우 거래량/전달순위 숫자 변환 안전처리
     if is_daily:
         if '전일거래량' in df_300.columns:
             df_300['전일거래량'] = pd.to_numeric(df_300['전일거래량'], errors='coerce').fillna(0)
@@ -169,6 +169,7 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
     overlap_6_3 = top10_6_1[top10_6_1['종목코드'].isin(top10_3_1['종목코드'])].copy()
     common_tickers = set(overlap_12_6['종목코드']).intersection(set(overlap_6_3['종목코드']))
 
+    # --- 상단: 교집합 ---
     st.markdown("### 🌟 모멘텀 교집합 (TOP 10 중복 분석)")
     c_over1, c_over2 = st.columns(2)
     with c_over1:
@@ -212,13 +213,11 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
     df_300_all = df_300.copy()
     df_300_all['순위'] = range(1, len(df_300_all) + 1)
     
-    # 💡 [핵심] 데일리 탭일 경우에만 거래량, 전달순위 노출
     if is_daily:
         full_order = ['순위', '통합티커', '종목명_L', '기준가', '전일거래량', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '3-1개월(%)', '6-1개월(%)', '12-1개월(%)', '모멘텀스코어', '전달순위']
     else:
         full_order = ['순위', '통합티커', '종목명_L', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '3-1개월(%)', '6-1개월(%)', '12-1개월(%)', '모멘텀스코어']
     
-    # CSV에 없는 컬럼이 호출되어 에러가 나지 않도록 방어 로직 추가
     full_order = [col for col in full_order if col in df_300_all.columns or col == '순위']
     
     st.dataframe(df_300_all.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
@@ -240,4 +239,4 @@ with t2:
     if os.path.exists(f_daily):
         df = pd.read_csv(f_daily, dtype={'종목코드': str})
         df.columns = df.columns.str.replace(' ', '')
-        display_momentum_dashboard(df, df['기준일'].iloc[0], is_daily=True) # 👈 데일리 플래그 활성화!
+        display_momentum_dashboard(df, df['기준일'].iloc[0], is_daily=True)
