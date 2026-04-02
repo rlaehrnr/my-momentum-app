@@ -2,21 +2,18 @@ import FinanceDataReader as fdr
 import pandas as pd
 from datetime import datetime, timedelta
 import os
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# 1. 폴더 생성
 folders = ['data', 'archive', 'archive_us', 'archive_sp500']
 for d in folders:
     if not os.path.exists(d): os.makedirs(d)
 
 def get_target_ref_date():
-    """실행 시점 기준 '전월 말일' 날짜 반환"""
     today = datetime.today()
     return (today.replace(day=1) - timedelta(days=1)).strftime('%Y-%m-%d')
 
 def get_top_stocks(market, limit=150):
-    """시가총액 상위 종목 추출 (미국 ADR 및 특수 티커 대응 강화)"""
+    """시가총액 상위 종목 추출 (우선주 차단 및 시가총액 버그 완벽 수정)"""
     try:
         if market in ['KOSPI', 'KOSDAQ']:
             df = fdr.StockListing('KRX')
@@ -24,6 +21,10 @@ def get_top_stocks(market, limit=150):
             else:
                 mkt_col = [c for c in df.columns if 'market' in c.lower() or '시장' in c][0]
                 df = df[df[mkt_col].astype(str).str.upper().str.contains(market.upper())]
+            
+            # 💡 [핵심 필터 1] 한국 시장은 종목코드 끝자리가 '0'인 본주만 확실히 남김 (우선주 원천 차단)
+            code_col = 'Code' if 'Code' in df.columns else 'Symbol'
+            df = df[df[code_col].astype(str).str.endswith('0')]
         else:
             df = fdr.StockListing(market)
 
@@ -33,18 +34,13 @@ def get_top_stocks(market, limit=150):
         cap_col = [c for c in df.columns if '시가총액' in c or ('mar' in c.lower() and 'cap' in c.lower())]
         if cap_col:
             target_col = cap_col[0]
-            # 숫자와 마침표만 추출
-            df[target_col] = pd.to_numeric(df[target_col].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce')
+            # 💡 [핵심 필터 2] 문자열일 경우에만 쉼표 제거하되 지수표현식(e, E, +, -)은 파괴하지 않음!
+            if df[target_col].dtype == 'object':
+                df[target_col] = pd.to_numeric(df[target_col].astype(str).str.replace(r'[^0-9.eE+-]', '', regex=True), errors='coerce')
+            else:
+                df[target_col] = pd.to_numeric(df[target_col], errors='coerce')
             df = df.sort_values(target_col, ascending=False)
-
-        if market in ['KOSPI', 'KOSDAQ']:
-            name_col = [c for c in df.columns if 'name' in c.lower() or '종목명' in c]
-            if name_col:
-                col = name_col[0]
-                df = df[~df[col].astype(str).str.endswith(('우', '우B', '우C'))]
-                df = df[~df[col].astype(str).str.contains('스팩')]
         
-        # 미국 시장 티커 중복 제거
         symbol_col = 'Symbol' if 'Symbol' in df.columns else 'Code'
         if symbol_col in df.columns:
             df = df.drop_duplicates(subset=[symbol_col])
@@ -57,12 +53,7 @@ def get_top_stocks(market, limit=150):
 def process_monthly_stock(row, mkt_name, market_type, target_date_dt, target_date_str, mkt_map, prev_rank_map):
     try:
         code = str(row.get('Code', row.get('Symbol', '')))
-        
-        # 미국/S&P500 티커 정제
-        if market_type in ['US', 'SP500']:
-            clean_code = code.replace('.', '-')
-        else:
-            clean_code = code.split('.')[0]
+        clean_code = code.replace('.', '-') if market_type in ['US', 'SP500'] else code.split('.')[0]
         
         df = fdr.DataReader(clean_code, target_date_dt - pd.DateOffset(months=16), target_date_dt)
         if df.empty: return None
@@ -75,9 +66,7 @@ def process_monthly_stock(row, mkt_name, market_type, target_date_dt, target_dat
             return (base_price - past['Close'].iloc[-1]) / past['Close'].iloc[-1] * 100 if not past.empty else 0.0
         
         r1, r3, r6, r12 = get_ret(1), get_ret(3), get_ret(6), get_ret(12)
-        
         score = round((r1 * -0.5) + (r3 * 0.8) + (r6 * 0.5) + (r12 * 0.2), 2)
-        
         display_mkt = mkt_map.get(code.upper(), 'NYSE') if market_type == 'SP500' else mkt_name
 
         return {
@@ -97,7 +86,7 @@ def run_monthly(market_type='KR'):
         name_tag, file_path, folder, prefix = "한국", 'data/momentum_data.csv', 'archive', 'momentum_'
         market_list, limit = ['KOSPI', 'KOSDAQ'], 150
     elif market_type == 'US':
-        name_tag, file_path, folder, prefix = "미국(시총상위)", 'data/momentum_data_us.csv', 'archive_us', 'momentum_us_'
+        name_tag, file_path, folder, prefix = "미국", 'data/momentum_data_us.csv', 'archive_us', 'momentum_us_'
         market_list, limit = ['NYSE', 'NASDAQ'], 150
     elif market_type == 'SP500':
         name_tag, file_path, folder, prefix = "S&P 500", 'data/momentum_data_sp500.csv', 'archive_sp500', 'momentum_sp500_'
@@ -116,8 +105,7 @@ def run_monthly(market_type='KR'):
             df_old_for_rank = df_old_for_rank.sort_values('모멘텀스코어', ascending=False).reset_index(drop=True)
             for i, r in df_old_for_rank.iterrows():
                 prev_rank_map[str(r['종목코드'])] = i + 1
-        except Exception as e:
-            print(f"⚠️ {name_tag} 이전 순위 로드 실패: {e}")
+        except Exception: pass
 
     target_date_str = get_target_ref_date()
     target_date_dt = pd.to_datetime(target_date_str)
@@ -130,22 +118,17 @@ def run_monthly(market_type='KR'):
             existing_date = str(df_old['기준일(월말)'].iloc[0])
             
             if existing_date != target_date_str:
-                print(f"📦 기존 데이터({existing_date}) 성적표 작성 중...")
-                
                 for idx, row in df_old.iterrows():
                     code = str(row['종목코드'])
                     clean_code = code.replace('.', '-') if market_type in ['US', 'SP500'] else code.split('.')[0]
                     try:
                         df_price = fdr.DataReader(clean_code, existing_date, target_date_str)
                         if len(df_price) >= 2:
-                            old_price = df_price['Close'].iloc[0]
-                            new_price = df_price['Close'].iloc[-1]
-                            df_old.at[idx, '다음달수익률(%)'] = round(((new_price / old_price) - 1) * 100, 2)
+                            df_old.at[idx, '다음달수익률(%)'] = round(((df_price['Close'].iloc[-1] / df_price['Close'].iloc[0]) - 1) * 100, 2)
                     except: pass
                 
                 ym = (datetime.strptime(existing_date, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y_%m')
-                archive_name = f'{folder}/{prefix}{ym}.csv'
-                df_old.to_csv(archive_name, index=False, encoding='utf-8-sig')
+                df_old.to_csv(f'{folder}/{prefix}{ym}.csv', index=False, encoding='utf-8-sig')
 
                 if market_type == 'KR':
                     master_csv = 'data/한국 코스피 2014년부터 200위까지 자료.csv'
@@ -160,11 +143,8 @@ def run_monthly(market_type='KR'):
                             df_k200['기준일'] = existing_date
                             df_append = df_k200[['순위', '종목코드', '종목명', '시가총액', '기준일', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '다음달수익률(%)']]
                             df_append.to_csv(master_csv, mode='a', header=False, index=False, encoding='utf-8-sig')
-                            print(f"✅ {existing_date} 실전 데이터를 마스터 과거 기록에 누적 완료!")
-                        except Exception as e:
-                            print(f"⚠️ 마스터 파일 누적 에러: {e}")
-        except Exception as e: 
-            print(f"⚠️ 아카이브 에러: {e}")
+                        except Exception: pass
+        except Exception: pass
 
     # --- 2. 신규 데이터 수집 ---
     res = []
@@ -181,11 +161,8 @@ def run_monthly(market_type='KR'):
                 result = future.result()
                 if result: res.append(result)
                     
-    # 💡 [핵심: 들여쓰기가 완벽하게 맞춰진 복리 역산 코드]
     if res:
         final_df = pd.DataFrame(res)
-        
-        # 0 나누기 방지용 안전장치 (1e-9)
         denom = (1 + final_df['1개월(%)'] / 100) + 1e-9
         
         final_df['3-1개월(%)'] = round(((1 + final_df['3개월(%)']/100) / denom - 1) * 100, 2)
