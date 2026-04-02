@@ -3,6 +3,7 @@ import pandas as pd
 import FinanceDataReader as fdr
 from datetime import datetime, timedelta
 import os
+import glob
 
 # 1. 페이지 설정
 st.set_page_config(page_title="S&P 500 모멘텀 순위", layout="wide")
@@ -37,17 +38,17 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# ⭐ 주요 지수 이동평균선 데이터 수집 (네이버 금융 링크 포함)
+# ⭐ 신규: 특정 과거 날짜 기준의 지수 이동평균선 데이터 수집
 @st.cache_data(ttl=3600)
-def get_index_ma_status():
+def get_index_ma_status(target_date_str):
     indices = {'S&P 500': 'US500', 'NASDAQ': 'IXIC'}
-    today = datetime.today()
-    start_date = today - timedelta(days=400) 
+    target_date = pd.to_datetime(target_date_str)
+    start_date = target_date - timedelta(days=400) 
     
     res = []
     for name, code in indices.items():
         try:
-            df = fdr.DataReader(code, start_date, today)
+            df = fdr.DataReader(code, start_date, target_date)
             if df.empty: continue
             
             curr_price = df['Close'].iloc[-1]
@@ -66,7 +67,7 @@ def get_index_ma_status():
         except: pass
     return pd.DataFrame(res)
 
-# ⭐ 이동평균선 색상 스타일 함수 (조건부 서식)
+# 이동평균선 색상 스타일 함수
 def style_index_ma(df):
     def apply_color(row):
         price = row['현재가']
@@ -75,9 +76,9 @@ def style_index_ma(df):
             if '일선' in col:
                 val = row[col]
                 if val < price:
-                    styles[i] = 'color: #EF4444; font-weight: bold;' # 현재가보다 낮으면 붉은색
+                    styles[i] = 'color: #EF4444; font-weight: bold;' # 붉은색
                 elif val > price:
-                    styles[i] = 'color: #3B82F6; font-weight: bold;' # 현재가보다 높으면 파란색
+                    styles[i] = 'color: #3B82F6; font-weight: bold;' # 파란색
         return styles
     return df.style.apply(apply_color, axis=1)
 
@@ -91,7 +92,7 @@ ma_config = {
     "200일선": st.column_config.NumberColumn("200일선", format="%.2f")
 }
 
-# ⭐ 겹치는 종목 하이라이트 (노란색 종목명 강조)
+# 겹치는 종목 하이라이트
 def highlight_name_only(row, common_tickers):
     styles = [''] * len(row)
     if row.get('종목코드') in common_tickers:
@@ -100,7 +101,7 @@ def highlight_name_only(row, common_tickers):
             styles[name_idx] = 'background-color: #FFF9C4; color: #1F2937; font-weight: bold; border-radius: 4px;'
     return styles
 
-# 💡 [핵심] 컬럼 설정: 정밀한 간격 및 데이터 포맷 
+# 컬럼 설정 (잘림 방지)
 base_config = {
     "순위": st.column_config.NumberColumn("순위", format="%d", width=40),
     "통합티커": st.column_config.TextColumn("티커", width=105),
@@ -118,17 +119,16 @@ base_config = {
     "전달순위": st.column_config.NumberColumn("전월순위", format="%d위", width=75),
 }
 
-# 대시보드 렌더링 함수
 def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
-    st.markdown("### 📊 주요 지수 이동평균선 현황")
-    ma_df = get_index_ma_status()
+    # 💡 [핵심] 기준일을 넘겨받아 해당 날짜의 과거 지수를 정확히 보여줌
+    st.markdown(f"### 📊 주요 지수 이동평균선 현황 (기준일: {target_date_str})")
+    ma_df = get_index_ma_status(target_date_str)
     if not ma_df.empty:
         st.dataframe(style_index_ma(ma_df), use_container_width=True, hide_index=True, column_config=ma_config)
     st.markdown("<br>", unsafe_allow_html=True)
 
-    df_500 = df_raw.head(500).copy() # S&P 500은 500종목
+    df_500 = df_raw.head(500).copy() # S&P 500은 500개
     
-    # 데이터 안전처리
     if is_daily:
         if '전일거래량' in df_500.columns:
             df_500['전일거래량'] = pd.to_numeric(df_500['전일거래량'], errors='coerce').fillna(0)
@@ -139,11 +139,9 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
         if c in df_500.columns:
             df_500[c] = pd.to_numeric(df_500[c], errors='coerce').fillna(0.0)
 
-    # 티커 및 링크 처리
     df_500['통합티커'] = df_500['시장'].astype(str) + ":" + df_500['종목코드'].astype(str)
     df_500['종목명_L'] = df_500.apply(lambda r: f"https://finance.yahoo.com/chart/{str(r['종목코드']).replace('.', '-')}#{r['종목명']}", axis=1)
 
-    # 교집합 데이터 추출
     top10_12_1 = df_500.sort_values('12-1개월(%)', ascending=False).head(10)
     top10_6_1 = df_500.sort_values('6-1개월(%)', ascending=False).head(10)
     top10_3_1 = df_500.sort_values('3-1개월(%)', ascending=False).head(10)
@@ -192,7 +190,7 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
                          use_container_width=True, height=450, hide_index=True,
                          column_order=['순위', '통합티커', '종목명_L', sort_col], column_config=sub_config)
 
-    # --- 하단: 500종목 전체 ---
+    # --- 하단: 전체 ---
     st.markdown("---")
     st.markdown(f'### 📊 S&P 500 전체 종목 (기준: {target_date_str})')
     df_500_all = df_500.copy()
@@ -221,7 +219,7 @@ with t1:
         df_m = pd.read_csv(f_sp500, dtype={'종목코드': str})
         df_m.columns = df_m.columns.str.replace(' ', '')
         
-        # S&P 500 고유 로직: 월말 데이터에 전달순위가 없으면 과거 아카이브에서 동적으로 계산
+        # S&P 500 고유 로직: 전달순위 보정
         if '전달순위' not in df_m.columns or df_m['전달순위'].isnull().all():
             try:
                 b_date_str = df_m['기준일(월말)'].iloc[0]
@@ -243,7 +241,6 @@ with t2:
         df_d = pd.read_csv(f_daily, dtype={'종목코드': str})
         df_d.columns = df_d.columns.str.replace(' ', '')
         
-        # S&P 500 고유 로직: 데일리 탭에서 월말 기준표를 바탕으로 전달순위 계산
         if os.path.exists(f_sp500):
             df_m_ref = pd.read_csv(f_sp500, dtype={'종목코드': str})
             rank_map = {str(c).strip().upper(): i+1 for i, c in enumerate(df_m_ref['종목코드'])}
