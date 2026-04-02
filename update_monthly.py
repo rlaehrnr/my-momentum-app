@@ -197,13 +197,16 @@ def run_monthly(market_type='KR'):
                 result = future.result()
                 if result: res.append(result)
                     
-    if res:
-        pd.DataFrame(res).sort_values('모멘텀스코어', ascending=False).to_csv(file_path, index=False, encoding='utf-8-sig')
-        print(f"✨ {name_tag} 파일 저장 완료!")
+if res:
+        # 1. 리스트를 데이터프레임으로 변환
+        final_df = pd.DataFrame(res)
+        
+        # 2. 1개월 제외 모멘텀(3-1, 6-1, 12-1) 계산 추가
+        final_df['3-1개월(%)'] = round(((1 + final_df['3개월(%)']/100) / (1 + final_df['1개월(%)']/100) - 1) * 100, 2)
+        final_df['6-1개월(%)'] = round(((1 + final_df['6개월(%)']/100) / (1 + final_df['1개월(%)']/100) - 1) * 100, 2)
+        final_df['12-1개월(%)'] = round(((1 + final_df['12개월(%)']/100) / (1 + final_df['1개월(%)']/100) - 1) * 100, 2)
 
-if __name__ == "__main__":
-    for m in ['KR', 'US', 'SP500']:
-        try:
-            run_monthly(m)
-        except Exception as e:
-            print(f"🔥 {m} 실행 중 치명적 오류: {e}")
+        # 3. 스코어 기준 내림차순 정렬 후 CSV 저장
+        final_df = final_df.sort_values('모멘텀스코어', ascending=False)
+        final_df.to_csv(file_path, index=False, encoding='utf-8-sig')
+        print(f"✨ {name_tag} 파일 저장 완료!")
