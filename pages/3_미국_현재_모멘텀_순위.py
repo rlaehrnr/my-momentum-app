@@ -18,32 +18,61 @@ st.markdown("""
     .section-header {
         background-color: #1F2937;
         color: #FFFFFF;
-        padding: 12px 20px;
+        padding: 10px 20px;
         border-radius: 8px 8px 0 0;
-        font-size: 1.3rem;
-        font-weight: 800;
+        font-size: 1.1rem;
+        font-weight: bold;
         border-bottom: 4px solid #EF4444;
-        margin-top: 25px;
+        margin-top: 20px;
     }
     .overlap-header {
         background-color: #1E3A8A;
         color: white;
-        padding: 12px 20px;
+        padding: 10px 20px;
         border-radius: 8px 8px 0 0;
-        font-size: 1.3rem;
-        font-weight: 800;
+        font-size: 1.1rem;
+        font-weight: bold;
         border-bottom: 4px solid #F59E0B;
+    }
+    /* 개수 표시 배지 */
+    .count-badge {
+        background-color: #4B5563;
+        color: white;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 0.8rem;
+        margin-left: 10px;
+        vertical-align: middle;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# ⭐ 아주 연한 하이라이트 함수 (눈 보호용 파스텔 톤)
+# ⭐ 눈이 편한 아주 연한 하이라이트
 def highlight_soft(row, common_tickers):
     styles = [''] * len(row)
     if row.get('종목코드') in common_tickers:
+        # 아주 연한 크림색 (눈 보호)
         for i in range(len(styles)):
-            styles[i] = 'background-color: #FFFDE7; color: #744210; font-weight: bold;'
+            styles[i] = 'background-color: #FFF9E5; color: #5D4037; font-weight: bold;'
     return styles
+
+@st.cache_data(ttl=3600)
+def get_idx_us(target_date=None):
+    indices = {'미국 시장': 'US500', 'NASDAQ': 'IXIC'}
+    today = datetime.today()
+    res = []
+    for name, code in indices.items():
+        try:
+            df = fdr.DataReader(code, today - pd.DateOffset(months=16), today)
+            curr_val = df.loc[df.index <= target_date]['Close'].iloc[-1] if target_date else df['Close'].iloc[-1]
+            last_idx_date = df.index[df.index <= (target_date if target_date else today)][-1]
+            def get_ret(m):
+                ref_day = (last_idx_date.replace(day=1) - pd.DateOffset(months=m-1)) - timedelta(days=1)
+                p_df = df[df.index <= ref_day]
+                return round((curr_val - p_df['Close'].iloc[-1]) / p_df['Close'].iloc[-1] * 100, 2) if not p_df.empty else 0.0
+            res.append({'시장': name, '현재가': curr_val, '1개월(%)': get_ret(1), '3개월(%)': get_ret(3), '6개월(%)': get_ret(6), '12개월(%)': get_ret(12)})
+        except: pass
+    return pd.DataFrame(res).set_index('시장')
 
 # 테이블 공통 설정
 common_config = {
@@ -77,17 +106,17 @@ def display_momentum_dashboard(df_raw, target_date_str):
     c_over1, c_over2 = st.columns(2)
     
     with c_over1:
-        st.markdown('<div class="overlap-header">🔥 12-1M & 6-1M 중복 종목</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="overlap-header">🔥 12-1M & 6-1M 중복 <span class="count-badge">{len(overlap_12_6)}개 종목</span></div>', unsafe_allow_html=True)
         if not overlap_12_6.empty:
             overlap_12_6 = overlap_12_6.reset_index(drop=True)
-            overlap_12_6.index += 1 # 💡 고정 줄번호
+            overlap_12_6.index += 1 
             st.dataframe(overlap_12_6.style.apply(highlight_soft, common_tickers=common_tickers, axis=1), 
                          use_container_width=True, hide_index=False,
                          column_order=['통합티커', '종목명_L', '12-1개월(%)', '6-1개월(%)'], column_config=common_config)
         else: st.info("중복 없음")
 
     with c_over2:
-        st.markdown('<div class="overlap-header">⚡ 6-1M & 3-1M 중복 종목</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="overlap-header">⚡ 6-1M & 3-1M 중복 <span class="count-badge">{len(overlap_6_3)}개 종목</span></div>', unsafe_allow_html=True)
         if not overlap_6_3.empty:
             overlap_6_3 = overlap_6_3.reset_index(drop=True)
             overlap_6_3.index += 1
@@ -104,10 +133,11 @@ def display_momentum_dashboard(df_raw, target_date_str):
                                    ["🏆 12-1개월 상위 30", "🏆 6-1개월 상위 30", "🏆 3-1개월 상위 30"], 
                                    ["12-1개월(%)", "6-1개월(%)", "3-1개월(%)"]):
         with col:
-            st.markdown(f'<div class="section-header">{title}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="section-header">{title} <span class="count-badge">30개</span></div>', unsafe_allow_html=True)
             df_sub = df_300.sort_values(sort_col, ascending=False).head(30).copy()
             df_sub = df_sub.reset_index(drop=True)
             df_sub.index += 1 
+            # hide_index=False 가 바로 그 '왼쪽 회색 숫자'를 보여주는 설정입니다!
             st.dataframe(df_sub, use_container_width=True, height=450, hide_index=False,
                          column_order=['통합티커', '종목명_L', sort_col], column_config=common_config)
 
