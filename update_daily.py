@@ -2,7 +2,6 @@ import FinanceDataReader as fdr
 import pandas as pd
 from datetime import datetime, timedelta
 import os
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # 1. 폴더 생성
@@ -11,7 +10,7 @@ for d in folders:
     if not os.path.exists(d): os.makedirs(d)
 
 def get_top_stocks(market, limit=150):
-    """시가총액 상위 종목 추출 (TSMC 등 ADR 대응 강화)"""
+    """시가총액 상위 종목 추출 (미국 ADR 및 특수 티커 대응 강화)"""
     try:
         if market in ['KOSPI', 'KOSDAQ']:
             df = fdr.StockListing('KRX')
@@ -28,7 +27,7 @@ def get_top_stocks(market, limit=150):
         cap_col = [c for c in df.columns if '시가총액' in c or ('mar' in c.lower() and 'cap' in c.lower())]
         if cap_col:
             target_col = cap_col[0]
-            # 💡 [핵심 수정] 숫자와 마침표만 남기고 모두 제거하여 정확하게 숫자로 변환
+            # 숫자와 마침표만 추출하여 시총 기준 정렬
             df[target_col] = pd.to_numeric(df[target_col].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce')
             df = df.sort_values(target_col, ascending=False)
 
@@ -39,7 +38,6 @@ def get_top_stocks(market, limit=150):
                 df = df[~df[col].astype(str).str.endswith(('우', '우B', '우C'))]
                 df = df[~df[col].astype(str).str.contains('스팩')]
         
-        # 미국 시장 티커 중복 제거
         symbol_col = 'Symbol' if 'Symbol' in df.columns else 'Code'
         if symbol_col in df.columns:
             df = df.drop_duplicates(subset=[symbol_col])
@@ -49,8 +47,6 @@ def get_top_stocks(market, limit=150):
         print(f"❌ {market} 리스트 가져오기 실패: {e}")
         return pd.DataFrame()
 
-
-# 💡 수정 1: 데일리 프로세스 함수 (prev_rank_map 추가)
 def process_stock(row, mkt_name, market_type, today, prev_rank_map):
     try:
         code = str(row.get('Code', row.get('Symbol', '')))
@@ -75,7 +71,6 @@ def process_stock(row, mkt_name, market_type, today, prev_rank_map):
         
         r1, r3, r6, r12 = get_ret(1), get_ret(3), get_ret(6), get_ret(12)
         
-        # 💡 [공식 확정] 1개월 가중치 -0.5로 통일
         score = round((r1 * -0.5) + (r3 * 0.8) + (r6 * 0.5) + (r12 * 0.2), 1)
         
         display_mkt = row.get('Exchange', 'NYSE') if market_type == 'SP500' else mkt_name
@@ -85,7 +80,7 @@ def process_stock(row, mkt_name, market_type, today, prev_rank_map):
             '종목코드': code, '기준가': round(curr_price, 2), '전일거래량': curr_volume,
             '1개월(%)': round(r1, 1), '3개월(%)': round(r3, 1), '6개월(%)': round(r6, 1),
             '12개월(%)': round(r12, 1), '모멘텀스코어': score, 
-            '전달순위': prev_rank_map.get(code.upper(), None)
+            '전달순위': prev_rank_map.get(code.upper(), None) 
         }
     except Exception:
         return None
@@ -98,15 +93,13 @@ def run_daily(market_type='KR'):
         'SP500': ("S&P 500", 'data/momentum_data_daily_sp500.csv', 'data/momentum_data_sp500.csv', ['S&P500'], 505)
     }
     
-    # 설정값 풀기
     name_tag, file_path, p_path, market_list, limit = conf[market_type]
 
-    # 💡 [들여쓰기 주의!] 지난달 월말 데이터를 읽어 전달 순위표 생성
+    # 전달 순위표 매핑
     prev_rank_map = {}
     if os.path.exists(p_path):
         try:
             df_p = pd.read_csv(p_path, dtype={'종목코드': str})
-            # 스코어 기준 내림차순 정렬 후 인덱스로 순위 부여
             df_p = df_p.sort_values('모멘텀스코어', ascending=False).reset_index(drop=True)
             for i, r in df_p.iterrows():
                 prev_rank_map[str(r['종목코드'])] = i + 1
@@ -133,16 +126,24 @@ def run_daily(market_type='KR'):
                 if result: 
                     res.append(result)
                     
-  if res:
+    # 💡 [핵심: 들여쓰기가 완벽하게 맞춰진 데일리 복리 역산 코드]
+    if res:
         final_df = pd.DataFrame(res)
         
-        # ⭐ [여기에 복리 역산 코드를 추가합니다!] ⭐
-        # 각 종목의 1, 3, 6, 12개월 수익률 데이터를 바탕으로 1개월 제외 수익률 계산
-        final_df['3-1개월(%)'] = round(((1 + final_df['3개월(%)']/100) / (1 + final_df['1개월(%)']/100) - 1) * 100, 2)
-        final_df['6-1개월(%)'] = round(((1 + final_df['6개월(%)']/100) / (1 + final_df['1개월(%)']/100) - 1) * 100, 2)
-        final_df['12-1개월(%)'] = round(((1 + final_df['12개월(%)']/100) / (1 + final_df['1개월(%)']/100) - 1) * 100, 2)
+        # 0 나누기 방지용 안전장치
+        denom = (1 + final_df['1개월(%)'] / 100) + 1e-9
+        
+        final_df['3-1개월(%)'] = round(((1 + final_df['3개월(%)']/100) / denom - 1) * 100, 2)
+        final_df['6-1개월(%)'] = round(((1 + final_df['6개월(%)']/100) / denom - 1) * 100, 2)
+        final_df['12-1개월(%)'] = round(((1 + final_df['12개월(%)']/100) / denom - 1) * 100, 2)
 
-        # 원래 있던 정렬 및 저장 코드 (이 코드 바로 위에 넣는 것입니다)
         final_df = final_df.sort_values('모멘텀스코어', ascending=False)
         final_df.to_csv(file_path, index=False, encoding='utf-8-sig')
         print(f"✅ {name_tag} 데일리 업데이트 완료!")
+
+if __name__ == "__main__":
+    for m in ['KR', 'US', 'SP500']:
+        try:
+            run_daily(m)
+        except Exception as e:
+            print(f"🔥 {m} 실행 중 치명적 오류: {e}")
