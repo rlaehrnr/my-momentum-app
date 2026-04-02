@@ -46,16 +46,16 @@ def highlight_name_only(row, common_tickers):
             styles[name_idx] = 'background-color: #FFF9C4; color: #1F2937; font-weight: bold;'
     return styles
 
-# 💡 [핵심] 컬럼 너비 픽셀 단위 정밀 배정
-# 텍스트가 잘리지 않도록 최소 너비를 확보하면서 종목명을 최대한 넓게 잡았습니다.
+# 💡 [핵심] 컬럼 너비 밸런스 조정
+# 수치들이 잘리지 않도록 픽셀 너비를 넉넉히(100~130) 배정했습니다.
 common_config = {
-    "순위": st.column_config.NumberColumn("순위", format="%d위", width=60),
-    "통합티커": st.column_config.TextColumn("티커", width=110),
-    "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)", width="large"), 
-    "기준가": st.column_config.NumberColumn("현재가", format="$ %,.2f", width=90),
-    "3-1개월(%)": st.column_config.NumberColumn("3-1M", format="%.1f%%", width=90),
-    "6-1개월(%)": st.column_config.NumberColumn("6-1M", format="%.1f%%", width=90),
-    "12-1개월(%)": st.column_config.NumberColumn("12-1M", format="%.1f%%", width=90),
+    "순위": st.column_config.NumberColumn("순위", format="%d위", width=70),
+    "통합티커": st.column_config.TextColumn("티커", width=130),
+    "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)", width=None), # 남는 공간 전체 사용
+    "기준가": st.column_config.NumberColumn("현재가", format="$ %,.2f", width=100),
+    "3-1개월(%)": st.column_config.NumberColumn("3-1M", format="%.1f%%", width=100),
+    "6-1개월(%)": st.column_config.NumberColumn("6-1M", format="%.1f%%", width=100),
+    "12-1개월(%)": st.column_config.NumberColumn("12-1M", format="%.1f%%", width=100),
 }
 
 @st.cache_data(ttl=3600)
@@ -65,11 +65,12 @@ def get_idx_us(target_date=None):
     res = []
     for name, code in indices.items():
         try:
+            # 💡 pd.Offset -> pd.DateOffset 오타 수정 완료
             df = fdr.DataReader(code, today - pd.DateOffset(months=16), today)
             curr_val = df.loc[df.index <= target_date]['Close'].iloc[-1] if target_date else df['Close'].iloc[-1]
             last_idx_date = df.index[df.index <= (target_date if target_date else today)][-1]
             def get_ret(m):
-                ref_day = (last_idx_date.replace(day=1) - pd.Offset(months=m-1)) - timedelta(days=1)
+                ref_day = (last_idx_date.replace(day=1) - pd.DateOffset(months=m-1)) - timedelta(days=1)
                 p_df = df[df.index <= ref_day]
                 return round((curr_val - p_df['Close'].iloc[-1]) / p_df['Close'].iloc[-1] * 100, 2) if not p_df.empty else 0.0
             res.append({'시장': name, '현재가': curr_val, '1개월(%)': get_ret(1), '3개월(%)': get_ret(3), '6개월(%)': get_ret(6), '12개월(%)': get_ret(12)})
@@ -77,9 +78,15 @@ def get_idx_us(target_date=None):
     return pd.DataFrame(res).set_index('시장')
 
 def display_momentum_dashboard(df_raw, target_date_str):
+    # 데이터 복사 및 정제
     df_300 = df_raw.head(300).copy()
-    df_300['통합티커'] = df_300['시장'] + ":" + df_300['종목코드']
-    # 야후 차트 링크
+    # 숫자형 컬럼들의 NaN 값을 0으로 채워 비어 보이지 않게 처리
+    cols_to_fix = ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '3-1개월(%)', '6-1개월(%)', '12-1개월(%)']
+    for c in cols_to_fix:
+        if c in df_300.columns:
+            df_300[c] = pd.to_numeric(df_300[c], errors='coerce').fillna(0.0)
+
+    df_300['통합티커'] = df_300['시장'].astype(str) + ":" + df_300['종목코드'].astype(str)
     df_300['종목명_L'] = df_300.apply(lambda r: f"https://finance.yahoo.com/chart/{str(r['종목코드']).replace('.', '-')}#{r['종목명']}", axis=1)
 
     # 교집합 추출
@@ -147,9 +154,11 @@ f_us, f_daily = 'data/momentum_data_us.csv', 'data/momentum_data_daily_us.csv'
 
 with t1:
     if os.path.exists(f_us):
-        df = pd.read_csv(f_us, dtype={'종목코드': str})
-        display_momentum_dashboard(df, df['기준일(월말)'].iloc[0])
+        df_m = pd.read_csv(f_us, dtype={'종목코드': str})
+        df_m.columns = df_m.columns.str.replace(' ', '')
+        display_momentum_dashboard(df_m, df_m['기준일(월말)'].iloc[0])
 with t2:
     if os.path.exists(f_daily):
-        df = pd.read_csv(f_daily, dtype={'종목코드': str})
-        display_momentum_dashboard(df, df['기준일'].iloc[0])
+        df_d = pd.read_csv(f_daily, dtype={'종목코드': str})
+        df_d.columns = df_d.columns.str.replace(' ', '')
+        display_momentum_dashboard(df_d, df_d['기준일'].iloc[0])
