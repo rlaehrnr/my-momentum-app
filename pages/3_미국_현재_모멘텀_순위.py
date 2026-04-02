@@ -7,7 +7,7 @@ import os
 # 1. 페이지 설정
 st.set_page_config(page_title="미국 모멘텀 순위", layout="wide")
 
-# CSS: 가독성 및 디자인 강화
+# CSS: 디자인 고도화
 st.markdown("""
     <style>
     .block-container { padding-top: 1.5rem !important; }
@@ -37,7 +37,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# ⭐ 겹치는 종목 하이라이트 (종목명 칸만 노란색으로 강조)
+# ⭐ 겹치는 종목 하이라이트 (종목명 칸만 강조)
 def highlight_name_only(row, common_tickers):
     styles = [''] * len(row)
     if row.get('종목코드') in common_tickers:
@@ -46,16 +46,16 @@ def highlight_name_only(row, common_tickers):
             styles[name_idx] = 'background-color: #FFF9C4; color: #1F2937; font-weight: bold;'
     return styles
 
-# 💡 [핵심] 컬럼 너비 밸런스 조정
-# 수치들이 잘리지 않도록 픽셀 너비를 넉넉히(100~130) 배정했습니다.
+# 💡 [핵심] 컬럼 너비 최종 조정
+# 12-1M 같은 수치가 잘리지 않도록 너비를 120px로 더 넉넉하게 늘렸습니다.
 common_config = {
-    "순위": st.column_config.NumberColumn("순위", format="%d위", width=70),
-    "통합티커": st.column_config.TextColumn("티커", width=130),
-    "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)", width=None), # 남는 공간 전체 사용
-    "기준가": st.column_config.NumberColumn("현재가", format="$ %,.2f", width=100),
-    "3-1개월(%)": st.column_config.NumberColumn("3-1M", format="%.1f%%", width=100),
-    "6-1개월(%)": st.column_config.NumberColumn("6-1M", format="%.1f%%", width=100),
-    "12-1개월(%)": st.column_config.NumberColumn("12-1M", format="%.1f%%", width=100),
+    "순위": st.column_config.NumberColumn("순위", format="%d위", width=65),
+    "통합티커": st.column_config.TextColumn("티커", width=120),
+    "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)", width="large"), # 최대한 넓게
+    "기준가": st.column_config.NumberColumn("현재가", format="$ %,.2f", width=110),
+    "3-1개월(%)": st.column_config.NumberColumn("3-1M", format="%.1f%%", width=120), # 👈 너비 확장
+    "6-1개월(%)": st.column_config.NumberColumn("6-1M", format="%.1f%%", width=120), # 👈 너비 확장
+    "12-1개월(%)": st.column_config.NumberColumn("12-1M", format="%.1f%%", width=120), # 👈 너비 확장
 }
 
 @st.cache_data(ttl=3600)
@@ -65,7 +65,6 @@ def get_idx_us(target_date=None):
     res = []
     for name, code in indices.items():
         try:
-            # 💡 pd.Offset -> pd.DateOffset 오타 수정 완료
             df = fdr.DataReader(code, today - pd.DateOffset(months=16), today)
             curr_val = df.loc[df.index <= target_date]['Close'].iloc[-1] if target_date else df['Close'].iloc[-1]
             last_idx_date = df.index[df.index <= (target_date if target_date else today)][-1]
@@ -78,11 +77,11 @@ def get_idx_us(target_date=None):
     return pd.DataFrame(res).set_index('시장')
 
 def display_momentum_dashboard(df_raw, target_date_str):
-    # 데이터 복사 및 정제
     df_300 = df_raw.head(300).copy()
-    # 숫자형 컬럼들의 NaN 값을 0으로 채워 비어 보이지 않게 처리
-    cols_to_fix = ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '3-1개월(%)', '6-1개월(%)', '12-1개월(%)']
-    for c in cols_to_fix:
+    
+    # 데이터 전처리 (NaN 방지)
+    m_cols = ['3-1개월(%)', '6-1개월(%)', '12-1개월(%)']
+    for c in m_cols:
         if c in df_300.columns:
             df_300[c] = pd.to_numeric(df_300[c], errors='coerce').fillna(0.0)
 
