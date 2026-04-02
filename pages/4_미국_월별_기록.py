@@ -6,7 +6,7 @@ import glob
 # 1. 페이지 설정
 st.set_page_config(page_title="미국 모멘텀 기록보관소", layout="wide")
 
-# CSS: 가독성 및 레이아웃 최적화 (현재 순위 페이지와 동일)
+# CSS: 가독성 및 레이아웃 최적화 
 st.markdown("""
     <style>
     .block-container { padding-top: 2.5rem !important; }
@@ -46,13 +46,11 @@ st.markdown("""
 def style_archive_dataframe(row, common_tickers):
     styles = [''] * len(row)
     
-    # 1. 교집합 종목명 강조 (노란색)
     if row.get('종목코드') in common_tickers:
         if '종목명_L' in row.index:
             name_idx = row.index.get_loc('종목명_L')
             styles[name_idx] = 'background-color: #FFF9C4; color: #1F2937; font-weight: bold; border-radius: 4px;'
             
-    # 2. 다음달 수익률 강조 (수익: 빨강, 손실: 파랑 배경)
     if '다음달수익률(%)' in row.index:
         ret_idx = row.index.get_loc('다음달수익률(%)')
         val = row['다음달수익률(%)']
@@ -64,7 +62,7 @@ def style_archive_dataframe(row, common_tickers):
                 
     return styles
 
-# 💡 [핵심] 컬럼 너비 밸런스 조정 및 다음달 수익률 추가
+# 컬럼 너비 밸런스 설정
 base_config = {
     "순위": st.column_config.NumberColumn("순위", format="%d", width=40),
     "통합티커": st.column_config.TextColumn("티커", width=105),
@@ -78,7 +76,7 @@ base_config = {
     "6-1개월(%)": st.column_config.NumberColumn("6-1M", format="%.1f%%", width=85),
     "12-1개월(%)": st.column_config.NumberColumn("12-1M", format="%.1f%%", width=85),
     "모멘텀스코어": st.column_config.NumberColumn("스코어", format="%.2f", width=80),
-    "다음달수익률(%)": st.column_config.NumberColumn("다음달수익", format="%.1f%%", width=90), # 수익률 컬럼
+    "다음달수익률(%)": st.column_config.NumberColumn("다음달수익", format="%.1f%%", width=90), 
 }
 
 st.title("📁 미국 월별 모멘텀 기록보관소")
@@ -92,11 +90,24 @@ else:
     file_map = {f"📅 {os.path.basename(f).replace(prefix, '').replace('.csv', '').split('_')[0]}년 {os.path.basename(f).replace(prefix, '').replace('.csv', '').split('_')[1]}월 성적표": f for f in files}
     selected_file = file_map[st.selectbox("조회할 달을 선택하세요", list(file_map.keys()))]
 
-    # 데이터 로드 및 정제
+    # 데이터 로드 및 컬럼 공백 제거
     df = pd.read_csv(selected_file)
     df.columns = df.columns.str.replace(' ', '')
     
     st.success(f"✅ 이 리스트는 **{df['기준일(월말)'].iloc[0]}** 종가를 기준으로 추출되었으며, **다음달 실제 투자 수익률**을 보여줍니다.")
+
+    # 문자열 퍼센트 기호를 숫자로 안전하게 변환
+    for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '3-1개월(%)', '6-1개월(%)', '12-1개월(%)', '모멘텀스코어', '다음달수익률(%)']:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0.0)
+
+    # 💡 [에러 해결 핵심] 과거 파일에 12-1M, 6-1M, 3-1M 데이터가 없을 경우 즉석에서 계산하여 채워 넣음
+    if '12-1개월(%)' not in df.columns and '12개월(%)' in df.columns and '1개월(%)' in df.columns:
+        df['12-1개월(%)'] = df['12개월(%)'] - df['1개월(%)']
+    if '6-1개월(%)' not in df.columns and '6개월(%)' in df.columns and '1개월(%)' in df.columns:
+        df['6-1개월(%)'] = df['6개월(%)'] - df['1개월(%)']
+    if '3-1개월(%)' not in df.columns and '3개월(%)' in df.columns and '1개월(%)' in df.columns:
+        df['3-1개월(%)'] = df['3개월(%)'] - df['1개월(%)']
 
     # 핵심 요약 메트릭
     if '다음달수익률(%)' in df.columns:
@@ -105,11 +116,6 @@ else:
         c1, c2, c3 = st.columns([1, 1, 2])
         c1.metric("📌 상위 300 평균 수익률", f"{avg_ret:.2f}%")
         c2.metric("📈 상승 종목 비율 (승률)", f"{win_rate:.1f}%")
-    
-    # 데이터 전처리
-    for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '3-1개월(%)', '6-1개월(%)', '12-1개월(%)', '모멘텀스코어', '다음달수익률(%)']:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0.0)
 
     # 티커 및 네이버 금융 링크 연결
     df['통합티커'] = df['시장'].astype(str) + ":" + df['종목코드'].astype(str)
@@ -132,7 +138,6 @@ else:
         st.markdown('<div class="overlap-header">🔥 12-1M & 6-1M 중복</div>', unsafe_allow_html=True)
         if not overlap_12_6.empty:
             overlap_12_6['순위'] = range(1, len(overlap_12_6) + 1)
-            # 다음달수익률이 가장 우측에 오도록 배치
             st.dataframe(overlap_12_6.style.apply(style_archive_dataframe, common_tickers=common_tickers, axis=1), 
                          use_container_width=True, hide_index=True,
                          column_order=['순위', '통합티커', '종목명_L', '12-1개월(%)', '6-1개월(%)', '다음달수익률(%)'], column_config=base_config)
@@ -165,7 +170,6 @@ else:
             df_sub = df.sort_values(sort_col, ascending=False).head(30).copy()
             df_sub['순위'] = range(1, 31)
             
-            # 좁은 레이아웃에 맞게 핵심 데이터 + 다음달수익률만 배치
             sub_order = ['순위', '통합티커', '종목명_L', sort_col, '다음달수익률(%)']
             sub_order = [c for c in sub_order if c in df_sub.columns or c == '순위']
             
