@@ -46,15 +46,16 @@ def highlight_name_only(row, common_tickers):
             styles[name_idx] = 'background-color: #FFF9C4; color: #1F2937; font-weight: bold;'
     return styles
 
-# 💡 [핵심] 컬럼 설정: 순위 컬럼의 폭을 "small"로 고정하여 간격 최적화
+# 💡 [핵심] 컬럼 너비 재배정
+# 순위는 최소한으로(small), 종목명은 최대한으로(large) 설정했습니다.
 common_config = {
     "순위": st.column_config.NumberColumn("순위", format="%d위", width="small"),
     "통합티커": st.column_config.TextColumn("티커", width="small"),
-    "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)", width="medium"), 
-    "기준가": st.column_config.NumberColumn("현재가", format="$ %,.2f"),
-    "3-1개월(%)": st.column_config.NumberColumn("3-1M", format="%.1f%%"),
-    "6-1개월(%)": st.column_config.NumberColumn("6-1M", format="%.1f%%"),
-    "12-1개월(%)": st.column_config.NumberColumn("12-1M", format="%.1f%%"),
+    "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)", width="large"), # 👈 넓게 확장
+    "기준가": st.column_config.NumberColumn("현재가", format="$ %,.2f", width="small"),
+    "3-1개월(%)": st.column_config.NumberColumn("3-1M", format="%.1f%%", width="small"),
+    "6-1개월(%)": st.column_config.NumberColumn("6-1M", format="%.1f%%", width="small"),
+    "12-1개월(%)": st.column_config.NumberColumn("12-1M", format="%.1f%%", width="small"),
 }
 
 @st.cache_data(ttl=3600)
@@ -78,6 +79,7 @@ def get_idx_us(target_date=None):
 def display_momentum_dashboard(df_raw, target_date_str):
     df_300 = df_raw.head(300).copy()
     df_300['통합티커'] = df_300['시장'] + ":" + df_300['종목코드']
+    # 야후 차트 링크
     df_300['종목명_L'] = df_300.apply(lambda r: f"https://finance.yahoo.com/chart/{str(r['종목코드']).replace('.', '-')}#{r['종목명']}", axis=1)
 
     # 교집합 추출
