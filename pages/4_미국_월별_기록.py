@@ -104,18 +104,24 @@ def style_archive_dataframe(row, common_tickers):
         ret_idx = row.index.get_loc('다음달수익률(%)')
         val = row['다음달수익률(%)']
         if pd.notnull(val):
-            if val > 0:
+            if val >= 0:
                 styles[ret_idx] = 'color: #EF4444; font-weight: bold;'
-            elif val < 0:
-                styles[ret_idx] = 'color: #1E3A8A; background-color: #EFF6FF; font-weight: bold;'
+            else:
+                styles[ret_idx] = 'color: #3B82F6; background-color: #EFF6FF; font-weight: bold;'
     return styles
 
-# 💡 [해결] 전체 표 기준 컬럼 너비 설정 (잘림 방지)
+# 💡 [신규] 수익률 양수/음수 색상 HTML 반환 함수 (헤더 표시용)
+def fmt_ret_html(val):
+    if pd.isna(val): return "<span style='color:#9CA3AF;'>N/A</span>"
+    color = "#EF4444" if val >= 0 else "#3B82F6" # 빨강 / 파랑
+    return f"<span style='color:{color}; font-weight:bold;'>{val:+.1f}%</span>"
+
+# 넓은 표(전체 표) 기준 컬럼 설정
 base_config = {
     "순위": st.column_config.NumberColumn("순위", format="%d", width=40),
-    "통합티커": st.column_config.TextColumn("티커", width=105),
+    "통합티커": st.column_config.TextColumn("티커", width=95),
     "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)", width=None), 
-    "기준가": st.column_config.NumberColumn("현재가", format="$ %,.2f", width=95),
+    "기준가": st.column_config.NumberColumn("현재가", format="$ %,.2f", width=90),
     "1개월(%)": st.column_config.NumberColumn("1M", format="%.1f%%", width=75),
     "3개월(%)": st.column_config.NumberColumn("3M", format="%.1f%%", width=75),
     "6개월(%)": st.column_config.NumberColumn("6M", format="%.1f%%", width=75),
@@ -126,11 +132,6 @@ base_config = {
     "모멘텀스코어": st.column_config.NumberColumn("스코어", format="%.2f", width=80),
     "다음달수익률(%)": st.column_config.NumberColumn("다음달수익", format="%.1f%%", width=85), 
 }
-
-# 보조 함수: 수익률 문자열 포맷팅
-def fmt_ret(val):
-    if pd.isna(val): return "N/A"
-    return f"{val:+.1f}%"
 
 st.title("📁 미국 월별 모멘텀 기록보관소")
 
@@ -149,7 +150,7 @@ else:
     target_date_str = df['기준일(월말)'].iloc[0]
     st.success(f"✅ 이 리스트는 **{target_date_str}** 종가를 기준으로 추출되었으며, **다음달 실제 투자 수익률**을 보여줍니다.")
 
-    # 💡 [해결] 1. 과거 날짜 기준의 이동평균선 현황판 표시
+    # 지수 이동평균선 현황판 표시
     st.markdown(f"### 📊 주요 지수 이동평균선 현황 (기준일: {target_date_str})")
     ma_df = get_index_ma_status(target_date_str)
     if not ma_df.empty:
@@ -184,9 +185,9 @@ else:
     c_over1, c_over2 = st.columns(2)
     
     with c_over1:
-        # 💡 [해결] 3. 교집합 그룹 평균 수익률 계산 및 헤더 표시
         avg_12_6 = overlap_12_6['다음달수익률(%)'].mean() if not overlap_12_6.empty else np.nan
-        st.markdown(f'<div class="overlap-header">🔥 12-1M & 6-1M 중복 (수익: {fmt_ret(avg_12_6)})</div>', unsafe_allow_html=True)
+        # 💡 [해결] 제목 옆에 HTML 양수/음수 색상 수익률 표시
+        st.markdown(f'<div class="overlap-header">🔥 12-1M & 6-1M 중복 (전체 매수시: {fmt_ret_html(avg_12_6)})</div>', unsafe_allow_html=True)
         if not overlap_12_6.empty:
             overlap_12_6['순위'] = range(1, len(overlap_12_6) + 1)
             st.dataframe(overlap_12_6.style.apply(style_archive_dataframe, common_tickers=common_tickers, axis=1), 
@@ -196,7 +197,7 @@ else:
 
     with c_over2:
         avg_6_3 = overlap_6_3['다음달수익률(%)'].mean() if not overlap_6_3.empty else np.nan
-        st.markdown(f'<div class="overlap-header">⚡ 6-1M & 3-1M 중복 (수익: {fmt_ret(avg_6_3)})</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="overlap-header">⚡ 6-1M & 3-1M 중복 (전체 매수시: {fmt_ret_html(avg_6_3)})</div>', unsafe_allow_html=True)
         if not overlap_6_3.empty:
             overlap_6_3['순위'] = range(1, len(overlap_6_3) + 1)
             st.dataframe(overlap_6_3.style.apply(style_archive_dataframe, common_tickers=common_tickers, axis=1), 
@@ -208,12 +209,16 @@ else:
     st.markdown("<br>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
     
-    # 💡 [해결] 2. 좁은 레이아웃에서 수치가 절대 잘리지 않도록 픽셀 강제 지정
+    # 💡 [해결] 좁은 3열 레이아웃 수치 잘림 완벽 방지: 
+    # 종목명 너비를 고정(110)으로 희생시키고 숫자 열의 너비를 강력하게 확보
     sub_config = base_config.copy()
-    sub_config["12-1개월(%)"] = st.column_config.NumberColumn("12-1", format="%.1f%%", width=70)
-    sub_config["6-1개월(%)"] = st.column_config.NumberColumn("6-1", format="%.1f%%", width=70)
-    sub_config["3-1개월(%)"] = st.column_config.NumberColumn("3-1", format="%.1f%%", width=70)
-    sub_config["다음달수익률(%)"] = st.column_config.NumberColumn("다음달수익", format="%.1f%%", width=80)
+    sub_config["순위"] = st.column_config.NumberColumn("순위", format="%d", width=35)
+    sub_config["통합티커"] = st.column_config.TextColumn("티커", width=90)
+    sub_config["종목명_L"] = st.column_config.LinkColumn("종목명", display_text=r"#(.+)", width=110) # 종목명 축소
+    sub_config["12-1개월(%)"] = st.column_config.NumberColumn("12-1", format="%.1f%%", width=75)
+    sub_config["6-1개월(%)"] = st.column_config.NumberColumn("6-1", format="%.1f%%", width=75)
+    sub_config["3-1개월(%)"] = st.column_config.NumberColumn("3-1", format="%.1f%%", width=75)
+    sub_config["다음달수익률(%)"] = st.column_config.NumberColumn("다음달수익", format="%.1f%%", width=85) # 수치 너비 확보
 
     for col, title, sort_col in zip([col1, col2, col3], 
                                    ["🏆 12-1개월 상위 30", "🏆 6-1개월 상위 30", "🏆 3-1개월 상위 30"], 
@@ -222,7 +227,7 @@ else:
             df_sub = df.sort_values(sort_col, ascending=False).head(30).copy()
             df_sub['순위'] = range(1, 31)
             
-            # 💡 [해결] 3. Top 10, 20, 30 그룹별 평균 수익률 계산 및 헤더 표시
+            # 💡 [해결] Top 10, 20, 30 그룹별 평균 수익률 (조건부 색상 적용)
             t10_ret = df_sub.head(10)['다음달수익률(%)'].mean()
             t20_ret = df_sub.head(20)['다음달수익률(%)'].mean()
             t30_ret = df_sub.head(30)['다음달수익률(%)'].mean()
@@ -230,9 +235,9 @@ else:
             header_html = f"""
             <div class="section-header">
                 {title}<br>
-                <span style="font-size: 0.85rem; color: #FCA5A5; font-weight: normal;">
-                Top10: {fmt_ret(t10_ret)} | Top20: {fmt_ret(t20_ret)} | Top30: {fmt_ret(t30_ret)}
-                </span>
+                <div style="font-size: 0.9rem; font-weight: normal; margin-top: 4px; padding-bottom: 2px;">
+                Top10: {fmt_ret_html(t10_ret)} | Top20: {fmt_ret_html(t20_ret)} | Top30: {fmt_ret_html(t30_ret)}
+                </div>
             </div>
             """
             st.markdown(header_html, unsafe_allow_html=True)
