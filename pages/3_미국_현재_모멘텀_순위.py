@@ -18,41 +18,44 @@ st.markdown("""
     .section-header {
         background-color: #1F2937;
         color: #FFFFFF;
-        padding: 12px 20px;
+        padding: 10px 15px;
         border-radius: 8px 8px 0 0;
-        font-size: 1.3rem;
-        font-weight: 800;
+        font-size: 1.1rem;
+        font-weight: bold;
         border-bottom: 4px solid #EF4444;
         margin-top: 25px;
     }
     .overlap-header {
         background-color: #1E3A8A;
         color: white;
-        padding: 12px 20px;
+        padding: 10px 15px;
         border-radius: 8px 8px 0 0;
-        font-size: 1.3rem;
-        font-weight: 800;
+        font-size: 1.1rem;
+        font-weight: bold;
         border-bottom: 4px solid #F59E0B;
-    }
-    
-    /* 고정 줄 번호(눈금자) 안내 */
-    .ruler-text {
-        color: #9CA3AF;
-        font-size: 0.85rem;
-        margin-bottom: 2px;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# ⭐ 겹치는 종목 하이라이트 (종목명만 강조!)
-def highlight_overlap_name_only(row, common_tickers):
+# ⭐ 겹치는 종목 하이라이트 (종목명 칸만 노란색으로 강조)
+def highlight_name_only(row, common_tickers):
     styles = [''] * len(row)
     if row.get('종목코드') in common_tickers:
-        # 종목명_L 컬럼의 위치를 찾아 해당 칸만 연한 노란색 강조
         if '종목명_L' in row.index:
             name_idx = row.index.get_loc('종목명_L')
-            styles[name_idx] = 'background-color: #FFF9C4; color: #1F2937; font-weight: bold; border-radius: 4px;'
+            styles[name_idx] = 'background-color: #FFF9C4; color: #1F2937; font-weight: bold;'
     return styles
+
+# 💡 [핵심] 컬럼 설정: 순위 컬럼의 폭을 "small"로 고정하여 간격 최적화
+common_config = {
+    "순위": st.column_config.NumberColumn("순위", format="%d위", width="small"),
+    "통합티커": st.column_config.TextColumn("티커", width="small"),
+    "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)", width="medium"), 
+    "기준가": st.column_config.NumberColumn("현재가", format="$ %,.2f"),
+    "3-1개월(%)": st.column_config.NumberColumn("3-1M", format="%.1f%%"),
+    "6-1개월(%)": st.column_config.NumberColumn("6-1M", format="%.1f%%"),
+    "12-1개월(%)": st.column_config.NumberColumn("12-1M", format="%.1f%%"),
+}
 
 @st.cache_data(ttl=3600)
 def get_idx_us(target_date=None):
@@ -72,32 +75,18 @@ def get_idx_us(target_date=None):
         except: pass
     return pd.DataFrame(res).set_index('시장')
 
-# 테이블 공통 설정
-common_config = {
-    "번호": st.column_config.NumberColumn("No", format="%d", width="small"),
-    "통합티커": st.column_config.TextColumn("티커"),
-    "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
-    "기준가": st.column_config.NumberColumn("현재가", format="$ %,.2f"),
-    "3-1개월(%)": st.column_config.NumberColumn("3-1M", format="%.1f%%"),
-    "6-1개월(%)": st.column_config.NumberColumn("6-1M", format="%.1f%%"),
-    "12-1개월(%)": st.column_config.NumberColumn("12-1M", format="%.1f%%"),
-}
-
 def display_momentum_dashboard(df_raw, target_date_str):
     df_300 = df_raw.head(300).copy()
     df_300['통합티커'] = df_300['시장'] + ":" + df_300['종목코드']
-    
-    # 🔗 야후 파이낸스 차트 링크 적용
     df_300['종목명_L'] = df_300.apply(lambda r: f"https://finance.yahoo.com/chart/{str(r['종목코드']).replace('.', '-')}#{r['종목명']}", axis=1)
 
-    # 교집합 데이터 추출
+    # 교집합 추출
     top10_12_1 = df_300.sort_values('12-1개월(%)', ascending=False).head(10)
     top10_6_1 = df_300.sort_values('6-1개월(%)', ascending=False).head(10)
     top10_3_1 = df_300.sort_values('3-1개월(%)', ascending=False).head(10)
 
     overlap_12_6 = top10_12_1[top10_12_1['종목코드'].isin(top10_6_1['종목코드'])].copy()
     overlap_6_3 = top10_6_1[top10_6_1['종목코드'].isin(top10_3_1['종목코드'])].copy()
-    
     common_tickers = set(overlap_12_6['종목코드']).intersection(set(overlap_6_3['종목코드']))
 
     # --- 상단: 교집합 ---
@@ -107,26 +96,23 @@ def display_momentum_dashboard(df_raw, target_date_str):
     with c_over1:
         st.markdown('<div class="overlap-header">🔥 12-1M & 6-1M 중복</div>', unsafe_allow_html=True)
         if not overlap_12_6.empty:
-            overlap_12_6 = overlap_12_6.reset_index(drop=True)
-            overlap_12_6['번호'] = range(1, len(overlap_12_6) + 1) # 💡 '번호' 컬럼 명시적 생성
-            st.dataframe(overlap_12_6.style.apply(highlight_overlap_name_only, common_tickers=common_tickers, axis=1), 
+            overlap_12_6['순위'] = range(1, len(overlap_12_6) + 1)
+            st.dataframe(overlap_12_6.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
                          use_container_width=True, hide_index=True,
-                         column_order=['번호', '통합티커', '종목명_L', '12-1개월(%)', '6-1개월(%)'], column_config=common_config)
+                         column_order=['순위', '통합티커', '종목명_L', '12-1개월(%)', '6-1개월(%)'], column_config=common_config)
         else: st.info("중복 없음")
 
     with c_over2:
         st.markdown('<div class="overlap-header">⚡ 6-1M & 3-1M 중복</div>', unsafe_allow_html=True)
         if not overlap_6_3.empty:
-            overlap_6_3 = overlap_6_3.reset_index(drop=True)
-            overlap_6_3['번호'] = range(1, len(overlap_6_3) + 1)
-            st.dataframe(overlap_6_3.style.apply(highlight_overlap_name_only, common_tickers=common_tickers, axis=1), 
+            overlap_6_3['순위'] = range(1, len(overlap_6_3) + 1)
+            st.dataframe(overlap_6_3.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
                          use_container_width=True, hide_index=True,
-                         column_order=['번호', '통합티커', '종목명_L', '6-1개월(%)', '3-1개월(%)'], column_config=common_config)
+                         column_order=['순위', '통합티커', '종목명_L', '6-1개월(%)', '3-1개월(%)'], column_config=common_config)
         else: st.info("중복 없음")
 
     # --- 중단: 상위 30위 ---
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown('<p class="ruler-text">※ 아래 No 컬럼은 고정된 줄 번호입니다. 정렬과 상관없이 개수를 파악할 수 있습니다.</p>', unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
     
     for col, title, sort_col in zip([col1, col2, col3], 
@@ -135,23 +121,23 @@ def display_momentum_dashboard(df_raw, target_date_str):
         with col:
             st.markdown(f'<div class="section-header">{title}</div>', unsafe_allow_html=True)
             df_sub = df_300.sort_values(sort_col, ascending=False).head(30).copy()
-            df_sub = df_sub.reset_index(drop=True)
-            df_sub['번호'] = range(1, 31) # 💡 1부터 30까지 번호 고정
-            st.dataframe(df_sub.style.apply(highlight_overlap_name_only, common_tickers=common_tickers, axis=1), 
+            df_sub['순위'] = range(1, 31)
+            st.dataframe(df_sub.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
                          use_container_width=True, height=450, hide_index=True,
-                         column_order=['번호', '통합티커', '종목명_L', sort_col], column_config=common_config)
+                         column_order=['순위', '통합티커', '종목명_L', sort_col], column_config=common_config)
 
     st.markdown("---")
     
     # --- 하단: 전체 ---
     st.markdown(f'### 📊 미국 시총상위 300종목 전체 (기준: {target_date_str})')
-    df_300_all = df_300.copy().reset_index(drop=True)
-    df_300_all['번호'] = range(1, len(df_300_all) + 1)
-    st.dataframe(df_300_all, use_container_width=True, height=600, hide_index=True,
-                 column_order=['번호', '통합티커', '종목명_L', '기준가', '3-1개월(%)', '6-1개월(%)', '12-1개월(%)'],
+    df_300_all = df_300.copy()
+    df_300_all['순위'] = range(1, len(df_300_all) + 1)
+    st.dataframe(df_300_all.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
+                 use_container_width=True, height=600, hide_index=True,
+                 column_order=['순위', '통합티커', '종목명_L', '기준가', '3-1개월(%)', '6-1개월(%)', '12-1개월(%)'],
                  column_config=common_config)
 
-# 앱 실행
+# 실행부
 st.title("🇺🇸 미국 시총상위 모멘텀")
 t1, t2 = st.tabs(["📅 전월 말일 기준", "🕒 오늘(데일리) 기준"])
 
