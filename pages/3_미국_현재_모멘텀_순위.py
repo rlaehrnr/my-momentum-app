@@ -7,31 +7,31 @@ import os
 # 1. 페이지 설정
 st.set_page_config(page_title="미국 모멘텀 순위", layout="wide")
 
-# CSS: 가독성 및 디자인 최적화
+# CSS: 가독성 및 디자인 강화
 st.markdown("""
     <style>
     .block-container { padding-top: 1.5rem !important; }
-    h1 { font-size: 2.2rem !important; font-weight: 800; margin-bottom: 10px; }
+    h1 { font-size: 2.2rem !important; font-weight: 800; margin-bottom: 20px; }
     .stTabs [data-baseweb="tab"] { font-size: 18px; font-weight: bold; }
     
     /* 섹션 제목 스타일 */
     .section-header {
         background-color: #1F2937;
         color: #FFFFFF;
-        padding: 10px 12px;
+        padding: 10px 15px;
         border-radius: 8px 8px 0 0;
         font-size: 1.1rem;
-        font-weight: 700;
+        font-weight: bold;
         border-bottom: 4px solid #EF4444;
-        margin-top: 20px;
+        margin-top: 25px;
     }
     .overlap-header {
         background-color: #1E3A8A;
         color: white;
-        padding: 10px 12px;
+        padding: 10px 15px;
         border-radius: 8px 8px 0 0;
         font-size: 1.1rem;
-        font-weight: 700;
+        font-weight: bold;
         border-bottom: 4px solid #F59E0B;
     }
     </style>
@@ -43,19 +43,19 @@ def highlight_name_only(row, common_tickers):
     if row.get('종목코드') in common_tickers:
         if '종목명_L' in row.index:
             name_idx = row.index.get_loc('종목명_L')
-            styles[name_idx] = 'background-color: #FFF9C4; color: #1F2937; font-weight: bold; border-radius: 4px;'
+            styles[name_idx] = 'background-color: #FFF9C4; color: #1F2937; font-weight: bold;'
     return styles
 
-# 💡 [핵심] 컬럼 설정 (잘림 방지 밸런스)
-# 좁은 3열 레이아웃에서도 잘리지 않도록 핵심 컬럼은 "small", 종목명은 유연하게 설정
-base_config = {
-    "순위": st.column_config.NumberColumn("순위", format="%d위", width="small"),
-    "통합티커": st.column_config.TextColumn("티커", width="small"),
-    "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)", width="medium"), 
-    "기준가": st.column_config.NumberColumn("현재가", format="$ %,.2f", width="small"),
-    "3-1개월(%)": st.column_config.NumberColumn("3-1M", format="%.1f%%", width="small"),
-    "6-1개월(%)": st.column_config.NumberColumn("6-1M", format="%.1f%%", width="small"),
-    "12-1개월(%)": st.column_config.NumberColumn("12-1M", format="%.1f%%", width="small"),
+# 💡 [핵심] 픽셀 단위 정밀 너비 조정
+# 순위에서 '위'를 제거하고 폭을 40으로 줄여 공간을 극대화했습니다.
+common_config = {
+    "순위": st.column_config.NumberColumn("순위", format="%d", width=40),
+    "통합티커": st.column_config.TextColumn("티커", width=110),
+    "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)", width="large"), 
+    "기준가": st.column_config.NumberColumn("현재가", format="$ %,.2f", width=100),
+    "3-1개월(%)": st.column_config.NumberColumn("3-1M", format="%.1f%%", width=90),
+    "6-1개월(%)": st.column_config.NumberColumn("6-1M", format="%.1f%%", width=90),
+    "12-1개월(%)": st.column_config.NumberColumn("12-1M", format="%.1f%%", width=90),
 }
 
 @st.cache_data(ttl=3600)
@@ -78,6 +78,13 @@ def get_idx_us(target_date=None):
 
 def display_momentum_dashboard(df_raw, target_date_str):
     df_300 = df_raw.head(300).copy()
+    
+    # 데이터 전처리
+    m_cols = ['3-1개월(%)', '6-1개월(%)', '12-1개월(%)']
+    for c in m_cols:
+        if c in df_300.columns:
+            df_300[c] = pd.to_numeric(df_300[c], errors='coerce').fillna(0.0)
+
     df_300['통합티커'] = df_300['시장'].astype(str) + ":" + df_300['종목코드'].astype(str)
     df_300['종목명_L'] = df_300.apply(lambda r: f"https://finance.yahoo.com/chart/{str(r['종목코드']).replace('.', '-')}#{r['종목명']}", axis=1)
 
@@ -100,7 +107,7 @@ def display_momentum_dashboard(df_raw, target_date_str):
             overlap_12_6['순위'] = range(1, len(overlap_12_6) + 1)
             st.dataframe(overlap_12_6.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
                          use_container_width=True, hide_index=True,
-                         column_order=['순위', '통합티커', '종목명_L', '12-1개월(%)', '6-1개월(%)'], column_config=base_config)
+                         column_order=['순위', '통합티커', '종목명_L', '12-1개월(%)', '6-1개월(%)'], column_config=common_config)
         else: st.info("중복 없음")
 
     with c_over2:
@@ -109,19 +116,13 @@ def display_momentum_dashboard(df_raw, target_date_str):
             overlap_6_3['순위'] = range(1, len(overlap_6_3) + 1)
             st.dataframe(overlap_6_3.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
                          use_container_width=True, hide_index=True,
-                         column_order=['순위', '통합티커', '종목명_L', '6-1개월(%)', '3-1개월(%)'], column_config=base_config)
+                         column_order=['순위', '통합티커', '종목명_L', '6-1개월(%)', '3-1개월(%)'], column_config=common_config)
         else: st.info("중복 없음")
 
-    # --- 중단: 상위 30위 (3열 레이아웃 최적화) ---
+    # --- 중단: 상위 30위 ---
     st.markdown("<br>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
     
-    # 3열 표에서는 공간이 매우 협소하므로 수익률 컬럼 이름을 짧게 줄여 잘림 방지
-    sub_config = base_config.copy()
-    sub_config["12-1개월(%)"] = st.column_config.NumberColumn("12-1", format="%.1f%%", width="small")
-    sub_config["6-1개월(%)"] = st.column_config.NumberColumn("6-1", format="%.1f%%", width="small")
-    sub_config["3-1개월(%)"] = st.column_config.NumberColumn("3-1", format="%.1f%%", width="small")
-
     for col, title, sort_col in zip([col1, col2, col3], 
                                    ["🏆 12-1개월 상위 30", "🏆 6-1개월 상위 30", "🏆 3-1개월 상위 30"], 
                                    ["12-1개월(%)", "6-1개월(%)", "3-1개월(%)"]):
@@ -129,10 +130,9 @@ def display_momentum_dashboard(df_raw, target_date_str):
             st.markdown(f'<div class="section-header">{title}</div>', unsafe_allow_html=True)
             df_sub = df_300.sort_values(sort_col, ascending=False).head(30).copy()
             df_sub['순위'] = range(1, 31)
-            # 💡 column_order에서 불필요한 현재가 등을 빼서 공간 확보
             st.dataframe(df_sub.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
                          use_container_width=True, height=450, hide_index=True,
-                         column_order=['순위', '통합티커', '종목명_L', sort_col], column_config=sub_config)
+                         column_order=['순위', '통합티커', '종목명_L', sort_col], column_config=common_config)
 
     st.markdown("---")
     
@@ -143,7 +143,7 @@ def display_momentum_dashboard(df_raw, target_date_str):
     st.dataframe(df_300_all.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
                  use_container_width=True, height=600, hide_index=True,
                  column_order=['순위', '통합티커', '종목명_L', '기준가', '3-1개월(%)', '6-1개월(%)', '12-1개월(%)'],
-                 column_config=base_config)
+                 column_config=common_config)
 
 # 실행부
 st.title("🇺🇸 미국 시총상위 모멘텀")
