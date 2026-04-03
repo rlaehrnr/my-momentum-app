@@ -15,48 +15,21 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 💡 [핵심: 4년차 주기 자동 계산] S&P 500 과거 데이터를 바탕으로 4년 주기 위험달 동적 계산
-@st.cache_data(ttl=86400)
-def get_us_presidential_seasonality_4yr():
-    try:
-        # 1980년부터 현재까지 S&P 500 월봉 데이터 수집
-        sp500 = yf.download('^GSPC', start='1980-01-01', progress=False)
-        
-        # yfinance 최신 버전 호환 처리
-        if isinstance(sp500.columns, pd.MultiIndex):
-            close_prices = sp500.xs('Close', level='Price', axis=1) if 'Price' in sp500.columns.names else sp500['Close']
-        else:
-            close_prices = sp500['Close']
-            
-        if isinstance(close_prices, pd.DataFrame):
-            close_prices = close_prices.iloc[:, 0]
-            
-        # 월말 종가 기준으로 수익률 계산
-        sp500_m = close_prices.resample('ME').last()
-        ret_m = sp500_m.pct_change() * 100
-        
-        df_ret = ret_m.reset_index()
-        df_ret.columns = ['Date', 'Return']
-        df_ret = df_ret.dropna()
-        
-        # 년, 월, 4년 주기 매핑 (2021년을 1년차로 기준)
-        df_ret['Year'] = df_ret['Date'].dt.year
-        df_ret['Month'] = df_ret['Date'].dt.month
-        df_ret['CycleYear'] = ((df_ret['Year'] - 2021) % 4) + 1
-        
-        # 4년차별/월별 평균 수익률
-        seasonality = df_ret.groupby(['CycleYear', 'Month'])['Return'].mean().reset_index()
-        
-        # 평균 수익률이 -1.0% 이하인 '위험달' 추출
-        dangerous_map = {}
-        for year in range(1, 5):
-            bad_months = seasonality[(seasonality['CycleYear'] == year) & (seasonality['Return'] <= -1.0)]['Month'].tolist()
-            dangerous_map[year] = bad_months
-            
-        return dangerous_map
-    except Exception as e:
-        # 통신 장애 시 기본값 제공 (대략적인 역사적 S&P 500 4년 주기 통계치)
-        return {1: [9], 2: [6, 9], 3: [], 4: []}
+# 💡 [대통령 주기 하드코딩] 사용자가 제공한 8년차 주기 위험달 데이터
+PRESIDENTIAL_DANGEROUS_MONTHS = {
+    1: [2, 9],                 # 1년차 (초선 1년차)
+    2: [2, 4, 6, 9, 12],       # 2년차 (초선 중간선거)
+    3: [8, 9],                 # 3년차 (초선 3년차)
+    4: [3],                    # 4년차 (초선 대선해)
+    5: [],                     # 5년차 (재선 1년차 / 2025년 트럼프 2기)
+    6: [7],                    # 6년차 (재선 중간선거 / 2026년)
+    7: [6, 8, 11, 12],         # 7년차 (재선 3년차 / 2027년 예상)
+    8: [1, 6, 9, 10, 11]       # 8년차 (재선 대선해 / 2028년 예상)
+}
+
+def get_cycle_year(year):
+    # 2021년을 1년차로 기준하여 8년 주기 계산 (2021=1, 2025=5, 2026=6...)
+    return ((year - 2021) % 8) + 1
 
 # 💡 [스타일 함수] Top 5 단일 강조(녹색) & Top 5 교집합 강조(노랑+빨강) 동시 적용
 def apply_k200_styling(row, idx_df, highlight_codes=None, overlap_codes=None):
@@ -129,7 +102,7 @@ with tab1:
         kospi_1m = idx_k.loc['KOSPI', '1개월(%)'] if 'KOSPI' in idx_k.index else 0.0
         kospi_3m = idx_k.loc['KOSPI', '3개월(%)'] if 'KOSPI' in idx_k.index else 0.0
 
-        # 💡 [버그 픽스] 시가총액 '0' 문제 해결: 양쪽 모두 zfill(6) 강제 적용
+        # 시가총액 '0' 문제 해결: 양쪽 모두 zfill(6) 강제 적용
         df_k200 = df_raw[(df_raw['시장'] == 'KOSPI') & (df_raw['종목코드'].str.endswith('0'))].copy()
         df_k200['종목코드'] = df_k200['종목코드'].astype(str).str.zfill(6)
         
@@ -157,18 +130,17 @@ with tab1:
         neg_1m_cnt = (df_k200['1개월(%)'] < 0).sum()
         neg_3m_cnt = (df_k200['3개월(%)'] < 0).sum()
         
-        # 💡 [미국 대통령 4년차 주기 및 투자 월 계산 로직]
+        # 💡 [미국 대통령 8년차 주기 및 투자 월 계산 로직 - 하드코딩 적용]
         base_dt = pd.to_datetime(b_date_str)
         target_dt = base_dt + pd.DateOffset(months=1)
         target_year = target_dt.year
         target_month = target_dt.month
         
-        # 4년 주기 계산 (2021년 = 1년차)
-        cycle_year = ((target_year - 2021) % 4) + 1
+        # 8년 주기 계산 (2021년 = 1년차)
+        cycle_year = get_cycle_year(target_year)
         
-        # 야후 파이낸스 기반 동적 위험달 계산 (4년차용)
-        dangerous_map = get_us_presidential_seasonality_4yr()
-        bad_months_this_year = dangerous_map.get(cycle_year, [])
+        # 하드코딩된 위험달 매핑 가져오기
+        bad_months_this_year = PRESIDENTIAL_DANGEROUS_MONTHS.get(cycle_year, [])
         bad_m_str = ", ".join(f"{m}월" for m in bad_months_this_year) if bad_months_this_year else "없음"
 
         # 💡 [투자 중지 로직 결합]
@@ -196,7 +168,7 @@ with tab1:
         with col3: st.metric(label="📉 1개월 하락", value=f"{neg_1m_cnt}개")
         with col4: st.metric(label="📉 3개월 하락", value=f"{neg_3m_cnt}개")
         with col5:
-            # 💡 미국 대통령 4년 주기 박스 렌더링
+            # 💡 미국 대통령 주기 박스 렌더링
             st.markdown(f"""
             <div style="background-color: #f0f2f6; padding: 12px 10px; border-radius: 10px; text-align: center; border: 1px solid #d1d5db; height: 100%;">
                 <div style="font-size: 13px; font-weight: bold; color: #333; margin-bottom: 5px;">🇺🇸대통령 <span style="color:#0047AB; font-size:15px;">{cycle_year}년차</span> ({target_year}년)</div>
