@@ -38,7 +38,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# ⭐ 신규: 특정 과거 날짜 기준의 지수 이동평균선 데이터 수집
+# ⭐ 이동평균선 20, 60, 120, 150, 200 기준으로 수집 (네이버 링크 분리 적용)
 @st.cache_data(ttl=3600)
 def get_index_ma_status(target_date_str):
     indices = {'S&P 500': 'US500', 'NASDAQ': 'IXIC'}
@@ -52,15 +52,23 @@ def get_index_ma_status(target_date_str):
             if df.empty: continue
             
             curr_price = df['Close'].iloc[-1]
-            url = f"https://m.stock.naver.com/fchart/foreign/index/.INX#{name}" if name == 'S&P 500' else f"https://m.stock.naver.com/fchart/foreign/index/.IXIC#{name}"
+            
+            # 지수 이름 클릭 시 종합정보, 현재가 클릭 시 차트로 연결
+            if name == 'S&P 500':
+                url_name = f"https://m.stock.naver.com/worldstock/index/.INX/total#{name}"
+                url_price = f"https://m.stock.naver.com/fchart/foreign/index/.INX#{curr_price:,.2f}"
+            else:
+                url_name = f"https://m.stock.naver.com/worldstock/index/.IXIC/total#{name}"
+                url_price = f"https://m.stock.naver.com/fchart/foreign/index/.IXIC#{curr_price:,.2f}"
             
             ma_values = {
-                '지수_L': url,
-                '현재가': round(curr_price, 2),
-                '10일선': round(df['Close'].rolling(10).mean().iloc[-1], 2),
+                '지수_L': url_name,
+                '현재가_L': url_price,
+                'base_price': round(curr_price, 2),
                 '20일선': round(df['Close'].rolling(20).mean().iloc[-1], 2),
                 '60일선': round(df['Close'].rolling(60).mean().iloc[-1], 2),
                 '120일선': round(df['Close'].rolling(120).mean().iloc[-1], 2),
+                '150일선': round(df['Close'].rolling(150).mean().iloc[-1], 2),
                 '200일선': round(df['Close'].rolling(200).mean().iloc[-1], 2)
             }
             res.append(ma_values)
@@ -69,7 +77,7 @@ def get_index_ma_status(target_date_str):
 
 def style_index_ma(df):
     def apply_color(row):
-        price = row['현재가']
+        price = row['base_price']
         styles = [''] * len(row)
         for i, col in enumerate(row.index):
             if '일선' in col:
@@ -84,12 +92,13 @@ def style_index_ma(df):
 
 ma_config = {
     "지수_L": st.column_config.LinkColumn("지수", display_text=r"#(.+)"),
-    "현재가": st.column_config.NumberColumn("현재가", format="%.2f"),
-    "10일선": st.column_config.NumberColumn("10일선", format="%.2f"),
-    "20일선": st.column_config.NumberColumn("20일선", format="%.2f"),
-    "60일선": st.column_config.NumberColumn("60일선", format="%.2f"),
-    "120일선": st.column_config.NumberColumn("120일선", format="%.2f"),
-    "200일선": st.column_config.NumberColumn("200일선", format="%.2f")
+    "현재가_L": st.column_config.LinkColumn("현재가", display_text=r"#(.+)"),
+    "20일선": st.column_config.NumberColumn("20일선", format="%,.2f"),
+    "60일선": st.column_config.NumberColumn("60일선", format="%,.2f"),
+    "120일선": st.column_config.NumberColumn("120일선", format="%,.2f"),
+    "150일선": st.column_config.NumberColumn("150일선", format="%,.2f"),
+    "200일선": st.column_config.NumberColumn("200일선", format="%,.2f"),
+    "base_price": None 
 }
 
 # ⭐ 겹치는 종목 하이라이트 + 다음달 수익률 색상 동시 적용
@@ -141,7 +150,6 @@ files = glob.glob(f"{folder}/{prefix}*.csv")
 if not files:
     st.info("데이터가 없습니다. archive_sp500 폴더를 확인해주세요.")
 else:
-    # 연도/월 분리형 UI 적용
     data_struct = {}
     for f in files:
         fname = os.path.basename(f)
@@ -173,15 +181,20 @@ else:
     st.markdown(f"### 📊 주요 지수 이동평균선 현황 (기준일: {target_date_str})")
     ma_df = get_index_ma_status(target_date_str)
     if not ma_df.empty:
-        st.dataframe(style_index_ma(ma_df), use_container_width=True, hide_index=True, column_config=ma_config)
+        st.dataframe(
+            style_index_ma(ma_df), 
+            use_container_width=True, 
+            hide_index=True, 
+            column_order=["지수_L", "현재가_L", "20일선", "60일선", "120일선", "150일선", "200일선"],
+            column_config=ma_config
+        )
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # 데이터 안전 변환
+    # 데이터 안전 변환 및 과거 파일 보정
     for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '3-1개월(%)', '6-1개월(%)', '12-1개월(%)', '모멘텀스코어', '다음달수익률(%)']:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0.0)
 
-    # 과거 파일 에러 방지 (계산값 채우기)
     if '12-1개월(%)' not in df.columns and '12개월(%)' in df.columns and '1개월(%)' in df.columns:
         df['12-1개월(%)'] = df['12개월(%)'] - df['1개월(%)']
     if '6-1개월(%)' not in df.columns and '6개월(%)' in df.columns and '1개월(%)' in df.columns:
@@ -189,7 +202,6 @@ else:
     if '3-1개월(%)' not in df.columns and '3개월(%)' in df.columns and '1개월(%)' in df.columns:
         df['3-1개월(%)'] = df['3개월(%)'] - df['1개월(%)']
 
-    # 시장 정보가 없으면 S&P 500으로 임의 지정하여 티커 통합
     if '시장' not in df.columns: df['시장'] = 'S&P 500'
     df['통합티커'] = df['시장'].astype(str) + ":" + df['종목코드'].astype(str)
     df['종목명_L'] = df.apply(lambda r: f"https://finance.yahoo.com/chart/{str(r['종목코드']).replace('.', '-')}#{r['종목명']}", axis=1)
@@ -198,16 +210,31 @@ else:
     top10_6_1 = df.sort_values('6-1개월(%)', ascending=False).head(10)
     top10_3_1 = df.sort_values('3-1개월(%)', ascending=False).head(10)
 
-    overlap_12_6 = top10_12_1[top10_12_1['종목코드'].isin(top10_6_1['종목코드'])].copy()
-    overlap_6_3 = top10_6_1[top10_6_1['종목코드'].isin(top10_3_1['종목코드'])].copy()
+    # 💡 6-1M 기준으로 정렬된 교집합 데이터 및 수익률 세분화 로직
+    overlap_12_6 = top10_12_1[top10_12_1['종목코드'].isin(top10_6_1['종목코드'])].sort_values('6-1개월(%)', ascending=False).copy()
+    overlap_6_3 = top10_6_1[top10_6_1['종목코드'].isin(top10_3_1['종목코드'])].sort_values('6-1개월(%)', ascending=False).copy()
     common_tickers = set(overlap_12_6['종목코드']).intersection(set(overlap_6_3['종목코드']))
 
     # --- 상단: 교집합 ---
     c_over1, c_over2 = st.columns(2)
     
     with c_over1:
-        avg_12_6 = overlap_12_6['다음달수익률(%)'].mean() if not overlap_12_6.empty else np.nan
-        st.markdown(f'<div class="overlap-header">🔥 12-1M & 6-1M 중복 (전체 매수시: {fmt_ret_html(avg_12_6)})</div>', unsafe_allow_html=True)
+        if not overlap_12_6.empty:
+            avg_all_12_6 = overlap_12_6['다음달수익률(%)'].mean()
+            avg_t5_12_6 = overlap_12_6.head(5)['다음달수익률(%)'].mean()
+            avg_t10_12_6 = overlap_12_6.head(10)['다음달수익률(%)'].mean()
+        else:
+            avg_all_12_6 = avg_t5_12_6 = avg_t10_12_6 = np.nan
+            
+        header_html_12_6 = f"""
+        <div class="overlap-header">
+            🔥 12-1M & 6-1M 중복<br>
+            <div style="font-size: 0.9rem; font-weight: normal; margin-top: 4px; padding-bottom: 2px;">
+            Top5: {fmt_ret_html(avg_t5_12_6)} | Top10: {fmt_ret_html(avg_t10_12_6)} | 전체: {fmt_ret_html(avg_all_12_6)}
+            </div>
+        </div>
+        """
+        st.markdown(header_html_12_6, unsafe_allow_html=True)
         if not overlap_12_6.empty:
             overlap_12_6['순위'] = range(1, len(overlap_12_6) + 1)
             st.dataframe(overlap_12_6.style.apply(style_archive_dataframe, common_tickers=common_tickers, axis=1), 
@@ -216,8 +243,22 @@ else:
         else: st.info("중복 없음")
 
     with c_over2:
-        avg_6_3 = overlap_6_3['다음달수익률(%)'].mean() if not overlap_6_3.empty else np.nan
-        st.markdown(f'<div class="overlap-header">⚡ 6-1M & 3-1M 중복 (전체 매수시: {fmt_ret_html(avg_6_3)})</div>', unsafe_allow_html=True)
+        if not overlap_6_3.empty:
+            avg_all_6_3 = overlap_6_3['다음달수익률(%)'].mean()
+            avg_t5_6_3 = overlap_6_3.head(5)['다음달수익률(%)'].mean()
+            avg_t10_6_3 = overlap_6_3.head(10)['다음달수익률(%)'].mean()
+        else:
+            avg_all_6_3 = avg_t5_6_3 = avg_t10_6_3 = np.nan
+            
+        header_html_6_3 = f"""
+        <div class="overlap-header">
+            ⚡ 6-1M & 3-1M 중복<br>
+            <div style="font-size: 0.9rem; font-weight: normal; margin-top: 4px; padding-bottom: 2px;">
+            Top5: {fmt_ret_html(avg_t5_6_3)} | Top10: {fmt_ret_html(avg_t10_6_3)} | 전체: {fmt_ret_html(avg_all_6_3)}
+            </div>
+        </div>
+        """
+        st.markdown(header_html_6_3, unsafe_allow_html=True)
         if not overlap_6_3.empty:
             overlap_6_3['순위'] = range(1, len(overlap_6_3) + 1)
             st.dataframe(overlap_6_3.style.apply(style_archive_dataframe, common_tickers=common_tickers, axis=1), 
@@ -229,7 +270,6 @@ else:
     st.markdown("<br>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
     
-    # 좁은 3열 레이아웃 수치 잘림 완벽 방지
     sub_config = base_config.copy()
     sub_config["순위"] = st.column_config.NumberColumn("순위", format="%d", width=35)
     sub_config["통합티커"] = st.column_config.TextColumn("티커", width=90)
@@ -262,7 +302,6 @@ else:
             
             sub_order = ['순위', '통합티커', '종목명_L', sort_col, '다음달수익률(%)']
             sub_order = [c for c in sub_order if c in df_sub.columns or c == '순위']
-            
             st.dataframe(df_sub.style.apply(style_archive_dataframe, common_tickers=common_tickers, axis=1), 
                          use_container_width=True, height=450, hide_index=True,
                          column_order=sub_order, column_config=sub_config)
@@ -272,7 +311,6 @@ else:
     st.markdown(f"### 📊 S&P 500 전체 기록 (기준: {target_date_str})")
     
     df['순위'] = range(1, len(df) + 1)
-    
     full_order = ['순위', '통합티커', '종목명_L', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '3-1개월(%)', '6-1개월(%)', '12-1개월(%)', '모멘텀스코어', '다음달수익률(%)']
     full_order = [col for col in full_order if col in df.columns or col == '순위']
     
