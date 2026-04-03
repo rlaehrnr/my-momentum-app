@@ -102,22 +102,39 @@ with tab1:
         kospi_1m = idx_k.loc['KOSPI', '1개월(%)'] if 'KOSPI' in idx_k.index else 0.0
         kospi_3m = idx_k.loc['KOSPI', '3개월(%)'] if 'KOSPI' in idx_k.index else 0.0
 
-        # 💡 [버그 픽스 복구] 시가총액 '0' 문제 해결: KRX 데이터 사용 및 정규식 처리
+        # 종목코드 6자리 통일 및 본주 필터링
         df_k200 = df_raw[df_raw['시장'] == 'KOSPI'].copy()
         df_k200['종목코드'] = df_k200['종목코드'].astype(str).str.replace(r'[^0-9]', '', regex=True).str.zfill(6)
-        
-        # 끝자리가 '0'인 우선주 제외 본주 필터링
         df_k200 = df_k200[df_k200['종목코드'].str.endswith('0')].copy()
         
+        # 💡 [버그 픽스 복구] 시가총액 0원 방지 3중 철통 방어 로직
         try:
-            # KOSPI 대신 KRX 전체를 불러와 에러를 우회
-            kospi_info = fdr.StockListing('KRX')[['Code', 'Marcap']]
-            kospi_info['Code'] = kospi_info['Code'].astype(str).str.replace(r'[^0-9]', '', regex=True).str.zfill(6)
-            
-            df_k200 = df_k200.merge(kospi_info, left_on='종목코드', right_on='Code', how='left')
-            df_k200['시가총액'] = (pd.to_numeric(df_k200['Marcap'], errors='coerce').fillna(0) / 100000000).astype(int)
+            # 1. 파일 내 자체 데이터 확인 (우선순위 1)
+            if '시가총액' in df_k200.columns and pd.to_numeric(df_k200['시가총액'], errors='coerce').sum() > 0:
+                df_k200['시가총액'] = pd.to_numeric(df_k200['시가총액'], errors='coerce').fillna(0)
+                # 만약 원단위라면 억단위로 변환
+                if df_k200['시가총액'].max() > 10000000000:
+                    df_k200['시가총액'] = df_k200['시가총액'] / 100000000
+                df_k200['시가총액'] = df_k200['시가총액'].astype(int)
+            else:
+                # 2. FDR 활용 (우선순위 2)
+                kospi_info = fdr.StockListing('KOSPI')
+                
+                # 라이브러리 버전에 따라 종목코드 컬럼명이 Code 또는 Symbol 일 수 있음
+                code_col = 'Code' if 'Code' in kospi_info.columns else ('Symbol' if 'Symbol' in kospi_info.columns else None)
+                
+                if code_col and 'Marcap' in kospi_info.columns:
+                    k_info = kospi_info[[code_col, 'Marcap']].copy()
+                    k_info.columns = ['Code', 'Marcap']
+                    k_info['Code'] = k_info['Code'].astype(str).str.replace(r'[^0-9]', '', regex=True).str.zfill(6)
+                    
+                    df_k200 = df_k200.merge(k_info, left_on='종목코드', right_on='Code', how='left')
+                    df_k200['시가총액'] = (pd.to_numeric(df_k200['Marcap'], errors='coerce').fillna(0) / 100000000).astype(int)
+                else:
+                    df_k200['시가총액'] = 0
         except Exception as e:
             df_k200['시가총액'] = 0
+            st.warning(f"⚠️ 시가총액 API 로딩 에러: {e}") # 3. 통신 에러 발생시 원인 파악을 위해 화면에 경고 노출
             
         df_k200 = df_k200.sort_values(by='시가총액', ascending=False).head(200)
         df_k200['시총순위'] = range(1, len(df_k200) + 1)
