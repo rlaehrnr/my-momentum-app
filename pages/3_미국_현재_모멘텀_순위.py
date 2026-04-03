@@ -42,7 +42,9 @@ st.markdown("""
 @st.cache_data(ttl=604800)
 def get_naver_stock_link_cached(ticker, name):
     try:
-        stock = yf.Ticker(ticker)
+        # yfinance는 특수문자(.)를 하이픈(-)으로 써야 인식하는 경우가 많음 (예: BRK.B -> BRK-B)
+        yf_ticker = str(ticker).replace('.', '-')
+        stock = yf.Ticker(yf_ticker)
         exchange = stock.info.get('exchange', '')
         
         mapping = {
@@ -55,9 +57,15 @@ def get_naver_stock_link_cached(ticker, name):
             'PCX': '.P',  
         }
         suffix = mapping.get(exchange, '.O') 
-        return f"https://m.stock.naver.com/worldstock/stock/{ticker}{suffix}/total#{name}"
+        
+        # 네이버 차트 링크 생성 (원래 티커 형태 유지)
+        return f"https://m.stock.naver.com/fchart/foreign/stock/{ticker}{suffix}#{name}"
+    
     except:
-        return f"https://m.stock.naver.com/worldstock/stock/{ticker}.O/total#{name}"
+        # yfinance 조회 실패 시 메인으로 튕기는 것을 막기 위한 백업 추론 로직
+        # 통상적으로 4글자 이상은 나스닥(.O), 1~3글자는 뉴욕증시(.N)
+        suffix = '.O' if len(str(ticker)) >= 4 else '.N'
+        return f"https://m.stock.naver.com/fchart/foreign/stock/{ticker}{suffix}#{name}"
 
 # 지수 데이터 수집 함수 (타겟 날짜 기준)
 @st.cache_data(ttl=3600)
@@ -182,7 +190,7 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
     
     # 여기서 앞서 선언한 get_naver_stock_link_cached 함수를 정상적으로 호출합니다!
     df_300['종목명_L'] = df_300.apply(
-        lambda r: get_naver_stock_link_cached(str(r['종목코드']).replace('.', '-'), r['종목명']), 
+        lambda r: get_naver_stock_link_cached(str(r['종목코드']), r['종목명']), 
         axis=1
     )
 
