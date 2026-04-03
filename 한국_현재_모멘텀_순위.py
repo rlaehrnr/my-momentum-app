@@ -98,22 +98,26 @@ with tab1:
             lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{str(r['종목코드']).zfill(6)}#{r['종목명']}", axis=1
         )
 
+        # 💡 하락 종목 계산 (6개월 추가)
         neg_1m_cnt = (df_k200['1개월(%)'] < 0).sum()
         neg_3m_cnt = (df_k200['3개월(%)'] < 0).sum()
+        neg_6m_cnt = (df_k200['6개월(%)'] < 0).sum()
         
-        if neg_1m_cnt >= 100 and neg_3m_cnt >= 100:
+        # 💡 투자 중지 로직 업데이트: 3M >= 100 AND (1M >= 100 OR 6M >= 100)
+        if neg_3m_cnt >= 100 and (neg_1m_cnt >= 100 or neg_6m_cnt >= 100):
             invest_status, box_color, text_color = "🛑 투자 중지", "#FFEBEE", "#C62828"
         else:
             invest_status, box_color, text_color = "✅ 투자 진행", "#E8F5E9", "#2E7D32"
 
         st.markdown("<br>", unsafe_allow_html=True)
-        col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1.5])
+        col1, col2, col3, col4, col5, col6 = st.columns([0.9, 0.9, 1.1, 1.1, 1.1, 1.6])
         
         with col1: st.metric(label="📈 KOSPI 1M", value=f"{kospi_1m}%")
         with col2: st.metric(label="📈 KOSPI 3M", value=f"{kospi_3m}%")
-        with col3: st.metric(label="📉 1개월 하락 종목", value=f"{neg_1m_cnt}개")
-        with col4: st.metric(label="📉 3개월 하락 종목", value=f"{neg_3m_cnt}개")
-        with col5:
+        with col3: st.metric(label="📉 1개월 하락", value=f"{neg_1m_cnt}개")
+        with col4: st.metric(label="📉 3개월 하락", value=f"{neg_3m_cnt}개")
+        with col5: st.metric(label="📉 6개월 하락", value=f"{neg_6m_cnt}개")
+        with col6:
             st.markdown(f"""
             <div style="background-color: {box_color}; padding: 15px; border-radius: 10px; text-align: center; border: 1px solid {text_color};">
                 <p style="margin: 0; font-size: 14px; color: {text_color}; font-weight: bold;">최종 판단 지표</p>
@@ -128,8 +132,10 @@ with tab1:
         
         cond_perf = (df_k200['1개월(%)']>=q30['1개월(%)'])&(df_k200['3개월(%)']>=q30['3개월(%)'])&(df_k200['6개월(%)']>=q30['6개월(%)'])&(df_k200['12개월(%)']>=q30['12개월(%)']) & \
                     (df_k200['1개월(%)']>0)&(df_k200['3개월(%)']>0)&(df_k200['6개월(%)']>0)&(df_k200['12개월(%)']>0)
-        df_perf = df_k200[cond_perf].copy()
-        df_spec = df_k200[(df_k200['12개월(%)']>=q30['12개월(%)']) & (df_k200['1개월(%)']>=t10_1m)].copy()
+                    
+        # 💡 '1개월(%)' 수익률 기준으로 표 정렬 업데이트
+        df_perf = df_k200[cond_perf].sort_values('1개월(%)', ascending=False).copy()
+        df_spec = df_k200[(df_k200['12개월(%)']>=q30['12개월(%)']) & (df_k200['1개월(%)']>=t10_1m)].sort_values('1개월(%)', ascending=False).copy()
         common_codes = set(df_perf['종목코드']).intersection(set(df_spec['종목코드']))
 
         k_cfg = main_cfg.copy()
@@ -151,6 +157,7 @@ with tab1:
 
         st.markdown("---")
         st.subheader("🏆 KOSPI 200 시가총액 전체 순위")
+        # 전체 순위는 그대로 시가총액 순 유지
         st.dataframe(df_k200.style.apply(apply_k200_styling, idx_df=idx_k, common_codes=common_codes, axis=1), 
                      use_container_width=True, height=600, 
                      column_order=['통합티커_L', '종목명_L', '시가총액', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)'], 
@@ -165,7 +172,14 @@ with tab2:
         st.markdown(f'<p class="main-title">📊 월간 모멘텀 (기준: {b_date})</p>', unsafe_allow_html=True)
         
         idx_m = get_idx_kr(pd.to_datetime(b_date))
-        st.table(idx_m.reset_index().assign(현재가=lambda x: x['현재가'].map('{:,.0f}'.format)))
+        
+        # 💡 코스피, 코스닥 수익률 소수점 1자리 포맷팅
+        idx_m_disp = idx_m.reset_index().copy()
+        idx_m_disp['현재가'] = idx_m_disp['현재가'].map('{:,.0f}'.format)
+        for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
+            if c in idx_m_disp.columns:
+                idx_m_disp[c] = idx_m_disp[c].map('{:.1f}'.format)
+        st.table(idx_m_disp)
         
         st.markdown("---")
         df_m.index = range(1, len(df_m) + 1)
@@ -192,7 +206,14 @@ with tab3:
         st.markdown(f'<p class="main-title">🕒 데일리 모멘텀 (기준: {b_date_d})</p>', unsafe_allow_html=True)
         
         idx_now = get_idx_kr()
-        st.table(idx_now.reset_index().assign(현재가=lambda x: x['현재가'].map('{:,.0f}'.format)))
+        
+        # 💡 코스피, 코스닥 수익률 소수점 1자리 포맷팅
+        idx_now_disp = idx_now.reset_index().copy()
+        idx_now_disp['현재가'] = idx_now_disp['현재가'].map('{:,.0f}'.format)
+        for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
+            if c in idx_now_disp.columns:
+                idx_now_disp[c] = idx_now_disp[c].map('{:.1f}'.format)
+        st.table(idx_now_disp)
         
         st.markdown("---")
         df_d.index = range(1, len(df_d) + 1)
