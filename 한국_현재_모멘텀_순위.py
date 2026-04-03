@@ -14,8 +14,29 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 스타일 함수
-def apply_k200_styling(row, idx_df, common_codes=None):
+# 💡 [대통령 주기 하드코딩] 사용자가 제공한 8년차 주기 위험달 데이터
+PRESIDENTIAL_DANGEROUS_MONTHS = {
+    1: [2, 9],                 # 1년차 (초선 1년차)
+    2: [2, 4, 6, 9, 12],       # 2년차 (초선 중간선거)
+    3: [8, 9],                 # 3년차 (초선 3년차)
+    4: [3],                    # 4년차 (초선 대선해)
+    5: [],                     # 5년차 (재선 1년차 / 2025년 트럼프 2기)
+    6: [7],                    # 6년차 (재선 중간선거 / 2026년)
+    7: [6, 8, 11, 12],         # 7년차 (재선 3년차 / 2027년)
+    8: [1, 6, 9, 10, 11]       # 8년차 (재선 대선해 / 2028년)
+}
+
+def get_cycle_year(year):
+    # 2021~2028년까지의 주기를 명시적으로 매핑 (단임/징검다리 재선 등 역사적 예외 방지)
+    mapping = {
+        2021: 1, 2022: 2, 2023: 3, 2024: 4,
+        2025: 5, 2026: 6, 2027: 7, 2028: 8
+    }
+    # 매핑에 없는 연도면 기본 4년 주기로 임시 처리
+    return mapping.get(year, ((year - 2021) % 4) + 1)
+
+# 💡 [스타일 함수 수정] Top 5 단일 강조(녹색) & Top 5 교집합 강조(노랑+빨강) 동시 적용
+def apply_k200_styling(row, idx_df, highlight_codes=None, overlap_codes=None):
     styles = [''] * len(row)
     market = row.get('시장', 'KOSPI')
     if market in idx_df.index:
@@ -25,9 +46,17 @@ def apply_k200_styling(row, idx_df, common_codes=None):
                 col_idx = row.index.get_loc(col)
                 if row[col] < idx_r[col]:
                     styles[col_idx] = 'background-color: #E3F2FD; color: #0047AB;'
-    if common_codes and '종목코드' in row.index and row['종목코드'] in common_codes:
-        if '종목명_L' in row.index:
-            styles[row.index.get_loc('종목명_L')] = 'background-color: #FFF59D; color: #D84315; font-weight: bold;'
+                    
+    code = row.get('종목코드')
+    if code and '종목명_L' in row.index:
+        name_idx = row.index.get_loc('종목명_L')
+        if overlap_codes and code in overlap_codes:
+            # 양쪽 전략 모두 5순위 안에 드는 겹치는 종목 (노란색/빨간글씨)
+            styles[name_idx] = 'background-color: #FFF59D; color: #D84315; font-weight: bold;'
+        elif highlight_codes and code in highlight_codes:
+            # 겹치지는 않지만 해당 전략의 5순위 안에 드는 종목 (연두색/녹색글씨)
+            styles[name_idx] = 'background-color: #E8F5E9; color: #2E7D32; font-weight: bold;'
+            
     return styles
 
 @st.cache_data(ttl=3600)
@@ -99,26 +128,58 @@ with tab1:
 
         neg_1m_cnt = (df_k200['1개월(%)'] < 0).sum()
         neg_3m_cnt = (df_k200['3개월(%)'] < 0).sum()
-        neg_6m_cnt = (df_k200['6개월(%)'] < 0).sum()
         
-        if neg_3m_cnt >= 100 and (neg_1m_cnt >= 100 or neg_6m_cnt >= 100):
-            invest_status, box_color, text_color = "🛑 투자 중지", "#FFEBEE", "#C62828"
+        # 💡 [미국 대통령 8년차 주기 및 투자 월(Next Month) 계산 로직]
+        base_dt = pd.to_datetime(b_date_str)
+        target_dt = base_dt + pd.DateOffset(months=1) # 기준일의 '다음 달'이 실제 투자 달
+        target_year = target_dt.year
+        target_month = target_dt.month
+        
+        # 주기 1~8년차 계산 (하드코딩 매핑 사용)
+        cycle_year = get_cycle_year(target_year)
+        
+        # 위험달 가져오기
+        bad_months_this_year = PRESIDENTIAL_DANGEROUS_MONTHS.get(cycle_year, [])
+        bad_m_str = ", ".join(f"{m}월" for m in bad_months_this_year) if bad_months_this_year else "없음"
+
+        # 💡 [새로운 투자 중지 로직 결합]
+        is_bad_market = (neg_1m_cnt >= 100) and (neg_3m_cnt >= 100)
+        is_bad_season = target_month in bad_months_this_year
+        
+        reasons = []
+        if is_bad_market: reasons.append("시장 하락장")
+        if is_bad_season: reasons.append(f"주기상 위험달({target_month}월)")
+
+        if reasons:
+            invest_status = "🛑 투자 중지"
+            box_color, text_color = "#FFEBEE", "#C62828"
+            status_desc = " + ".join(reasons)
         else:
-            invest_status, box_color, text_color = "✅ 투자 진행", "#E8F5E9", "#2E7D32"
+            invest_status = "✅ 투자 진행"
+            box_color, text_color = "#E8F5E9", "#2E7D32"
+            status_desc = "하락장 통과 & 양호한 달"
 
         st.markdown("<br>", unsafe_allow_html=True)
-        col1, col2, col3, col4, col5, col6 = st.columns([0.9, 0.9, 1.1, 1.1, 1.1, 1.6])
+        # 💡 레이아웃 조정 (6개월 하락 제거 및 간격 재배분)
+        col1, col2, col3, col4, col5, col6 = st.columns([0.9, 0.9, 1.0, 1.0, 1.4, 1.6])
         
         with col1: st.metric(label="📈 KOSPI 1M", value=f"{kospi_1m}%")
         with col2: st.metric(label="📈 KOSPI 3M", value=f"{kospi_3m}%")
         with col3: st.metric(label="📉 1개월 하락", value=f"{neg_1m_cnt}개")
         with col4: st.metric(label="📉 3개월 하락", value=f"{neg_3m_cnt}개")
-        with col5: st.metric(label="📉 6개월 하락", value=f"{neg_6m_cnt}개")
+        with col5:
+            # 💡 미국 대통령 주기 박스 렌더링
+            st.markdown(f"""
+            <div style="background-color: #f0f2f6; padding: 12px 10px; border-radius: 10px; text-align: center; border: 1px solid #d1d5db; height: 100%;">
+                <div style="font-size: 13px; font-weight: bold; color: #333; margin-bottom: 5px;">🇺🇸대통령 <span style="color:#0047AB; font-size:15px;">{cycle_year}년차</span> ({target_year}년)</div>
+                <div style="font-size: 13px; font-weight: bold; color: #D84315;">위험달: {bad_m_str}</div>
+            </div>
+            """, unsafe_allow_html=True)
         with col6:
             st.markdown(f"""
-            <div style="background-color: {box_color}; padding: 15px; border-radius: 10px; text-align: center; border: 1px solid {text_color};">
-                <p style="margin: 0; font-size: 14px; color: {text_color}; font-weight: bold;">최종 판단 지표</p>
-                <h3 style="margin: 5px 0 0 0; color: {text_color};">{invest_status}</h3>
+            <div style="background-color: {box_color}; padding: 10px; border-radius: 10px; text-align: center; border: 1px solid {text_color};">
+                <p style="margin: 0; font-size: 12px; color: {text_color}; font-weight: bold;">최종 판단 ({status_desc})</p>
+                <h3 style="margin: 3px 0 0 0; color: {text_color};">{invest_status}</h3>
             </div>
             """, unsafe_allow_html=True)
             
@@ -130,9 +191,14 @@ with tab1:
         cond_perf = (df_k200['1개월(%)']>=q30['1개월(%)'])&(df_k200['3개월(%)']>=q30['3개월(%)'])&(df_k200['6개월(%)']>=q30['6개월(%)'])&(df_k200['12개월(%)']>=q30['12개월(%)']) & \
                     (df_k200['1개월(%)']>0)&(df_k200['3개월(%)']>0)&(df_k200['6개월(%)']>0)&(df_k200['12개월(%)']>0)
                     
-        df_perf = df_k200[cond_perf].sort_values('1개월(%)', ascending=False).copy()
+        # 💡 [정렬 변경] 퍼펙트는 3개월 기준, 달리는말은 1개월 기준 내림차순
+        df_perf = df_k200[cond_perf].sort_values('3개월(%)', ascending=False).copy()
         df_spec = df_k200[(df_k200['12개월(%)']>=q30['12개월(%)']) & (df_k200['1개월(%)']>=t10_1m)].sort_values('1개월(%)', ascending=False).copy()
-        common_codes = set(df_perf['종목코드']).intersection(set(df_spec['종목코드']))
+        
+        # 💡 [Top 5 추출 및 교집합 계산 로직]
+        top5_perf = df_perf.head(5)['종목코드'].tolist()
+        top5_spec = df_spec.head(5)['종목코드'].tolist()
+        overlap_top5 = set(top5_perf).intersection(set(top5_spec))
 
         k_cfg = main_cfg.copy()
         k_cfg['시가총액'] = st.column_config.NumberColumn("시가총액(억)", format="%,d")
@@ -140,20 +206,21 @@ with tab1:
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("🔥 퍼펙트 상승")
-            st.dataframe(df_perf.style.apply(apply_k200_styling, idx_df=idx_k, common_codes=common_codes, axis=1), 
+            st.dataframe(df_perf.style.apply(apply_k200_styling, idx_df=idx_k, highlight_codes=top5_perf, overlap_codes=overlap_top5, axis=1), 
                          use_container_width=True, 
                          column_order=['통합티커_L', '종목명_L', '시가총액', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)'], 
                          column_config=k_cfg)
         with col2:
             st.subheader("🚀 달리는 말")
-            st.dataframe(df_spec.style.apply(apply_k200_styling, idx_df=idx_k, common_codes=common_codes, axis=1), 
+            st.dataframe(df_spec.style.apply(apply_k200_styling, idx_df=idx_k, highlight_codes=top5_spec, overlap_codes=overlap_top5, axis=1), 
                          use_container_width=True, 
                          column_order=['통합티커_L', '종목명_L', '시가총액', '1개월(%)', '12개월(%)'], 
                          column_config=k_cfg)
 
         st.markdown("---")
         st.subheader("🏆 KOSPI 200 시가총액 전체 순위")
-        st.dataframe(df_k200.style.apply(apply_k200_styling, idx_df=idx_k, common_codes=common_codes, axis=1), 
+        # 전체 표는 Top5 강조 없이 기본 KOSPI 비교만 하도록 세팅 (요청에 따라 위 표들에만 강조점 유지)
+        st.dataframe(df_k200.style.apply(apply_k200_styling, idx_df=idx_k, axis=1), 
                      use_container_width=True, height=600, 
                      column_order=['통합티커_L', '종목명_L', '시가총액', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)'], 
                      column_config=k_cfg)
@@ -168,10 +235,8 @@ with tab2:
         
         idx_m = get_idx_kr(pd.to_datetime(b_date))
         
-        # 💡 [핵심] 정적인 st.table 대신 st.dataframe을 활용해 지수명/현재가 링크 부여
         idx_m_disp = idx_m.reset_index().copy()
         
-        # 링크 생성 (시장: 종합정보, 현재가: 모바일 차트)
         idx_m_disp['시장_L'] = idx_m_disp['시장'].apply(lambda x: f"https://m.stock.naver.com/domestic/index/{x}/total#{x}")
         idx_m_disp['현재가_L'] = idx_m_disp.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/index/{r['시장']}#{r['현재가']:,.0f}", axis=1)
         
@@ -212,10 +277,8 @@ with tab3:
         
         idx_now = get_idx_kr()
         
-        # 💡 [핵심] 정적인 st.table 대신 st.dataframe을 활용해 지수명/현재가 링크 부여
         idx_now_disp = idx_now.reset_index().copy()
         
-        # 링크 생성 (시장: 종합정보, 현재가: 모바일 차트)
         idx_now_disp['시장_L'] = idx_now_disp['시장'].apply(lambda x: f"https://m.stock.naver.com/domestic/index/{x}/total#{x}")
         idx_now_disp['현재가_L'] = idx_now_disp.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/index/{r['시장']}#{r['현재가']:,.0f}", axis=1)
         
