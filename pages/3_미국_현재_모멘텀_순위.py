@@ -41,32 +41,46 @@ st.markdown("""
 # 💡 [핵심 추가] 빠져있던 네이버 링크 생성 함수 (캐싱 포함)
 @st.cache_data(ttl=604800)
 def get_naver_stock_link_cached(ticker, name):
+    ticker_str = str(ticker).strip()
+    
+    # 💡 [핵심 추가] 야후와 네이버의 소속 거래소 기준이 달라서 에러가 나는 종목들 강제 지정
+    exceptions = {
+        'CIEN': '.K',
+        'COHR': '.K',
+        # 나중에 또 네이버에서 튕기는 종목을 발견하시면 
+        # 여기에 '티커': '.접미사' 형태로 추가만 해주시면 영구 해결됩니다!
+    }
+    
+    # 1. 예외 사전에 등록된 녀석이면 묻지도 따지지도 않고 강제 접미사 부여
+    if ticker_str in exceptions:
+        return f"https://m.stock.naver.com/fchart/foreign/stock/{ticker_str}{exceptions[ticker_str]}#{name}"
+        
+    # 2. 일반 종목들은 정상적으로 yfinance 조회 로직을 탐
     try:
-        yf_ticker = str(ticker).replace('.', '-')
+        yf_ticker = ticker_str.replace('.', '-')
         stock = yf.Ticker(yf_ticker)
         exchange = stock.info.get('exchange', '')
         
-        # 💡 [핵심] 사용자님의 완벽했던 원래 매핑 복구 + NYSE만 빈칸 처리
         mapping = {
-            'NMS': '.O',  # NASDAQ
-            'NGM': '.O',  # NASDAQ
-            'NCM': '.O',  # NASDAQ
-            'NYQ': '',    # NYSE (PWR 등 - 접미사 없음)
-            'ASE': '.A',  # AMEX
-            'BATS': '.K', # 💡 Cboe BZX (CIEN 등 - .K 복구!)
-            'PCX': '.P',  # NYSE Arca (ETF 등 - .P 복구!)
+            'NMS': '.O',  
+            'NGM': '.O',  
+            'NCM': '.O',  
+            'NYQ': '',    # NYSE는 접미사 없음
+            'ASE': '.A',  
+            'BATS': '.K', 
+            'PCX': '.P',  
         }
         
         if exchange in mapping:
             suffix = mapping[exchange]
         else:
-            suffix = '.O' if len(str(ticker)) >= 4 else ''
+            suffix = '.O' if len(ticker_str) >= 4 else ''
             
-        return f"https://m.stock.naver.com/fchart/foreign/stock/{ticker}{suffix}#{name}"
+        return f"https://m.stock.naver.com/fchart/foreign/stock/{ticker_str}{suffix}#{name}"
     
     except:
-        suffix = '.O' if len(str(ticker)) >= 4 else ''
-        return f"https://m.stock.naver.com/fchart/foreign/stock/{ticker}{suffix}#{name}"
+        suffix = '.O' if len(ticker_str) >= 4 else ''
+        return f"https://m.stock.naver.com/fchart/foreign/stock/{ticker_str}{suffix}#{name}"
 
 # 지수 데이터 수집 함수 (타겟 날짜 기준)
 @st.cache_data(ttl=3600)
