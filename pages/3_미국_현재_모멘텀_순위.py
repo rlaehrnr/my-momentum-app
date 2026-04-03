@@ -3,6 +3,7 @@ import pandas as pd
 import FinanceDataReader as fdr
 from datetime import datetime, timedelta
 import os
+import yfinance as yf # 💡 [필수] yfinance 라이브러리 임포트 추가!
 
 # 1. 페이지 설정
 st.set_page_config(page_title="미국 모멘텀 순위", layout="wide")
@@ -37,7 +38,28 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 💡 [핵심 수정] 무조건 오늘이 아닌, 'target_date_str'을 기준으로 데이터를 가져오도록 수정
+# 💡 [핵심 추가] 빠져있던 네이버 링크 생성 함수 (캐싱 포함)
+@st.cache_data(ttl=604800)
+def get_naver_stock_link_cached(ticker, name):
+    try:
+        stock = yf.Ticker(ticker)
+        exchange = stock.info.get('exchange', '')
+        
+        mapping = {
+            'NMS': '.O',  
+            'NGM': '.O',  
+            'NCM': '.O',  
+            'NYQ': '.N',  
+            'ASE': '.A',  
+            'BATS': '.K', 
+            'PCX': '.P',  
+        }
+        suffix = mapping.get(exchange, '.O') 
+        return f"https://m.stock.naver.com/worldstock/stock/{ticker}{suffix}/total#{name}"
+    except:
+        return f"https://m.stock.naver.com/worldstock/stock/{ticker}.O/total#{name}"
+
+# 지수 데이터 수집 함수 (타겟 날짜 기준)
 @st.cache_data(ttl=3600)
 def get_index_ma_status(target_date_str):
     indices = {'S&P 500': 'US500', 'NASDAQ': 'IXIC'}
@@ -47,7 +69,6 @@ def get_index_ma_status(target_date_str):
     res = []
     for name, code in indices.items():
         try:
-            # 타겟 날짜까지만 데이터를 불러옴
             df = fdr.DataReader(code, start_date, target_date)
             if df.empty: continue
             
@@ -139,7 +160,6 @@ def get_idx_us(target_date=None):
     return pd.DataFrame(res).set_index('시장')
 
 def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
-    # 💡 [적용] 기준일 명시 및 해당 기준일의 MA 계산
     st.markdown(f"### 📊 주요 지수 이동평균선 현황 (기준일: {target_date_str})")
     ma_df = get_index_ma_status(target_date_str)
     if not ma_df.empty:
@@ -159,6 +179,8 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
             df_300[c] = pd.to_numeric(df_300[c], errors='coerce').fillna(0.0)
 
     df_300['통합티커'] = df_300['시장'].astype(str) + ":" + df_300['종목코드'].astype(str)
+    
+    # 여기서 앞서 선언한 get_naver_stock_link_cached 함수를 정상적으로 호출합니다!
     df_300['종목명_L'] = df_300.apply(
         lambda r: get_naver_stock_link_cached(str(r['종목코드']).replace('.', '-'), r['종목명']), 
         axis=1
