@@ -38,7 +38,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# ⭐ 신규: 특정 과거 날짜 기준의 지수 이동평균선 데이터 수집 (링크 분리 및 base_price 추가)
+# ⭐ 이동평균선 20, 60, 120, 150, 200 기준으로 수집
 @st.cache_data(ttl=3600)
 def get_index_ma_status(target_date_str):
     indices = {'S&P 500': 'US500', 'NASDAQ': 'IXIC'}
@@ -65,10 +65,10 @@ def get_index_ma_status(target_date_str):
                 '지수_L': url_name,
                 '현재가_L': url_price,
                 'base_price': round(curr_price, 2), # 스타일 계산용
-                '10일선': round(df['Close'].rolling(10).mean().iloc[-1], 2),
                 '20일선': round(df['Close'].rolling(20).mean().iloc[-1], 2),
                 '60일선': round(df['Close'].rolling(60).mean().iloc[-1], 2),
-                '150일선': round(df['Close'].rolling(150).mean().iloc[-1], 2), # 💡 120일선을 150일선으로 변경
+                '120일선': round(df['Close'].rolling(120).mean().iloc[-1], 2), # 💡 120일선 추가
+                '150일선': round(df['Close'].rolling(150).mean().iloc[-1], 2),
                 '200일선': round(df['Close'].rolling(200).mean().iloc[-1], 2)
             }
             res.append(ma_values)
@@ -90,18 +90,19 @@ def style_index_ma(df):
         return styles
     return df.style.apply(apply_color, axis=1)
 
+# 💡 이동평균선 컬럼 설정 변경
 ma_config = {
     "지수_L": st.column_config.LinkColumn("지수", display_text=r"#(.+)"),
     "현재가_L": st.column_config.LinkColumn("현재가", display_text=r"#(.+)"),
-    "10일선": st.column_config.NumberColumn("10일선", format="%,.2f"),
     "20일선": st.column_config.NumberColumn("20일선", format="%,.2f"),
     "60일선": st.column_config.NumberColumn("60일선", format="%,.2f"),
-    "150일선": st.column_config.NumberColumn("150일선", format="%,.2f"), # 💡 120일선을 150일선으로 변경
+    "120일선": st.column_config.NumberColumn("120일선", format="%,.2f"),
+    "150일선": st.column_config.NumberColumn("150일선", format="%,.2f"),
     "200일선": st.column_config.NumberColumn("200일선", format="%,.2f"),
     "base_price": None # 화면에는 숨김 처리
 }
 
-# ⭐ 겹치는 종목 하이라이트 + 다음달 수익률 색상 동시 적용
+# 겹치는 종목 하이라이트 + 다음달 수익률 색상 동시 적용
 def style_archive_dataframe(row, common_tickers):
     styles = [''] * len(row)
     if row.get('종목코드') in common_tickers:
@@ -119,7 +120,7 @@ def style_archive_dataframe(row, common_tickers):
                 styles[ret_idx] = 'color: #3B82F6; background-color: #EFF6FF; font-weight: bold;'
     return styles
 
-# 💡 [신규] 수익률 양수/음수 색상 HTML 반환 함수 (헤더 표시용)
+# 수익률 양수/음수 색상 HTML 반환 함수 (헤더 표시용)
 def fmt_ret_html(val):
     if pd.isna(val): return "<span style='color:#9CA3AF;'>N/A</span>"
     color = "#EF4444" if val >= 0 else "#3B82F6" # 빨강 / 파랑
@@ -163,12 +164,12 @@ else:
     st.markdown(f"### 📊 주요 지수 이동평균선 현황 (기준일: {target_date_str})")
     ma_df = get_index_ma_status(target_date_str)
     if not ma_df.empty:
-        # 💡 150일선으로 변경된 column_order
+        # 💡 column_order 변경 반영
         st.dataframe(
             style_index_ma(ma_df), 
             use_container_width=True, 
             hide_index=True, 
-            column_order=["지수_L", "현재가_L", "10일선", "20일선", "60일선", "150일선", "200일선"],
+            column_order=["지수_L", "현재가_L", "20일선", "60일선", "120일선", "150일선", "200일선"],
             column_config=ma_config
         )
     st.markdown("<br>", unsafe_allow_html=True)
