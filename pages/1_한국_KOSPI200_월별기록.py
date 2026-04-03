@@ -59,13 +59,13 @@ def load_historical_data(filepath):
         
     return df
 
-# 💡 텍스트에서 '(모멘텀순)' 제거 및 12개월(%) 기준으로 Top5/10 계산 복구
+# 💡 Top5 / Top10 수익률 계산 기준을 '1개월(%)' 내림차순으로 변경
 def get_perf_html(title, df):
     if df.empty:
         return f"### {title} <span style='font-size: 15px; color: gray; font-weight: normal;'>(해당 종목 없음)</span>"
     
     all_avg = df['다음달수익률(%)'].mean()
-    df_sorted = df.sort_values(by='12개월(%)', ascending=False)
+    df_sorted = df.sort_values(by='1개월(%)', ascending=False)
     top5_avg = df_sorted.head(5)['다음달수익률(%)'].mean()
     top10_avg = df_sorted.head(10)['다음달수익률(%)'].mean()
     
@@ -118,22 +118,27 @@ df_k200 = df_k200.set_index('시총순위')
 
 kospi_1m, kospi_3m = get_idx_kr(selected_date)
 
+# 💡 하락 종목 계산 (6개월 추가)
 neg_1m_cnt = (df_k200['1개월(%)'] < 0).sum()
 neg_3m_cnt = (df_k200['3개월(%)'] < 0).sum()
+neg_6m_cnt = (df_k200['6개월(%)'] < 0).sum()
 
-if neg_1m_cnt >= 100 and neg_3m_cnt >= 100:
+# 💡 투자 중지 로직 업데이트: 3M >= 100 AND (1M >= 100 OR 6M >= 100)
+if neg_3m_cnt >= 100 and (neg_1m_cnt >= 100 or neg_6m_cnt >= 100):
     invest_status, box_color, text_color = "🛑 투자 중지", "#FFEBEE", "#C62828"
 else:
     invest_status, box_color, text_color = "✅ 투자 진행", "#E8F5E9", "#2E7D32"
 
 st.markdown("<br>", unsafe_allow_html=True)
-col1, col2, col3, col4, col5 = st.columns([1, 1, 1.2, 1.2, 1.5])
+# 열 간격을 6개로 조정
+col1, col2, col3, col4, col5, col6 = st.columns([0.9, 0.9, 1.1, 1.1, 1.1, 1.6])
 
 with col1: st.metric(label="📈 KOSPI 1M", value=f"{kospi_1m}%")
 with col2: st.metric(label="📈 KOSPI 3M", value=f"{kospi_3m}%")
-with col3: st.metric(label="📉 1개월 하락 종목", value=f"{neg_1m_cnt}개")
-with col4: st.metric(label="📉 3개월 하락 종목", value=f"{neg_3m_cnt}개")
-with col5:
+with col3: st.metric(label="📉 1개월 하락", value=f"{neg_1m_cnt}개")
+with col4: st.metric(label="📉 3개월 하락", value=f"{neg_3m_cnt}개")
+with col5: st.metric(label="📉 6개월 하락", value=f"{neg_6m_cnt}개")
+with col6:
     st.markdown(f"""
     <div style="background-color: {box_color}; padding: 15px; border-radius: 10px; text-align: center; border: 1px solid {text_color};">
         <p style="margin: 0; font-size: 14px; color: {text_color}; font-weight: bold;">당시 최종 판단 지표</p>
@@ -153,12 +158,12 @@ t10_1m = df_k200['1개월(%)'].quantile(0.9)
 cond_perf = (df_k200['1개월(%)']>=q30['1개월(%)'])&(df_k200['3개월(%)']>=q30['3개월(%)'])&(df_k200['6개월(%)']>=q30['6개월(%)'])&(df_k200['12개월(%)']>=q30['12개월(%)']) & \
             (df_k200['1개월(%)']>0)&(df_k200['3개월(%)']>0)&(df_k200['6개월(%)']>0)&(df_k200['12개월(%)']>0)
 
-# 💡 '12개월(%)' 수익률 기준으로 표 정렬 복구
-df_perf = df_k200[cond_perf].sort_values('12개월(%)', ascending=False).copy()
-df_spec = df_k200[(df_k200['12개월(%)']>=q30['12개월(%)']) & (df_k200['1개월(%)']>=t10_1m)].sort_values('12개월(%)', ascending=False).copy()
+# 💡 '1개월(%)' 수익률 기준으로 표 정렬 변경
+df_perf = df_k200[cond_perf].sort_values('1개월(%)', ascending=False).copy()
+df_spec = df_k200[(df_k200['12개월(%)']>=q30['12개월(%)']) & (df_k200['1개월(%)']>=t10_1m)].sort_values('1개월(%)', ascending=False).copy()
 
 common_codes = set(df_perf['종목코드']).intersection(set(df_spec['종목코드']))
-df_common = df_k200[df_k200['종목코드'].isin(common_codes)].sort_values('12개월(%)', ascending=False).copy()
+df_common = df_k200[df_k200['종목코드'].isin(common_codes)].sort_values('1개월(%)', ascending=False).copy()
 
 main_cfg = {
     "통합티커_L": st.column_config.LinkColumn("티커", display_text=r"#(.+)"), 
