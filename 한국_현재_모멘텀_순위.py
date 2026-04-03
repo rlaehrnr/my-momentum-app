@@ -7,11 +7,11 @@ import os
 # --- [1. 설정 및 스타일] ---
 st.set_page_config(page_title="한국 모멘텀 순위", layout="wide")
 st.markdown("""
-<style>
+    <style>
     .block-container { padding-top: 2rem !important; }
     .main-title { font-size: 1.6rem !important; font-weight: bold; margin-bottom: 1rem; }
     .stTabs [data-baseweb="tab"] { font-size: 18px; font-weight: bold; }
-</style>
+    </style>
 """, unsafe_allow_html=True)
 
 # 스타일 함수
@@ -48,14 +48,14 @@ def get_idx_kr(target_date=None):
         except: pass
     return pd.DataFrame(res).set_index('시장')
 
-# 💡 [핵심 변경 포인트 1] 탭 생성 순서 변경
 tab1, tab2, tab3 = st.tabs(["🎯 KOSPI 200 강세 종목", "📅 전월 말일 기준", "🕒 오늘(데일리) 기준"])
 
 f_kr = 'data/momentum_data.csv'
 f_daily = 'data/momentum_data_daily.csv'
 
-# 공통 Config
+# 💡 [핵심] 통합티커도 클릭 가능한 링크 컬럼(통합티커_L)으로 설정 추가
 main_cfg = {
+    "통합티커_L": st.column_config.LinkColumn("티커", display_text=r"#(.+)"), 
     "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
     "기준가": st.column_config.NumberColumn("종가", format="%,d"),
     "1개월(%)": st.column_config.NumberColumn(format="%.1f"), 
@@ -66,7 +66,6 @@ main_cfg = {
     "전달순위": st.column_config.NumberColumn("전달 순위", format="%d위")
 }
 
-# 💡 [핵심 변경 포인트 2] tab1 내용에 KOSPI 200 집중 분석 코드를 넣습니다.
 # --- 탭 1: KOSPI 200 집중 분석 ---
 with tab1:
     if os.path.exists(f_kr):
@@ -74,12 +73,10 @@ with tab1:
         b_date_str = df_raw['기준일(월말)'].iloc[0]
         st.markdown(f'<p class="main-title">🎯 KOSPI 200 집중 분석 (기준: {b_date_str})</p>', unsafe_allow_html=True)
         
-        # 1. KOSPI 지수 수익률 추출
         idx_k = get_idx_kr(pd.to_datetime(b_date_str))
         kospi_1m = idx_k.loc['KOSPI', '1개월(%)'] if 'KOSPI' in idx_k.index else 0.0
         kospi_3m = idx_k.loc['KOSPI', '3개월(%)'] if 'KOSPI' in idx_k.index else 0.0
 
-        # 2. KOSPI 200 종목 필터링
         df_k200 = df_raw[(df_raw['시장'] == 'KOSPI') & (df_raw['종목코드'].str.endswith('0'))].copy()
         
         try:
@@ -93,8 +90,13 @@ with tab1:
         df_k200['시총순위'] = range(1, len(df_k200) + 1)
         df_k200 = df_k200.set_index('시총순위')
         
-        df_k200['통합티커'] = "KOSPI:" + df_k200['종목코드'].str.zfill(6)
-        df_k200['종목명_L'] = df_k200.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
+        # 💡 [핵심] 티커 링크는 fchart로, 종목명 링크는 total로 분리
+        df_k200['통합티커_L'] = df_k200.apply(
+            lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{str(r['종목코드']).zfill(6)}#KOSPI:{str(r['종목코드']).zfill(6)}", axis=1
+        )
+        df_k200['종목명_L'] = df_k200.apply(
+            lambda r: f"https://m.stock.naver.com/domestic/stock/{str(r['종목코드']).zfill(6)}/total#{r['종목명']}", axis=1
+        )
 
         neg_1m_cnt = (df_k200['1개월(%)'] < 0).sum()
         neg_3m_cnt = (df_k200['3개월(%)'] < 0).sum()
@@ -138,23 +140,22 @@ with tab1:
             st.subheader("🔥 퍼펙트 상승")
             st.dataframe(df_perf.style.apply(apply_k200_styling, idx_df=idx_k, common_codes=common_codes, axis=1), 
                          use_container_width=True, 
-                         column_order=['통합티커', '종목명_L', '시가총액', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)'], 
+                         column_order=['통합티커_L', '종목명_L', '시가총액', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)'], 
                          column_config=k_cfg)
         with col2:
             st.subheader("🚀 달리는 말")
             st.dataframe(df_spec.style.apply(apply_k200_styling, idx_df=idx_k, common_codes=common_codes, axis=1), 
                          use_container_width=True, 
-                         column_order=['통합티커', '종목명_L', '시가총액', '1개월(%)', '12개월(%)'], 
+                         column_order=['통합티커_L', '종목명_L', '시가총액', '1개월(%)', '12개월(%)'], 
                          column_config=k_cfg)
 
         st.markdown("---")
         st.subheader("🏆 KOSPI 200 시가총액 전체 순위")
         st.dataframe(df_k200.style.apply(apply_k200_styling, idx_df=idx_k, common_codes=common_codes, axis=1), 
                      use_container_width=True, height=600, 
-                     column_order=['통합티커', '종목명_L', '시가총액', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)'], 
+                     column_order=['통합티커_L', '종목명_L', '시가총액', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)'], 
                      column_config=k_cfg)
 
-# 💡 [핵심 변경 포인트 3] tab2 내용에 전월 말일 기준 코드를 넣습니다.
 # --- 탭 2: 전월 말일 기준 ---
 with tab2:
     if os.path.exists(f_kr):
@@ -168,15 +169,20 @@ with tab2:
         
         st.markdown("---")
         df_m.index = range(1, len(df_m) + 1)
-        df_m['통합티커'] = df_m['시장'] + ":" + df_m['종목코드'].str.zfill(6)
-        df_m['종목명_L'] = df_m.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
+        
+        # 💡 [핵심] 탭 2의 링크 분리
+        df_m['통합티커_L'] = df_m.apply(
+            lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{str(r['종목코드']).zfill(6)}#{r['시장']}:{str(r['종목코드']).zfill(6)}", axis=1
+        )
+        df_m['종목명_L'] = df_m.apply(
+            lambda r: f"https://m.stock.naver.com/domestic/stock/{str(r['종목코드']).zfill(6)}/total#{r['종목명']}", axis=1
+        )
         
         st.dataframe(df_m.style.apply(apply_k200_styling, idx_df=idx_m, axis=1), 
                      use_container_width=True, height=550,
-                     column_order=['통합티커', '종목명_L', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달순위'], 
+                     column_order=['통합티커_L', '종목명_L', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달순위'], 
                      column_config=main_cfg)
 
-# 💡 [핵심 변경 포인트 4] tab3 내용에 데일리 기준 코드를 넣습니다.
 # --- 탭 3: 오늘 기준 (데일리) ---
 with tab3:
     if os.path.exists(f_daily):
@@ -190,8 +196,14 @@ with tab3:
         
         st.markdown("---")
         df_d.index = range(1, len(df_d) + 1)
-        df_d['통합티커'] = df_d['시장'] + ":" + df_d['종목코드'].str.zfill(6)
-        df_d['종목명_L'] = df_d.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드'].zfill(6)}#{r['종목명']}", axis=1)
+        
+        # 💡 [핵심] 탭 3의 링크 분리
+        df_d['통합티커_L'] = df_d.apply(
+            lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{str(r['종목코드']).zfill(6)}#{r['시장']}:{str(r['종목코드']).zfill(6)}", axis=1
+        )
+        df_d['종목명_L'] = df_d.apply(
+            lambda r: f"https://m.stock.naver.com/domestic/stock/{str(r['종목코드']).zfill(6)}/total#{r['종목명']}", axis=1
+        )
         
         daily_cfg = main_cfg.copy()
         daily_cfg["기준가"] = st.column_config.NumberColumn("현재가", format="%,d") 
@@ -199,5 +211,5 @@ with tab3:
         
         st.dataframe(df_d.style.apply(apply_k200_styling, idx_df=idx_now, axis=1), 
                      use_container_width=True, height=600,
-                     column_order=['통합티커', '종목명_L', '기준가', '전일거래량', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달순위'], 
+                     column_order=['통합티커_L', '종목명_L', '기준가', '전일거래량', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달순위'], 
                      column_config=daily_cfg)
