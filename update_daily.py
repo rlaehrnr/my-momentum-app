@@ -4,51 +4,61 @@ from datetime import datetime, timedelta
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+# 폴더 생성
 folders = ['data', 'archive', 'archive_us', 'archive_sp500']
 for d in folders:
     if not os.path.exists(d): os.makedirs(d)
 
 def get_top_stocks(market, limit=150):
-    """시가총액 상위 종목 추출 (우선주 차단 및 시가총액 버그 완벽 수정)"""
+    """시가총액 상위 종목 추출 및 시가총액 데이터 포함"""
     try:
         if market in ['KOSPI', 'KOSDAQ']:
+            # 💡 KRX 전체 리스트를 가져와서 시가총액 정보 확보
             df = fdr.StockListing('KRX')
-            if df.empty: df = fdr.StockListing(market)
-            else:
-                mkt_col = [c for c in df.columns if 'market' in c.lower() or '시장' in c][0]
-                df = df[df[mkt_col].astype(str).str.upper().str.contains(market.upper())]
+            mkt_col = [c for c in df.columns if 'market' in c.lower() or '시장' in c][0]
+            df = df[df[mkt_col].astype(str).str.upper().str.contains(market.upper())]
             
-            # 💡 한국 시장 우선주 차단
+            # 한국 시장 우선주 차단 및 코드 6자리 유지
             code_col = 'Code' if 'Code' in df.columns else 'Symbol'
             df = df[df[code_col].astype(str).str.endswith('0')]
+            df[code_col] = df[code_col].astype(str).str.zfill(6)
         else:
+            # 미국 시장 시가총액 포함 리스트
             df = fdr.StockListing(market)
 
         if df.empty: return pd.DataFrame()
-        if market == 'S&P500': return df.drop_duplicates(subset=['Symbol']).head(limit)
-
+        
+        # 시가총액 컬럼 찾기 및 표준화
         cap_col = [c for c in df.columns if '시가총액' in c or ('mar' in c.lower() and 'cap' in c.lower())]
         if cap_col:
             target_col = cap_col[0]
-            if df[target_col].dtype == 'object':
-                df[target_col] = pd.to_numeric(df[target_col].astype(str).str.replace(r'[^0-9.eE+-]', '', regex=True), errors='coerce')
-            else:
-                df[target_col] = pd.to_numeric(df[target_col], errors='coerce')
-            df = df.sort_values(target_col, ascending=False)
-        
-        symbol_col = 'Symbol' if 'Symbol' in df.columns else 'Code'
-        if symbol_col in df.columns:
-            df = df.drop_duplicates(subset=[symbol_col])
+            df['시가총액_raw'] = pd.to_numeric(df[target_col].astype(str).str.replace(r'[^0-9.eE+-]', '', regex=True), errors='coerce').fillna(0)
             
+            # 한국 시장이면 '억' 단위로 미리 변환하여 저장 (선택 사항, 여기선 원본 유지 후 나중에 처리)
+            if market in ['KOSPI', 'KOSDAQ']:
+                df['시가총액'] = (df['시가총액_raw'] / 100000000).astype(int)
+            else:
+                df['시가총액'] = df['시가총액_raw'] # 미국은 보통 달러 단위 그대로 유지
+                
+            df = df.sort_values('시가총액_raw', ascending=False)
+
+        symbol_col = 'Symbol' if 'Symbol' in df.columns else 'Code'
+        # 중복 제거 및 상위 종목 제한
+        df = df.drop_duplicates(subset=[symbol_col])
         return df.head(limit)
+        
     except Exception as e:
         print(f"❌ {market} 리스트 가져오기 실패: {e}")
         return pd.DataFrame()
 
 def process_stock(row, mkt_name, market_type, today, prev_rank_map):
+    """개별 종목 데이터 분석 (시가총액 정보 유지)"""
     try:
         code = str(row.get('Code', row.get('Symbol', '')))
-        clean_code = code.replace('.', '-') if market_type in ['US', 'SP500'] else code.split('.')[0]
+        # 한국 종목 6자리 강제 고정
+        if market_type == 'KR': code = code.zfill(6)
+        
+        clean_code = code.replace('.', '-') if market_type in ['US', 'SP500'] else code
         
         df = fdr.DataReader(clean_code, today - pd.DateOffset(months=16), today)
         if df.empty: return None
@@ -65,16 +75,20 @@ def process_stock(row, mkt_name, market_type, today, prev_rank_map):
         
         r1, r3, r6, r12 = get_ret(1), get_ret(3), get_ret(6), get_ret(12)
         score = round((r1 * -0.5) + (r3 * 0.8) + (r6 * 0.5) + (r12 * 0.2), 1)
+        
         display_mkt = row.get('Exchange', 'NYSE') if market_type == 'SP500' else mkt_name
+        
+        # 💡 시가총액 정보 결과에 포함
+        marcap = row.get('시가총액', 0)
 
         return {
             '기준일': last_date, '시장': display_mkt, '종목명': row['Name'], 
-            '종목코드': code, '기준가': round(curr_price, 2), '전일거래량': curr_volume,
+            '종목코드': code, '시가총액': marcap, '기준가': round(curr_price, 2), '전일거래량': curr_volume,
             '1개월(%)': round(r1, 1), '3개월(%)': round(r3, 1), '6개월(%)': round(r6, 1),
             '12개월(%)': round(r12, 1), '모멘텀스코어': score, 
             '전달순위': prev_rank_map.get(code.upper(), None) 
         }
-    except Exception:
+    except Exception as e:
         return None
 
 def run_daily(market_type='KR'):
@@ -114,17 +128,22 @@ def run_daily(market_type='KR'):
                     
     if res:
         final_df = pd.DataFrame(res)
-        denom = (1 + final_df['1개월(%)'] / 100) + 1e-9
         
+        # 종목코드 문자열 보정 (한국 종목 0 누락 방지)
+        if market_type == 'KR':
+            final_df['종목코드'] = final_df['종목코드'].astype(str).str.zfill(6)
+
+        denom = (1 + final_df['1개월(%)'] / 100) + 1e-9
         final_df['3-1개월(%)'] = round(((1 + final_df['3개월(%)']/100) / denom - 1) * 100, 2)
         final_df['6-1개월(%)'] = round(((1 + final_df['6개월(%)']/100) / denom - 1) * 100, 2)
         final_df['12-1개월(%)'] = round(((1 + final_df['12개월(%)']/100) / denom - 1) * 100, 2)
 
         final_df = final_df.sort_values('모멘텀스코어', ascending=False)
         final_df.to_csv(file_path, index=False, encoding='utf-8-sig')
-        print(f"✅ {name_tag} 데일리 업데이트 완료!")
+        print(f"✅ {name_tag} 데일리 업데이트 완료! (시가총액 데이터 포함됨)")
 
 if __name__ == "__main__":
+    # 데이터 수집 순서: KR -> US -> SP500
     for m in ['KR', 'US', 'SP500']:
         try:
             run_daily(m)
