@@ -38,7 +38,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 💡 [기능 2 반영] 티커용(total)과 종목명용(fchart) 링크 2개를 반환하도록 함수 수정
+# 종목별 티커용(total)과 종목명용(fchart) 링크 생성
 @st.cache_data(ttl=604800)
 def get_naver_stock_urls_cached(ticker, name, display_ticker):
     ticker_str = str(ticker).strip()
@@ -74,15 +74,12 @@ def get_naver_stock_urls_cached(ticker, name, display_ticker):
         except:
             suffix = '.O' if len(ticker_str) >= 4 else ''
 
-    # 1. 티커 클릭 시 이동할 URL (종합 정보)
     total_url = f"https://m.stock.naver.com/worldstock/stock/{ticker_str}{suffix}/total#{display_ticker}"
-    
-    # 2. 종목명 클릭 시 이동할 URL (차트)
     chart_url = f"https://m.stock.naver.com/fchart/foreign/stock/{ticker_str}{suffix}#{name}"
     
     return total_url, chart_url
 
-# 지수 데이터 수집 함수
+# 💡 [핵심 변경] 지수 데이터 수집 함수 - 지수와 현재가 각각 지정된 링크로 연결
 @st.cache_data(ttl=3600)
 def get_index_ma_status(target_date_str):
     indices = {'S&P 500': 'US500', 'NASDAQ': 'IXIC'}
@@ -97,11 +94,18 @@ def get_index_ma_status(target_date_str):
             
             curr_price = df['Close'].iloc[-1]
             
-            url = f"https://m.stock.naver.com/fchart/foreign/index/.INX#{name}" if name == 'S&P 500' else f"https://m.stock.naver.com/fchart/foreign/index/.IXIC#{name}"
+            # S&P 500 및 NASDAQ에 따라 링크 다르게 생성 (현재가 포맷: 쉼표 포함 문자열)
+            if name == 'S&P 500':
+                url_name = f"https://m.stock.naver.com/worldstock/index/.INX/total#{name}"
+                url_price = f"https://m.stock.naver.com/fchart/foreign/index/.INX#{curr_price:,.2f}"
+            else:
+                url_name = f"https://m.stock.naver.com/worldstock/index/.IXIC/total#{name}"
+                url_price = f"https://m.stock.naver.com/fchart/foreign/index/.IXIC#{curr_price:,.2f}"
             
             ma_values = {
-                '지수_L': url,
-                '현재가': round(curr_price, 2),
+                '지수_L': url_name,
+                '현재가_L': url_price,               # 화면에 텍스트 링크로 표시될 컬럼
+                'base_price': round(curr_price, 2), # 스타일 비교를 위한 숨겨진 숫자 컬럼
                 '10일선': round(df['Close'].rolling(10).mean().iloc[-1], 2),
                 '20일선': round(df['Close'].rolling(20).mean().iloc[-1], 2),
                 '60일선': round(df['Close'].rolling(60).mean().iloc[-1], 2),
@@ -112,29 +116,32 @@ def get_index_ma_status(target_date_str):
         except: pass
     return pd.DataFrame(res)
 
-# 이동평균선 색상 스타일 함수
+# 💡 이동평균선 색상 스타일 함수 (이제 '현재가_L'이 아닌 'base_price'와 가격을 비교)
 def style_index_ma(df):
     def apply_color(row):
-        price = row['현재가']
+        price = row['base_price']
         styles = [''] * len(row)
         for i, col in enumerate(row.index):
             if '일선' in col:
                 val = row[col]
-                if val < price:
-                    styles[i] = 'color: #EF4444; font-weight: bold;' 
-                elif val > price:
-                    styles[i] = 'color: #3B82F6; font-weight: bold;' 
+                if pd.notna(val):
+                    if val < price:
+                        styles[i] = 'color: #EF4444; font-weight: bold;' 
+                    elif val > price:
+                        styles[i] = 'color: #3B82F6; font-weight: bold;' 
         return styles
     return df.style.apply(apply_color, axis=1)
 
+# 💡 지수 테이블 설정 (천 단위 쉼표 추가 및 base_price 숨김 처리)
 ma_config = {
     "지수_L": st.column_config.LinkColumn("지수", display_text=r"#(.+)"),
-    "현재가": st.column_config.NumberColumn("현재가", format="%.2f"),
-    "10일선": st.column_config.NumberColumn("10일선", format="%.2f"),
-    "20일선": st.column_config.NumberColumn("20일선", format="%.2f"),
-    "60일선": st.column_config.NumberColumn("60일선", format="%.2f"),
-    "150일선": st.column_config.NumberColumn("150일선", format="%.2f"),
-    "200일선": st.column_config.NumberColumn("200일선", format="%.2f")
+    "현재가_L": st.column_config.LinkColumn("현재가", display_text=r"#(.+)"), # 현재가도 클릭 가능한 링크로 변경
+    "10일선": st.column_config.NumberColumn("10일선", format="%,.2f"),
+    "20일선": st.column_config.NumberColumn("20일선", format="%,.2f"),
+    "60일선": st.column_config.NumberColumn("60일선", format="%,.2f"),
+    "150일선": st.column_config.NumberColumn("150일선", format="%,.2f"),
+    "200일선": st.column_config.NumberColumn("200일선", format="%,.2f"),
+    "base_price": None # 스타일 비교용 데이터이므로 화면에서는 숨김
 }
 
 def highlight_name_only(row, common_tickers):
@@ -145,10 +152,10 @@ def highlight_name_only(row, common_tickers):
             styles[name_idx] = 'background-color: #FFF9C4; color: #1F2937; font-weight: bold; border-radius: 4px;'
     return styles
 
-# 컬럼 설정
+# 종목 테이블 컬럼 설정
 base_config = {
     "순위": st.column_config.NumberColumn("순위", format="%d", width=40),
-    "통합티커_L": st.column_config.LinkColumn("티커", display_text=r"#(.+)", width=105), # 💡 티커도 링크로 처리되도록 추가
+    "통합티커_L": st.column_config.LinkColumn("티커", display_text=r"#(.+)", width=105), 
     "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)", width=None), 
     "기준가": st.column_config.NumberColumn("현재가", format="$ %,.2f", width=95),
     "1개월(%)": st.column_config.NumberColumn("1M", format="%.1f%%", width=75),
@@ -160,7 +167,7 @@ base_config = {
     "12-1개월(%)": st.column_config.NumberColumn("12-1M", format="%.1f%%", width=85),
     "모멘텀스코어": st.column_config.NumberColumn("스코어", format="%.2f", width=80),
     "전일거래량": st.column_config.NumberColumn("거래량", format="%,d", width=85),
-    "전달순위": st.column_config.TextColumn("전월순위", width=75), # 💡 'NEW' 표기를 위해 TextColumn으로 변경
+    "전달순위": st.column_config.TextColumn("전월순위", width=75), 
 }
 
 @st.cache_data(ttl=3600)
@@ -184,29 +191,34 @@ def get_idx_us(target_date=None):
 def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
     st.markdown(f"### 📊 주요 지수 이동평균선 현황 (기준일: {target_date_str})")
     ma_df = get_index_ma_status(target_date_str)
+    
+    # 💡 지수 테이블 출력: column_order를 지정하여 화면에 띄울 순서를 정하고 base_price는 자동으로 숨깁니다.
     if not ma_df.empty:
-        st.dataframe(style_index_ma(ma_df), use_container_width=True, hide_index=True, column_config=ma_config)
+        st.dataframe(
+            style_index_ma(ma_df), 
+            use_container_width=True, 
+            hide_index=True, 
+            column_order=["지수_L", "현재가_L", "10일선", "20일선", "60일선", "150일선", "200일선"],
+            column_config=ma_config
+        )
     st.markdown("<br>", unsafe_allow_html=True)
 
     df_300 = df_raw.head(300).copy()
     
-    # 💡 [기능 1 반영] 월말 기준일 때 과거 데이터에서 전달 순위를 계산하여 병합합니다.
     if not is_daily:
         if '전달순위' not in df_300.columns and '기준일(월말)' in df_raw.columns:
             dates = sorted(df_raw['기준일(월말)'].dropna().unique(), reverse=True)
             if len(dates) >= 2:
-                prev_date = dates[1] # 이전 달 데이터 기준일
+                prev_date = dates[1] 
                 prev_df = df_raw[df_raw['기준일(월말)'] == prev_date].copy()
-                prev_df['calc_rank'] = range(1, len(prev_df) + 1) # 순위 부여
+                prev_df['calc_rank'] = range(1, len(prev_df) + 1) 
                 rank_map = prev_df.set_index('종목코드')['calc_rank'].to_dict()
                 df_300['전달순위'] = df_300['종목코드'].map(rank_map)
 
-    # 일간 데일리용 전일거래량 처리
     if is_daily:
         if '전일거래량' in df_300.columns:
             df_300['전일거래량'] = pd.to_numeric(df_300['전일거래량'], errors='coerce').fillna(0)
 
-    # 💡 전달순위 포맷팅 (숫자가 아니거나 없으면 NEW, 있으면 OOO위)
     if '전달순위' in df_300.columns:
         df_300['전달순위'] = pd.to_numeric(df_300['전달순위'], errors='coerce')
         df_300['전달순위'] = df_300['전달순위'].apply(lambda x: f"{int(x)}위" if pd.notna(x) and x > 0 else "NEW")
@@ -215,16 +227,12 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
         if c in df_300.columns:
             df_300[c] = pd.to_numeric(df_300[c], errors='coerce').fillna(0.0)
 
-    # 표시용 텍스트 (예: NASDAQ:ASTS) 먼저 생성
-    display_ticker = df_300['시장'].astype(str) + ":" + df_300['종목코드'].astype(str)
-    
-    # 💡 [기능 2 반영] url 함수 호출하여 2개의 링크를 생성하고 각각의 컬럼에 할당
     links_df = df_300.apply(
         lambda r: pd.Series(get_naver_stock_urls_cached(r['종목코드'], r['종목명'], f"{r.get('시장', '')}:{r['종목코드']}")), 
         axis=1
     )
-    df_300['통합티커_L'] = links_df[0] # 종합정보 링크 (Total)
-    df_300['종목명_L'] = links_df[1]  # 차트 링크 (Fchart)
+    df_300['통합티커_L'] = links_df[0] 
+    df_300['종목명_L'] = links_df[1]  
 
     top10_12_1 = df_300.sort_values('12-1개월(%)', ascending=False).head(10)
     top10_6_1 = df_300.sort_values('6-1개월(%)', ascending=False).head(10)
@@ -278,13 +286,11 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
     df_300_all = df_300.copy()
     df_300_all['순위'] = range(1, len(df_300_all) + 1)
     
-    # 💡 [기능 1 반영] is_daily 여부 상관없이 월말/데일리 탭 모두 '전달순위' 표출
     if is_daily:
         full_order = ['순위', '통합티커_L', '종목명_L', '기준가', '전일거래량', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '3-1개월(%)', '6-1개월(%)', '12-1개월(%)', '모멘텀스코어', '전달순위']
     else:
         full_order = ['순위', '통합티커_L', '종목명_L', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '3-1개월(%)', '6-1개월(%)', '12-1개월(%)', '모멘텀스코어', '전달순위']
     
-    # 데이터프레임에 존재하는 컬럼만 필터링하여 에러 방지
     full_order = [col for col in full_order if col in df_300_all.columns or col in ['순위', '통합티커_L', '종목명_L']]
     
     st.dataframe(df_300_all.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
