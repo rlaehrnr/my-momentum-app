@@ -90,7 +90,6 @@ with tab1:
         df_k200['시총순위'] = range(1, len(df_k200) + 1)
         df_k200 = df_k200.set_index('시총순위')
         
-        # 💡 [핵심] 티커: PC 증권 홈 / 종목명: 모바일 차트로 변경
         df_k200['통합티커_L'] = df_k200.apply(
             lambda r: f"https://finance.naver.com/item/main.naver?code={str(r['종목코드']).zfill(6)}#KOSPI:{str(r['종목코드']).zfill(6)}", axis=1
         )
@@ -98,12 +97,10 @@ with tab1:
             lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{str(r['종목코드']).zfill(6)}#{r['종목명']}", axis=1
         )
 
-        # 💡 하락 종목 계산 (6개월 추가)
         neg_1m_cnt = (df_k200['1개월(%)'] < 0).sum()
         neg_3m_cnt = (df_k200['3개월(%)'] < 0).sum()
         neg_6m_cnt = (df_k200['6개월(%)'] < 0).sum()
         
-        # 💡 투자 중지 로직 업데이트: 3M >= 100 AND (1M >= 100 OR 6M >= 100)
         if neg_3m_cnt >= 100 and (neg_1m_cnt >= 100 or neg_6m_cnt >= 100):
             invest_status, box_color, text_color = "🛑 투자 중지", "#FFEBEE", "#C62828"
         else:
@@ -133,7 +130,6 @@ with tab1:
         cond_perf = (df_k200['1개월(%)']>=q30['1개월(%)'])&(df_k200['3개월(%)']>=q30['3개월(%)'])&(df_k200['6개월(%)']>=q30['6개월(%)'])&(df_k200['12개월(%)']>=q30['12개월(%)']) & \
                     (df_k200['1개월(%)']>0)&(df_k200['3개월(%)']>0)&(df_k200['6개월(%)']>0)&(df_k200['12개월(%)']>0)
                     
-        # 💡 '1개월(%)' 수익률 기준으로 표 정렬 업데이트
         df_perf = df_k200[cond_perf].sort_values('1개월(%)', ascending=False).copy()
         df_spec = df_k200[(df_k200['12개월(%)']>=q30['12개월(%)']) & (df_k200['1개월(%)']>=t10_1m)].sort_values('1개월(%)', ascending=False).copy()
         common_codes = set(df_perf['종목코드']).intersection(set(df_spec['종목코드']))
@@ -157,7 +153,6 @@ with tab1:
 
         st.markdown("---")
         st.subheader("🏆 KOSPI 200 시가총액 전체 순위")
-        # 전체 순위는 그대로 시가총액 순 유지
         st.dataframe(df_k200.style.apply(apply_k200_styling, idx_df=idx_k, common_codes=common_codes, axis=1), 
                      use_container_width=True, height=600, 
                      column_order=['통합티커_L', '종목명_L', '시가총액', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)'], 
@@ -173,18 +168,28 @@ with tab2:
         
         idx_m = get_idx_kr(pd.to_datetime(b_date))
         
-        # 💡 코스피, 코스닥 수익률 소수점 1자리 포맷팅
+        # 💡 [핵심] 정적인 st.table 대신 st.dataframe을 활용해 지수명/현재가 링크 부여
         idx_m_disp = idx_m.reset_index().copy()
-        idx_m_disp['현재가'] = idx_m_disp['현재가'].map('{:,.0f}'.format)
+        
+        # 링크 생성 (시장: 종합정보, 현재가: 모바일 차트)
+        idx_m_disp['시장_L'] = idx_m_disp['시장'].apply(lambda x: f"https://m.stock.naver.com/domestic/index/{x}/total#{x}")
+        idx_m_disp['현재가_L'] = idx_m_disp.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/index/{r['시장']}#{r['현재가']:,.0f}", axis=1)
+        
         for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
             if c in idx_m_disp.columns:
                 idx_m_disp[c] = idx_m_disp[c].map('{:.1f}'.format)
-        st.table(idx_m_disp)
+                
+        idx_cfg = {
+            "시장_L": st.column_config.LinkColumn("시장", display_text=r"#(.+)"),
+            "현재가_L": st.column_config.LinkColumn("현재가", display_text=r"#(.+)")
+        }
+        
+        st.dataframe(idx_m_disp[['시장_L', '현재가_L', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']], 
+                     use_container_width=True, hide_index=True, column_config=idx_cfg)
         
         st.markdown("---")
         df_m.index = range(1, len(df_m) + 1)
         
-        # 💡 [핵심] 티커: PC 증권 홈 / 종목명: 모바일 차트로 변경
         df_m['통합티커_L'] = df_m.apply(
             lambda r: f"https://finance.naver.com/item/main.naver?code={str(r['종목코드']).zfill(6)}#{r['시장']}:{str(r['종목코드']).zfill(6)}", axis=1
         )
@@ -207,18 +212,28 @@ with tab3:
         
         idx_now = get_idx_kr()
         
-        # 💡 코스피, 코스닥 수익률 소수점 1자리 포맷팅
+        # 💡 [핵심] 정적인 st.table 대신 st.dataframe을 활용해 지수명/현재가 링크 부여
         idx_now_disp = idx_now.reset_index().copy()
-        idx_now_disp['현재가'] = idx_now_disp['현재가'].map('{:,.0f}'.format)
+        
+        # 링크 생성 (시장: 종합정보, 현재가: 모바일 차트)
+        idx_now_disp['시장_L'] = idx_now_disp['시장'].apply(lambda x: f"https://m.stock.naver.com/domestic/index/{x}/total#{x}")
+        idx_now_disp['현재가_L'] = idx_now_disp.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/index/{r['시장']}#{r['현재가']:,.0f}", axis=1)
+        
         for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
             if c in idx_now_disp.columns:
                 idx_now_disp[c] = idx_now_disp[c].map('{:.1f}'.format)
-        st.table(idx_now_disp)
+                
+        idx_cfg = {
+            "시장_L": st.column_config.LinkColumn("시장", display_text=r"#(.+)"),
+            "현재가_L": st.column_config.LinkColumn("현재가", display_text=r"#(.+)")
+        }
+        
+        st.dataframe(idx_now_disp[['시장_L', '현재가_L', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']], 
+                     use_container_width=True, hide_index=True, column_config=idx_cfg)
         
         st.markdown("---")
         df_d.index = range(1, len(df_d) + 1)
         
-        # 💡 [핵심] 티커: PC 증권 홈 / 종목명: 모바일 차트로 변경
         df_d['통합티커_L'] = df_d.apply(
             lambda r: f"https://finance.naver.com/item/main.naver?code={str(r['종목코드']).zfill(6)}#{r['시장']}:{str(r['종목코드']).zfill(6)}", axis=1
         )
