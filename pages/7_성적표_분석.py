@@ -49,6 +49,7 @@ def load_and_process_strategy_data(folder="archive", prefix="momentum_"):
                 if c in df.columns:
                     df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
 
+            # KOSPI 200 유니버스 구성 (시총 상위 200개)
             df_k = df[(df['시장'] == 'KOSPI') & (df['종목코드'].str.endswith('0'))].copy()
             if not kospi_info.empty:
                 df_k = df_k.merge(kospi_info, left_on='종목코드', right_on='Code', how='left')
@@ -57,6 +58,7 @@ def load_and_process_strategy_data(folder="archive", prefix="momentum_"):
 
             if df_k.empty: continue
 
+            # 전략 필터링 기준 계산
             q30 = {c: df_k[c].quantile(0.7) for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']}
             t10_1m = df_k['1개월(%)'].quantile(0.9)
 
@@ -64,18 +66,17 @@ def load_and_process_strategy_data(folder="archive", prefix="momentum_"):
                         (df_k['1개월(%)']>0)&(df_k['3개월(%)']>0)&(df_k['6개월(%)']>0)&(df_k['12개월(%)']>0)
             cond_spec = (df_k['12개월(%)']>=q30['12개월(%)']) & (df_k['1개월(%)']>=t10_1m)
 
-            # 💡 전략별 정렬 기준 (KOSPI 200 페이지와 동일하게 모멘텀스코어 기준)
-            df_perf = df_k[cond_perf].sort_values('모멘텀스코어', ascending=False).copy()
-            df_spec = df_k[cond_spec].sort_values('모멘텀스코어', ascending=False).copy()
-            df_inter = df_k[cond_perf & cond_spec].sort_values('모멘텀스코어', ascending=False).copy()
+            # 💡 [수정] 정렬 기준을 '1개월(%)'로 변경하여 월별 기록 페이지와 일치시킴
+            df_perf = df_k[cond_perf].sort_values('1개월(%)', ascending=False).copy()
+            df_spec = df_k[cond_spec].sort_values('1개월(%)', ascending=False).copy()
+            df_inter = df_k[cond_perf & cond_spec].sort_values('1개월(%)', ascending=False).copy()
 
             def extract_strategy(d, strat_name, target_list):
                 if not d.empty:
                     d = d.reset_index(drop=True)
                     d['전략순위'] = range(1, len(d) + 1)
                     d['전략명'] = strat_name
-                    # 디버깅을 위해 종목명도 포함해서 저장
-                    target_list.append(d[['기준일(월말)', '다음달수익률(%)', '전략순위', '전략명', '종목명', '모멘텀스코어', '1개월(%)']])
+                    target_list.append(d[['기준일(월말)', '다음달수익률(%)', '전략순위', '전략명', '종목명', '1개월(%)', '모멘텀스코어']])
 
             extract_strategy(df_perf, '🔥 퍼펙트 상승', all_perf)
             extract_strategy(df_spec, '🚀 달리는 말', all_spec)
@@ -90,7 +91,7 @@ def load_and_process_strategy_data(folder="archive", prefix="momentum_"):
 df_master = load_and_process_strategy_data()
 
 if df_master.empty:
-    st.error("데이터가 부족합니다.")
+    st.error("데이터가 부족합니다. archive 폴더를 확인해주세요.")
     st.stop()
 
 # --- [시뮬레이션 엔진] ---
@@ -100,7 +101,6 @@ def run_range_simulation(df, strategy_name):
 
     dates = sorted(strat_df['기준일(월말)'].unique())
     results = []
-
     test_ranges = [(1, 1), (2, 2), (1, 3), (1, 5), (1, 10)]
 
     for s, e in test_ranges:
@@ -122,7 +122,7 @@ def run_range_simulation(df, strategy_name):
 
     return pd.DataFrame(results).sort_values("최종 누적 수익률", ascending=False)
 
-# 상단 요약 렌더링
+# 상단 전략별 요약
 col1, col2, col3 = st.columns(3)
 strategies = ['🔥 퍼펙트 상승', '🚀 달리는 말', '🌟 교집합']
 for col, strat in zip([col1, col2, col3], strategies):
@@ -149,12 +149,13 @@ if not target_df.empty:
     monthly_results = []
 
     for d in dates:
+        # 지정된 순위 범위 내의 종목 추출
         month_data = target_df[(target_df['기준일(월말)'] == d) & (target_df['전략순위'] >= s_start) & (target_df['전략순위'] <= s_end)]
         
-        # 💡 [핵심 디버깅] 2026-01-30일의 1위 종목 데이터 강제 노출
-        if d == '2026-01-30' and s_start == 1 and s_end == 1:
-            st.warning(f"🔍 2026-01-30 당시 {sel_strat} 1위 종목 실시간 검증")
-            st.write(month_data[['기준일(월말)', '전략순위', '종목명', '다음달수익률(%)', '모멘텀스코어', '1개월(%)']])
+        # 💡 [디버깅] 2026-01-30 검증창
+        if d == '2026-01-30' and s_start == 1:
+            st.warning(f"🔍 2026-01-30 당시 {sel_strat} 선택 종목 확인")
+            st.write(month_data[['기준일(월말)', '전략순위', '종목명', '1개월(%)', '다음달수익률(%)', '모멘텀스코어']])
 
         ret = month_data['다음달수익률(%)'].mean() if not month_data.empty else 0.0
         monthly_results.append({'월별': d, '수익률': ret})
@@ -164,12 +165,14 @@ if not target_df.empty:
     sim_df['누적수익률'] = (sim_df['지수'] - 1) * 100
     
     m1, m2, m3 = st.columns(3)
-    m1.metric("누적 수익률", f"{sim_df['누적수익률'].iloc[-1]:.2f}%")
+    m1.metric("최종 누적 수익률", f"{sim_df['누적수익률'].iloc[-1]:.2f}%")
     m2.metric("월간 승률", f"{(sim_df['수익률'] > 0).mean()*100:.1f}%")
-    m3.metric("최대 낙폭(MDD)", f"{((sim_df['지수'] - sim_df['지수'].cummax())/sim_df['지수'].cummax()*100).min():.2f}%")
+    m3.metric("최대 낙폭 (MDD)", f"{((sim_df['지수'] - sim_df['지수'].cummax())/sim_df['지수'].cummax()*100).min():.2f}%")
 
     chart_col, table_col = st.columns([2, 1])
     with chart_col:
         st.plotly_chart(px.area(sim_df, x='월별', y='누적수익률', title=f"{sel_strat} {s_start}-{s_end}위 수익곡선"), use_container_width=True)
     with table_col:
-        st.dataframe(sim_df[['월별', '수익률']].sort_values('월별', ascending=False), use_container_width=True, height=400, hide_index=True)
+        st.dataframe(sim_df[['월별', '수익률']].sort_values('월별', ascending=False), use_container_width=True, height=400, hide_index=True, column_config={"수익률": st.column_config.NumberColumn(format="%.2f%%")})
+else:
+    st.warning("선택한 전략의 데이터가 없습니다.")
