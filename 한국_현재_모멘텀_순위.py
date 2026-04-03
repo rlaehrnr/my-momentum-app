@@ -102,20 +102,24 @@ with tab1:
         kospi_1m = idx_k.loc['KOSPI', '1개월(%)'] if 'KOSPI' in idx_k.index else 0.0
         kospi_3m = idx_k.loc['KOSPI', '3개월(%)'] if 'KOSPI' in idx_k.index else 0.0
 
-        # 시가총액 '0' 문제 해결: 양쪽 모두 zfill(6) 강제 적용
-        df_k200 = df_raw[(df_raw['시장'] == 'KOSPI') & (df_raw['종목코드'].str.endswith('0'))].copy()
-        df_k200['종목코드'] = df_k200['종목코드'].astype(str).str.zfill(6)
+        # 💡 [버그 픽스] 정규식을 사용하여 종목코드에 있는 모든 숫자 이외의 문자 제거 후 6자리 통일
+        df_k200 = df_raw[df_raw['시장'] == 'KOSPI'].copy()
+        df_k200['종목코드'] = df_k200['종목코드'].astype(str).str.replace(r'[^0-9]', '', regex=True).str.zfill(6)
         
+        # 끝자리가 '0'인 우선주 제외 본주 필터링
+        df_k200 = df_k200[df_k200['종목코드'].str.endswith('0')].copy()
+        
+        # 💡 [버그 픽스] KOSPI 대신 KRX 전체를 불러와 에러를 우회하고, 숫자 처리를 명확하게 적용
         try:
-            kospi_info = fdr.StockListing('KOSPI')[['Code', 'Marcap']]
-            kospi_info['Code'] = kospi_info['Code'].astype(str).str.zfill(6)
+            kospi_info = fdr.StockListing('KRX')[['Code', 'Marcap']]
+            kospi_info['Code'] = kospi_info['Code'].astype(str).str.replace(r'[^0-9]', '', regex=True).str.zfill(6)
             
             df_k200 = df_k200.merge(kospi_info, left_on='종목코드', right_on='Code', how='left')
-            df_k200['시가총액'] = pd.to_numeric(df_k200['Marcap'], errors='coerce').fillna(0) / 100000000
-            df_k200['시가총액'] = df_k200['시가총액'].astype(int)
+            df_k200['시가총액'] = (pd.to_numeric(df_k200['Marcap'], errors='coerce').fillna(0) / 100000000).astype(int)
         except Exception as e:
             df_k200['시가총액'] = 0
             
+        # 시총 상위 200개 추출 및 순위 매기기
         df_k200 = df_k200.sort_values(by='시가총액', ascending=False).head(200)
         df_k200['시총순위'] = range(1, len(df_k200) + 1)
         df_k200 = df_k200.set_index('시총순위')
