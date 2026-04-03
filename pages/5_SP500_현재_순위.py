@@ -3,7 +3,7 @@ import pandas as pd
 import FinanceDataReader as fdr
 from datetime import datetime, timedelta
 import os
-import glob
+import yfinance as yf # 💡 [필수] yfinance 라이브러리 임포트 추가
 
 # 1. 페이지 설정
 st.set_page_config(page_title="S&P 500 모멘텀 순위", layout="wide")
@@ -38,7 +38,37 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# ⭐ 신규: 특정 과거 날짜 기준의 지수 이동평균선 데이터 수집
+# 💡 [핵심 추가] 네이버 주식 모바일 차트 링크 생성 함수 (캐싱 적용)
+@st.cache_data(ttl=604800)
+def get_naver_stock_link_cached(ticker, name):
+    try:
+        yf_ticker = str(ticker).replace('.', '-')
+        stock = yf.Ticker(yf_ticker)
+        exchange = stock.info.get('exchange', '')
+        
+        mapping = {
+            'NMS': '.O',  
+            'NGM': '.O',  
+            'NCM': '.O',  
+            'NYQ': '',    # NYSE는 접미사 없음
+            'ASE': '.A',  
+            'BATS': '.K', 
+            'PCX': '.P',  
+        }
+        
+        if exchange in mapping:
+            suffix = mapping[exchange]
+        else:
+            suffix = '.O' if len(str(ticker)) >= 4 else ''
+            
+        return f"https://m.stock.naver.com/fchart/foreign/stock/{ticker}{suffix}#{name}"
+    
+    except:
+        suffix = '.O' if len(str(ticker)) >= 4 else ''
+        return f"https://m.stock.naver.com/fchart/foreign/stock/{ticker}{suffix}#{name}"
+
+
+# 특정 과거 날짜 기준의 지수 이동평균선 데이터 수집
 @st.cache_data(ttl=3600)
 def get_index_ma_status(target_date_str):
     indices = {'S&P 500': 'US500', 'NASDAQ': 'IXIC'}
@@ -120,7 +150,7 @@ base_config = {
 }
 
 def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
-    # 💡 [핵심] 기준일을 넘겨받아 해당 날짜의 과거 지수를 정확히 보여줌
+    # 기준일 명시 및 해당 기준일의 MA 계산
     st.markdown(f"### 📊 주요 지수 이동평균선 현황 (기준일: {target_date_str})")
     ma_df = get_index_ma_status(target_date_str)
     if not ma_df.empty:
@@ -140,7 +170,12 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
             df_500[c] = pd.to_numeric(df_500[c], errors='coerce').fillna(0.0)
 
     df_500['통합티커'] = df_500['시장'].astype(str) + ":" + df_500['종목코드'].astype(str)
-    df_500['종목명_L'] = df_500.apply(lambda r: f"https://finance.yahoo.com/chart/{str(r['종목코드']).replace('.', '-')}#{r['종목명']}", axis=1)
+    
+    # 💡 [적용] 야후 파이낸스 대신 네이버 링크 적용! 원본 티커 그대로 전달
+    df_500['종목명_L'] = df_500.apply(
+        lambda r: get_naver_stock_link_cached(str(r['종목코드']), r['종목명']), 
+        axis=1
+    )
 
     top10_12_1 = df_500.sort_values('12-1개월(%)', ascending=False).head(10)
     top10_6_1 = df_500.sort_values('6-1개월(%)', ascending=False).head(10)
