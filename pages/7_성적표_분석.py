@@ -136,16 +136,17 @@ def run_range_simulation(df, strategy_name):
 
     for s, e in test_ranges:
         monthly_returns = []
-          for d in dates:
-            month_data = strat_df[(strat_df['기준일(월말)'] == d) & (strat_df['전략순위'] >= s) & (strat_df['전략순위'] <= e)]
-            
-            # 💡 [여기에 추가!] 2026-01-30 데이터만 화면에 강제로 찍어보기
-            if d == '2026-01-30' and s == 1 and e == 1:
-                st.write(f"🚩 디버깅: {strategy_name} 1위 종목 상세")
-                st.write(month_data) # 여기서 종목명이 미래에셋증권인지 보세요!
-            
-            if not month_data.empty:
-                # ... 기존 코드 ...
+            for d in dates:
+                    # 이 줄의 시작 여백과 아래 줄들의 여백이 수직으로 딱 맞아야 합니다.
+                    month_data = target_df[(target_df['기준일(월말)'] == d) & (target_df['전략순위'] >= s_start) & (target_df['전략순위'] <= s_end)]
+                    
+                    # 💡 [디버깅 코드 삽입] 들여쓰기 칸 수를 위 줄과 똑같이 맞췄습니다.
+                    if d == '2026-01-30' and s_start == 1 and s_end == 1:
+                        st.write(f"🚩 디버깅: {sel_strat} 1위 종목 상세 (2026-01-30)")
+                        st.write(month_data)
+                    
+                    ret = month_data['다음달수익률(%)'].mean() if not month_data.empty else 0.0
+                    monthly_data.append({'월별': d, '수익률': ret})
 
         perf = pd.Series(monthly_returns)
         equity = (1 + perf/100).cumprod()
