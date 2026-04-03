@@ -9,13 +9,12 @@ import plotly.express as px
 # 1. 페이지 설정
 st.set_page_config(page_title="KOSPI 200 전략 최적화", layout="wide")
 
-# CSS: 시인성 강화 (진한 배경/진한 글자 강제 지정)
+# CSS: 시인성 강화
 st.markdown("""
     <style>
     .block-container { padding-top: 1.5rem !important; }
     h1 { font-size: 2.2rem !important; font-weight: 800; color: #1E1E1E; }
     
-    /* 메트릭 카드 시인성 강화 */
     [data-testid="stMetricValue"] { 
         font-size: 2.0rem !important; 
         color: #0047AB !important; 
@@ -47,33 +46,36 @@ st.markdown("""
 
 st.title("🎯 KOSPI 200 전략별 최적 구간 탐색기")
 
-# 2. 데이터 로드 및 KOSPI 200 전략 백테스팅 전처리 (캐싱)
+# 2. 데이터 로드 및 전처리 (캐싱)
 @st.cache_data(ttl=3600)
 def load_and_process_strategy_data(folder="archive", prefix="momentum_"):
     files = glob.glob(os.path.join(folder, f"{prefix}*.csv"))
     if not files: return pd.DataFrame()
 
-    # KOSPI 200 필터링을 위한 시가총액 정보 가져오기 (현재 기준 근사치)
+    # KOSPI 200 필터링을 위한 시가총액 정보 (티커 6자리 보정 완벽 적용)
     try:
         kospi_info = fdr.StockListing('KOSPI')[['Code', 'Marcap']]
+        kospi_info['Code'] = kospi_info['Code'].astype(str).str.zfill(6)
     except:
         kospi_info = pd.DataFrame(columns=['Code', 'Marcap'])
 
-    all_perf = []
-    all_spec = []
-    all_inter = []
+    all_perf, all_spec, all_inter = [], [], []
 
     for f in sorted(files):
         try:
             df = pd.read_csv(f, dtype={'종목코드': str})
+            # 💡 [버그 픽스] 컬럼명 공백 제거 완벽 대응
+            df.columns = df.columns.str.replace(' ', '') 
+            
             if '다음달수익률(%)' not in df.columns: continue
 
-            # 숫자 변환
+            # 💡 [버그 픽스] 티커 6자리 통일하여 병합 실패 원천 차단
+            df['종목코드'] = df['종목코드'].astype(str).str.zfill(6) 
+
             for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '다음달수익률(%)', '모멘텀스코어']:
                 if c in df.columns:
                     df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
 
-            # KOSPI 200 후보군 필터링 (KOSPI & 끝자리 0)
             df_k = df[(df['시장'] == 'KOSPI') & (df['종목코드'].str.endswith('0'))].copy()
             if not kospi_info.empty:
                 df_k = df_k.merge(kospi_info, left_on='종목코드', right_on='Code', how='left')
@@ -82,25 +84,22 @@ def load_and_process_strategy_data(folder="archive", prefix="momentum_"):
 
             if df_k.empty: continue
 
-            # 분위수 계산
             q30 = {c: df_k[c].quantile(0.7) for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']}
             t10_1m = df_k['1개월(%)'].quantile(0.9)
 
-            # 조건 검출
             cond_perf = (df_k['1개월(%)']>=q30['1개월(%)'])&(df_k['3개월(%)']>=q30['3개월(%)'])&(df_k['6개월(%)']>=q30['6개월(%)'])&(df_k['12개월(%)']>=q30['12개월(%)']) & \
                         (df_k['1개월(%)']>0)&(df_k['3개월(%)']>0)&(df_k['6개월(%)']>0)&(df_k['12개월(%)']>0)
             cond_spec = (df_k['12개월(%)']>=q30['12개월(%)']) & (df_k['1개월(%)']>=t10_1m)
 
+            # 💡 [핵심] KOSPI 200 페이지와 동일하게 '모멘텀스코어' 기준으로 강제 정렬하여 1등을 정확히 매핑!
             df_perf = df_k[cond_perf].sort_values('모멘텀스코어', ascending=False).copy()
             df_spec = df_k[cond_spec].sort_values('모멘텀스코어', ascending=False).copy()
             df_inter = df_k[cond_perf & cond_spec].sort_values('모멘텀스코어', ascending=False).copy()
 
-            b_date = df['기준일(월말)'].iloc[0]
-
-            # 전략별 데이터 적재 보조 함수
             def extract_strategy(d, strat_name, target_list):
                 if not d.empty:
-                    d['전략순위'] = range(1, len(d) + 1) # 모멘텀스코어 기준 순위
+                    d = d.reset_index(drop=True)
+                    d['전략순위'] = range(1, len(d) + 1) 
                     d['전략명'] = strat_name
                     target_list.append(d[['기준일(월말)', '다음달수익률(%)', '전략순위', '전략명']])
 
@@ -129,11 +128,10 @@ def run_range_simulation(df, strategy_name):
     dates = sorted(strat_df['기준일(월말)'].unique())
     results = []
 
-    # 테스트할 다양한 순위 구간 (단일 등수 및 분산)
     test_ranges = [
-        (1, 1), (2, 2), (3, 3), (4, 4), (5, 5), # 단독 매수
-        (1, 2), (1, 3), (1, 5), (1, 10),        # 1위부터 누적 분산
-        (2, 3), (2, 5), (3, 5)                  # 상위권 일부 분산
+        (1, 1), (2, 2), (3, 3), (4, 4), (5, 5), 
+        (1, 2), (1, 3), (1, 5), (1, 10),        
+        (2, 3), (2, 5), (3, 5)                  
     ]
 
     for s, e in test_ranges:
@@ -143,7 +141,7 @@ def run_range_simulation(df, strategy_name):
             if not month_data.empty:
                 monthly_returns.append(month_data['다음달수익률(%)'].mean())
             else:
-                monthly_returns.append(0.0) # 조건에 맞는 종목이 없으면 현금 보유(0%)
+                monthly_returns.append(0.0) 
 
         perf = pd.Series(monthly_returns)
         equity = (1 + perf/100).cumprod()
@@ -162,7 +160,6 @@ def run_range_simulation(df, strategy_name):
 
     return pd.DataFrame(results).sort_values("최종 누적 수익률", ascending=False)
 
-# 포맷팅 함수
 def format_sim_df(df):
     return df.assign(
         **{
@@ -186,7 +183,6 @@ for col, strat in zip(cols, strategies):
         res_df = run_range_simulation(df_master, strat)
         
         if not res_df.empty:
-            # 1등 전략 하이라이트 표시
             best = res_df.iloc[0]
             st.success(f"🏆 Best: **{best['투자 전략 (순위)']}** ({best['최종 누적 수익률']:.2f}%)")
             st.dataframe(format_sim_df(res_df), use_container_width=True, hide_index=True)
@@ -195,7 +191,7 @@ for col, strat in zip(cols, strategies):
 
 st.markdown("---")
 
-# --- [화면 렌더링 2. 정밀 시뮬레이터 (차트 포함)] ---
+# --- [화면 렌더링 2. 정밀 시뮬레이터] ---
 st.subheader("🔬 커스텀 구간 정밀 백테스팅")
 
 c1, c2, c3 = st.columns([1, 1, 2])
@@ -204,7 +200,6 @@ with c1:
 with c2:
     sel_range = st.slider("투자할 순위 범위 설정", 1, 15, (1, 3))
 
-# 선택한 설정으로 상세 데이터 생성
 s_start, s_end = sel_range
 target_df = df_master[df_master['전략명'] == sel_strat]
 
