@@ -49,22 +49,31 @@ def get_idx_kr(target_date_str):
 @st.cache_data
 def load_historical_data(filepath):
     df = pd.read_csv(filepath)
+    df.columns = df.columns.str.replace(' ', '') # 공백 완벽 제거
     df['종목코드'] = df['종목코드'].astype(str).str.zfill(6)
-    df['시가총액(억)'] = (df['시가총액'] / 100000000).fillna(0).astype(int)
     
-    # 💡 [버그 픽스 1] 백테스터와 동일하게 모멘텀스코어 숫자형 변환 (필수)
-    if '모멘텀스코어' in df.columns:
-        df['모멘텀스코어'] = pd.to_numeric(df['모멘텀스코어'], errors='coerce').fillna(0.0)
+    if '시가총액' in df.columns:
+        df['시가총액(억)'] = (df['시가총액'] / 100000000).fillna(0).astype(int)
+    else:
+        df['시가총액(억)'] = 0
+        
+    # 💡 [핵심 버그 픽스] 10년치 파일에 '모멘텀스코어'가 없다면 즉석에서 계산하여 채워넣기 (KeyError 원천 차단)
+    if '모멘텀스코어' not in df.columns:
+        m1 = pd.to_numeric(df.get('1개월(%)', 0), errors='coerce').fillna(0)
+        m3 = pd.to_numeric(df.get('3개월(%)', 0), errors='coerce').fillna(0)
+        m6 = pd.to_numeric(df.get('6개월(%)', 0), errors='coerce').fillna(0)
+        m12 = pd.to_numeric(df.get('12개월(%)', 0), errors='coerce').fillna(0)
+        df['모멘텀스코어'] = (m1 + m3 + m6 + m12) / 4 # 기본 스코어 산출
+        
+    df['모멘텀스코어'] = pd.to_numeric(df['모멘텀스코어'], errors='coerce').fillna(0.0)
     return df
 
-# 💡 [버그 픽스 2] 표 상단의 요약 메트릭이 시가총액(12M) 순이 아닌 '모멘텀 순위' 기준 1등부터 샀을 때의 결과로 나오게 수정
 def get_perf_html(title, df):
     if df.empty:
         return f"### {title} <span style='font-size: 15px; color: gray; font-weight: normal;'>(해당 종목 없음)</span>"
     
     all_avg = df['다음달수익률(%)'].mean()
-    # 💡 여기서 12개월(%)가 아니라 '모멘텀스코어' 기준으로 강렬해야 백테스터와 동일한 결과를 냅니다!
-    df_sorted = df.sort_values(by='모멘텀스코어', ascending=False) if '모멘텀스코어' in df.columns else df
+    df_sorted = df.sort_values(by='모멘텀스코어', ascending=False)
     top5_avg = df_sorted.head(5)['다음달수익률(%)'].mean()
     top10_avg = df_sorted.head(10)['다음달수익률(%)'].mean()
     
@@ -103,7 +112,7 @@ st.markdown(f'<p class="main-title">🎯 KOSPI 200 과거 기록 분석 ➔ {inv
 
 df_k200 = df_all[df_all['기준일'] == selected_date].copy()
 
-# 💡 [적용] 티커는 PC홈, 종목명은 모바일 차트 링크로 분리
+# 티커(PC홈), 종목명(모바일 차트) 링크 설정
 df_k200['통합티커_L'] = df_k200.apply(
     lambda r: f"https://finance.naver.com/item/main.naver?code={r['종목코드']}#KOSPI:{r['종목코드']}", axis=1
 )
@@ -111,7 +120,7 @@ df_k200['종목명_L'] = df_k200.apply(
     lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드']}#{r['종목명']}", axis=1
 )
 
-df_k200 = df_k200.sort_values(by='시가총액', ascending=False).head(200)
+df_k200 = df_k200.sort_values(by='시가총액(억)', ascending=False).head(200)
 df_k200['시총순위'] = range(1, len(df_k200) + 1)
 df_k200 = df_k200.set_index('시총순위')
 
@@ -142,21 +151,24 @@ with col5:
     
 st.markdown("<br><hr>", unsafe_allow_html=True)
 
+# 💡 수익률 데이터 강제 형변환 (연산 오류 방지)
+for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
+    if c in df_k200.columns:
+        df_k200[c] = pd.to_numeric(df_k200[c], errors='coerce').fillna(0)
+
 q30 = {c: df_k200[c].quantile(0.7) for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']}
 t10_1m = df_k200['1개월(%)'].quantile(0.9)
 
 cond_perf = (df_k200['1개월(%)']>=q30['1개월(%)'])&(df_k200['3개월(%)']>=q30['3개월(%)'])&(df_k200['6개월(%)']>=q30['6개월(%)'])&(df_k200['12개월(%)']>=q30['12개월(%)']) & \
             (df_k200['1개월(%)']>0)&(df_k200['3개월(%)']>0)&(df_k200['6개월(%)']>0)&(df_k200['12개월(%)']>0)
 
-# 💡 [버그 픽스 3] 백테스터와 동일하게 '모멘텀스코어' 기준으로 명확히 정렬
+# 이제 무조건 모멘텀스코어 존재하므로 에러 발생하지 않음!
 df_perf = df_k200[cond_perf].sort_values('모멘텀스코어', ascending=False).copy()
 df_spec = df_k200[(df_k200['12개월(%)']>=q30['12개월(%)']) & (df_k200['1개월(%)']>=t10_1m)].sort_values('모멘텀스코어', ascending=False).copy()
 
 common_codes = set(df_perf['종목코드']).intersection(set(df_spec['종목코드']))
-# 교집합도 모멘텀스코어 정렬 적용
 df_common = df_k200[df_k200['종목코드'].isin(common_codes)].sort_values('모멘텀스코어', ascending=False).copy()
 
-# 💡 [적용] 통합티커_L 열 설정
 main_cfg = {
     "통합티커_L": st.column_config.LinkColumn("티커", display_text=r"#(.+)"), 
     "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
