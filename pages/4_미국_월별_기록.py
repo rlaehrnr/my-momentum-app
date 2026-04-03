@@ -68,7 +68,7 @@ def get_index_ma_status(target_date_str):
                 '10일선': round(df['Close'].rolling(10).mean().iloc[-1], 2),
                 '20일선': round(df['Close'].rolling(20).mean().iloc[-1], 2),
                 '60일선': round(df['Close'].rolling(60).mean().iloc[-1], 2),
-                '120일선': round(df['Close'].rolling(120).mean().iloc[-1], 2),
+                '150일선': round(df['Close'].rolling(150).mean().iloc[-1], 2), # 💡 120일선을 150일선으로 변경
                 '200일선': round(df['Close'].rolling(200).mean().iloc[-1], 2)
             }
             res.append(ma_values)
@@ -96,7 +96,7 @@ ma_config = {
     "10일선": st.column_config.NumberColumn("10일선", format="%,.2f"),
     "20일선": st.column_config.NumberColumn("20일선", format="%,.2f"),
     "60일선": st.column_config.NumberColumn("60일선", format="%,.2f"),
-    "120일선": st.column_config.NumberColumn("120일선", format="%,.2f"),
+    "150일선": st.column_config.NumberColumn("150일선", format="%,.2f"), # 💡 120일선을 150일선으로 변경
     "200일선": st.column_config.NumberColumn("200일선", format="%,.2f"),
     "base_price": None # 화면에는 숨김 처리
 }
@@ -163,12 +163,12 @@ else:
     st.markdown(f"### 📊 주요 지수 이동평균선 현황 (기준일: {target_date_str})")
     ma_df = get_index_ma_status(target_date_str)
     if not ma_df.empty:
-        # column_order를 추가하여 base_price가 표에 렌더링되지 않게 방어
+        # 💡 150일선으로 변경된 column_order
         st.dataframe(
             style_index_ma(ma_df), 
             use_container_width=True, 
             hide_index=True, 
-            column_order=["지수_L", "현재가_L", "10일선", "20일선", "60일선", "120일선", "200일선"],
+            column_order=["지수_L", "현재가_L", "10일선", "20일선", "60일선", "150일선", "200일선"],
             column_config=ma_config
         )
     st.markdown("<br>", unsafe_allow_html=True)
@@ -187,14 +187,13 @@ else:
         df['3-1개월(%)'] = df['3개월(%)'] - df['1개월(%)']
 
     df['통합티커'] = df['시장'].astype(str) + ":" + df['종목코드'].astype(str)
-    # 기존대로 종목 링크는 야후 파이낸스 유지
     df['종목명_L'] = df.apply(lambda r: f"https://finance.yahoo.com/chart/{str(r['종목코드']).replace('.', '-')}#{r['종목명']}", axis=1)
 
     top10_12_1 = df.sort_values('12-1개월(%)', ascending=False).head(10)
     top10_6_1 = df.sort_values('6-1개월(%)', ascending=False).head(10)
     top10_3_1 = df.sort_values('3-1개월(%)', ascending=False).head(10)
 
-    # 💡 [정렬 변경] 추출된 교집합 데이터를 6-1개월(%) 기준으로 내림차순 정렬
+    # 6-1개월(%) 기준으로 내림차순 정렬된 교집합 데이터
     overlap_12_6 = top10_12_1[top10_12_1['종목코드'].isin(top10_6_1['종목코드'])].sort_values('6-1개월(%)', ascending=False).copy()
     overlap_6_3 = top10_6_1[top10_6_1['종목코드'].isin(top10_3_1['종목코드'])].sort_values('6-1개월(%)', ascending=False).copy()
     common_tickers = set(overlap_12_6['종목코드']).intersection(set(overlap_6_3['종목코드']))
@@ -203,8 +202,23 @@ else:
     c_over1, c_over2 = st.columns(2)
     
     with c_over1:
-        avg_12_6 = overlap_12_6['다음달수익률(%)'].mean() if not overlap_12_6.empty else np.nan
-        st.markdown(f'<div class="overlap-header">🔥 12-1M & 6-1M 중복 (전체 매수시: {fmt_ret_html(avg_12_6)})</div>', unsafe_allow_html=True)
+        if not overlap_12_6.empty:
+            avg_all_12_6 = overlap_12_6['다음달수익률(%)'].mean()
+            avg_t5_12_6 = overlap_12_6.head(5)['다음달수익률(%)'].mean()
+            avg_t10_12_6 = overlap_12_6.head(10)['다음달수익률(%)'].mean()
+        else:
+            avg_all_12_6 = avg_t5_12_6 = avg_t10_12_6 = np.nan
+            
+        header_html_12_6 = f"""
+        <div class="overlap-header">
+            🔥 12-1M & 6-1M 중복<br>
+            <div style="font-size: 0.9rem; font-weight: normal; margin-top: 4px; padding-bottom: 2px;">
+            Top5: {fmt_ret_html(avg_t5_12_6)} | Top10: {fmt_ret_html(avg_t10_12_6)} | 전체: {fmt_ret_html(avg_all_12_6)}
+            </div>
+        </div>
+        """
+        st.markdown(header_html_12_6, unsafe_allow_html=True)
+        
         if not overlap_12_6.empty:
             overlap_12_6['순위'] = range(1, len(overlap_12_6) + 1)
             st.dataframe(overlap_12_6.style.apply(style_archive_dataframe, common_tickers=common_tickers, axis=1), 
@@ -213,8 +227,23 @@ else:
         else: st.info("중복 없음")
 
     with c_over2:
-        avg_6_3 = overlap_6_3['다음달수익률(%)'].mean() if not overlap_6_3.empty else np.nan
-        st.markdown(f'<div class="overlap-header">⚡ 6-1M & 3-1M 중복 (전체 매수시: {fmt_ret_html(avg_6_3)})</div>', unsafe_allow_html=True)
+        if not overlap_6_3.empty:
+            avg_all_6_3 = overlap_6_3['다음달수익률(%)'].mean()
+            avg_t5_6_3 = overlap_6_3.head(5)['다음달수익률(%)'].mean()
+            avg_t10_6_3 = overlap_6_3.head(10)['다음달수익률(%)'].mean()
+        else:
+            avg_all_6_3 = avg_t5_6_3 = avg_t10_6_3 = np.nan
+            
+        header_html_6_3 = f"""
+        <div class="overlap-header">
+            ⚡ 6-1M & 3-1M 중복<br>
+            <div style="font-size: 0.9rem; font-weight: normal; margin-top: 4px; padding-bottom: 2px;">
+            Top5: {fmt_ret_html(avg_t5_6_3)} | Top10: {fmt_ret_html(avg_t10_6_3)} | 전체: {fmt_ret_html(avg_all_6_3)}
+            </div>
+        </div>
+        """
+        st.markdown(header_html_6_3, unsafe_allow_html=True)
+        
         if not overlap_6_3.empty:
             overlap_6_3['순위'] = range(1, len(overlap_6_3) + 1)
             st.dataframe(overlap_6_3.style.apply(style_archive_dataframe, common_tickers=common_tickers, axis=1), 
@@ -226,16 +255,14 @@ else:
     st.markdown("<br>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
     
-    # 좁은 3열 레이아웃 수치 잘림 완벽 방지: 
-    # 종목명 너비를 고정(110)으로 희생시키고 숫자 열의 너비를 강력하게 확보
     sub_config = base_config.copy()
     sub_config["순위"] = st.column_config.NumberColumn("순위", format="%d", width=35)
     sub_config["통합티커"] = st.column_config.TextColumn("티커", width=90)
-    sub_config["종목명_L"] = st.column_config.LinkColumn("종목명", display_text=r"#(.+)", width=110) # 종목명 축소
+    sub_config["종목명_L"] = st.column_config.LinkColumn("종목명", display_text=r"#(.+)", width=110) 
     sub_config["12-1개월(%)"] = st.column_config.NumberColumn("12-1", format="%.1f%%", width=75)
     sub_config["6-1개월(%)"] = st.column_config.NumberColumn("6-1", format="%.1f%%", width=75)
     sub_config["3-1개월(%)"] = st.column_config.NumberColumn("3-1", format="%.1f%%", width=75)
-    sub_config["다음달수익률(%)"] = st.column_config.NumberColumn("다음달수익", format="%.1f%%", width=85) # 수치 너비 확보
+    sub_config["다음달수익률(%)"] = st.column_config.NumberColumn("다음달수익", format="%.1f%%", width=85) 
 
     for col, title, sort_col in zip([col1, col2, col3], 
                                    ["🏆 12-1개월 상위 30", "🏆 6-1개월 상위 30", "🏆 3-1개월 상위 30"], 
@@ -244,7 +271,6 @@ else:
             df_sub = df.sort_values(sort_col, ascending=False).head(30).copy()
             df_sub['순위'] = range(1, 31)
             
-            # Top 10, 20, 30 그룹별 평균 수익률 (조건부 색상 적용)
             t10_ret = df_sub.head(10)['다음달수익률(%)'].mean()
             t20_ret = df_sub.head(20)['다음달수익률(%)'].mean()
             t30_ret = df_sub.head(30)['다음달수익률(%)'].mean()
