@@ -42,29 +42,34 @@ st.markdown("""
 @st.cache_data(ttl=604800)
 def get_naver_stock_link_cached(ticker, name):
     try:
-        # yfinance는 특수문자(.)를 하이픈(-)으로 써야 인식하는 경우가 많음 (예: BRK.B -> BRK-B)
+        # yfinance는 특수문자(.)를 하이픈(-)으로 써야 인식함 (예: BRK.B -> BRK-B)
         yf_ticker = str(ticker).replace('.', '-')
         stock = yf.Ticker(yf_ticker)
         exchange = stock.info.get('exchange', '')
         
+        # 네이버 해외주식 시장 규칙 완벽 반영
         mapping = {
-            'NMS': '.O',  
-            'NGM': '.O',  
-            'NCM': '.O',  
-            'NYQ': '.N',  
-            'ASE': '.A',  
-            'BATS': '.K', 
-            'PCX': '.P',  
+            'NMS': '.O',  # NASDAQ
+            'NGM': '.O',  # NASDAQ
+            'NCM': '.O',  # NASDAQ
+            'NYQ': '',    # 💡 NYSE (뉴욕증시)는 뒤에 아무것도 붙지 않음! (PWR 등)
+            'ASE': '.A',  # AMEX
+            'BATS': '',   # Cboe
+            'PCX': '',    # Arca
         }
-        suffix = mapping.get(exchange, '.O') 
         
-        # 네이버 차트 링크 생성 (원래 티커 형태 유지)
+        if exchange in mapping:
+            suffix = mapping[exchange]
+        else:
+            # 시장 정보가 불확실할 경우 전통적 글자수 규칙으로 추론
+            suffix = '.O' if len(str(ticker)) >= 4 else ''
+            
+        # URL 구조를 종합 홈(worldstock)에서 차트(fchart)로 변경!
         return f"https://m.stock.naver.com/fchart/foreign/stock/{ticker}{suffix}#{name}"
     
     except:
-        # yfinance 조회 실패 시 메인으로 튕기는 것을 막기 위한 백업 추론 로직
-        # 통상적으로 4글자 이상은 나스닥(.O), 1~3글자는 뉴욕증시(.N)
-        suffix = '.O' if len(str(ticker)) >= 4 else '.N'
+        # yfinance 조회 실패 시 에러 방지 (글자수 추론 백업)
+        suffix = '.O' if len(str(ticker)) >= 4 else ''
         return f"https://m.stock.naver.com/fchart/foreign/stock/{ticker}{suffix}#{name}"
 
 # 지수 데이터 수집 함수 (타겟 날짜 기준)
