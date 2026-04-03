@@ -42,33 +42,29 @@ st.markdown("""
 @st.cache_data(ttl=604800)
 def get_naver_stock_link_cached(ticker, name):
     try:
-        # yfinance는 특수문자(.)를 하이픈(-)으로 써야 인식함 (예: BRK.B -> BRK-B)
         yf_ticker = str(ticker).replace('.', '-')
         stock = yf.Ticker(yf_ticker)
         exchange = stock.info.get('exchange', '')
         
-        # 네이버 해외주식 시장 규칙 완벽 반영
+        # 💡 [핵심] 사용자님의 완벽했던 원래 매핑 복구 + NYSE만 빈칸 처리
         mapping = {
             'NMS': '.O',  # NASDAQ
             'NGM': '.O',  # NASDAQ
             'NCM': '.O',  # NASDAQ
-            'NYQ': '',    # 💡 NYSE (뉴욕증시)는 뒤에 아무것도 붙지 않음! (PWR 등)
+            'NYQ': '',    # NYSE (PWR 등 - 접미사 없음)
             'ASE': '.A',  # AMEX
-            'BATS': '',   # Cboe
-            'PCX': '',    # Arca
+            'BATS': '.K', # 💡 Cboe BZX (CIEN 등 - .K 복구!)
+            'PCX': '.P',  # NYSE Arca (ETF 등 - .P 복구!)
         }
         
         if exchange in mapping:
             suffix = mapping[exchange]
         else:
-            # 시장 정보가 불확실할 경우 전통적 글자수 규칙으로 추론
             suffix = '.O' if len(str(ticker)) >= 4 else ''
             
-        # URL 구조를 종합 홈(worldstock)에서 차트(fchart)로 변경!
         return f"https://m.stock.naver.com/fchart/foreign/stock/{ticker}{suffix}#{name}"
     
     except:
-        # yfinance 조회 실패 시 에러 방지 (글자수 추론 백업)
         suffix = '.O' if len(str(ticker)) >= 4 else ''
         return f"https://m.stock.naver.com/fchart/foreign/stock/{ticker}{suffix}#{name}"
 
