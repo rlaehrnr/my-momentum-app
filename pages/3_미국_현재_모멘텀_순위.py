@@ -159,7 +159,10 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
             df_300[c] = pd.to_numeric(df_300[c], errors='coerce').fillna(0.0)
 
     df_300['통합티커'] = df_300['시장'].astype(str) + ":" + df_300['종목코드'].astype(str)
-    df_300['종목명_L'] = df_300.apply(lambda r: f"https://finance.yahoo.com/chart/{str(r['종목코드']).replace('.', '-')}#{r['종목명']}", axis=1)
+    df_300['종목명_L'] = df_300.apply(
+        lambda r: get_naver_stock_link_cached(str(r['종목코드']).replace('.', '-'), r['종목명']), 
+        axis=1
+    )
 
     top10_12_1 = df_300.sort_values('12-1개월(%)', ascending=False).head(10)
     top10_6_1 = df_300.sort_values('6-1개월(%)', ascending=False).head(10)
