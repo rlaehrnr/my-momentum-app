@@ -90,12 +90,12 @@ with tab1:
         df_k200['시총순위'] = range(1, len(df_k200) + 1)
         df_k200 = df_k200.set_index('시총순위')
         
+        # 💡 [핵심] 티커: PC 증권 홈 / 종목명: 모바일 차트로 변경
         df_k200['통합티커_L'] = df_k200.apply(
-            lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{str(r['종목코드']).zfill(6)}#KOSPI:{str(r['종목코드']).zfill(6)}", axis=1
+            lambda r: f"https://finance.naver.com/item/main.naver?code={str(r['종목코드']).zfill(6)}#KOSPI:{str(r['종목코드']).zfill(6)}", axis=1
         )
-        # 💡 [핵심 교체 1] 네이버 금융 PC 버전 링크로 변경
         df_k200['종목명_L'] = df_k200.apply(
-            lambda r: f"https://finance.naver.com/item/main.naver?code={str(r['종목코드']).zfill(6)}#{r['종목명']}", axis=1
+            lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{str(r['종목코드']).zfill(6)}#{r['종목명']}", axis=1
         )
 
         neg_1m_cnt = (df_k200['1개월(%)'] < 0).sum()
@@ -170,12 +170,12 @@ with tab2:
         st.markdown("---")
         df_m.index = range(1, len(df_m) + 1)
         
+        # 💡 [핵심] 티커: PC 증권 홈 / 종목명: 모바일 차트로 변경
         df_m['통합티커_L'] = df_m.apply(
-            lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{str(r['종목코드']).zfill(6)}#{r['시장']}:{str(r['종목코드']).zfill(6)}", axis=1
+            lambda r: f"https://finance.naver.com/item/main.naver?code={str(r['종목코드']).zfill(6)}#{r['시장']}:{str(r['종목코드']).zfill(6)}", axis=1
         )
-        # 💡 [핵심 교체 2] 네이버 금융 PC 버전 링크로 변경
         df_m['종목명_L'] = df_m.apply(
-            lambda r: f"https://finance.naver.com/item/main.naver?code={str(r['종목코드']).zfill(6)}#{r['종목명']}", axis=1
+            lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{str(r['종목코드']).zfill(6)}#{r['종목명']}", axis=1
         )
         
         st.dataframe(df_m.style.apply(apply_k200_styling, idx_df=idx_m, axis=1), 
@@ -197,12 +197,12 @@ with tab3:
         st.markdown("---")
         df_d.index = range(1, len(df_d) + 1)
         
+        # 💡 [핵심] 티커: PC 증권 홈 / 종목명: 모바일 차트로 변경
         df_d['통합티커_L'] = df_d.apply(
-            lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{str(r['종목코드']).zfill(6)}#{r['시장']}:{str(r['종목코드']).zfill(6)}", axis=1
+            lambda r: f"https://finance.naver.com/item/main.naver?code={str(r['종목코드']).zfill(6)}#{r['시장']}:{str(r['종목코드']).zfill(6)}", axis=1
         )
-        # 💡 [핵심 교체 3] 네이버 금융 PC 버전 링크로 변경
         df_d['종목명_L'] = df_d.apply(
-            lambda r: f"https://finance.naver.com/item/main.naver?code={str(r['종목코드']).zfill(6)}#{r['종목명']}", axis=1
+            lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{str(r['종목코드']).zfill(6)}#{r['종목명']}", axis=1
         )
         
         daily_cfg = main_cfg.copy()
