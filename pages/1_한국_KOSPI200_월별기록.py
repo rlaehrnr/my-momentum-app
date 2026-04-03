@@ -138,7 +138,7 @@ t10_1m = df_k200['1개월(%)'].quantile(0.9)
 
 cond_perf = (df_k200['1개월(%)']>=q30['1개월(%)'])&(df_k200['3개월(%)']>=q30['3개월(%)'])&(df_k200['6개월(%)']>=q30['6개월(%)'])&(df_k200['12개월(%)']>=q30['12개월(%)']) & \
             (df_k200['1개월(%)']>0)&(df_k200['3개월(%)']>0)&(df_k200['6개월(%)']>0)&(df_k200['12개월(%)']>0)
-df_perf = df_k200[cond_perf].copy()
+df_perf = df_k200[cond_perf].sort_values('모멘텀스코어', ascending=False).copy()
 df_spec = df_k200[(df_k200['12개월(%)']>=q30['12개월(%)']) & (df_k200['1개월(%)']>=t10_1m)].copy()
 
 common_codes = set(df_perf['종목코드']).intersection(set(df_spec['종목코드']))
