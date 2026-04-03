@@ -49,7 +49,7 @@ def get_idx_kr(target_date_str):
 @st.cache_data
 def load_historical_data(filepath):
     df = pd.read_csv(filepath)
-    df.columns = df.columns.str.replace(' ', '') # 공백 완벽 제거
+    df.columns = df.columns.str.replace(' ', '') 
     df['종목코드'] = df['종목코드'].astype(str).str.zfill(6)
     
     if '시가총액' in df.columns:
@@ -57,23 +57,15 @@ def load_historical_data(filepath):
     else:
         df['시가총액(억)'] = 0
         
-    # 💡 [핵심 버그 픽스] 10년치 파일에 '모멘텀스코어'가 없다면 즉석에서 계산하여 채워넣기 (KeyError 원천 차단)
-    if '모멘텀스코어' not in df.columns:
-        m1 = pd.to_numeric(df.get('1개월(%)', 0), errors='coerce').fillna(0)
-        m3 = pd.to_numeric(df.get('3개월(%)', 0), errors='coerce').fillna(0)
-        m6 = pd.to_numeric(df.get('6개월(%)', 0), errors='coerce').fillna(0)
-        m12 = pd.to_numeric(df.get('12개월(%)', 0), errors='coerce').fillna(0)
-        df['모멘텀스코어'] = (m1 + m3 + m6 + m12) / 4 # 기본 스코어 산출
-        
-    df['모멘텀스코어'] = pd.to_numeric(df['모멘텀스코어'], errors='coerce').fillna(0.0)
     return df
 
+# 💡 텍스트에서 '(모멘텀순)' 제거 및 12개월(%) 기준으로 Top5/10 계산 복구
 def get_perf_html(title, df):
     if df.empty:
         return f"### {title} <span style='font-size: 15px; color: gray; font-weight: normal;'>(해당 종목 없음)</span>"
     
     all_avg = df['다음달수익률(%)'].mean()
-    df_sorted = df.sort_values(by='모멘텀스코어', ascending=False)
+    df_sorted = df.sort_values(by='12개월(%)', ascending=False)
     top5_avg = df_sorted.head(5)['다음달수익률(%)'].mean()
     top10_avg = df_sorted.head(10)['다음달수익률(%)'].mean()
     
@@ -86,7 +78,7 @@ def get_perf_html(title, df):
     t5_str, t5_col = format_val(top5_avg)
     t10_str, t10_col = format_val(top10_avg)
     
-    return f"### {title} <span style='font-size: 15px; font-weight: normal; color: #666;'> &nbsp; | &nbsp; 📊 다음달 성적 ➔ Top5(모멘텀순): <span style='color:{t5_col}; font-weight:bold;'>{t5_str}</span> &nbsp; Top10(모멘텀순): <span style='color:{t10_col}; font-weight:bold;'>{t10_str}</span> &nbsp; 모두매수: <span style='color:{a_col}; font-weight:bold;'>{a_str}</span></span>"
+    return f"### {title} <span style='font-size: 15px; font-weight: normal; color: #666;'> &nbsp; | &nbsp; 📊 다음달 성적 ➔ Top5: <span style='color:{t5_col}; font-weight:bold;'>{t5_str}</span> &nbsp; Top10: <span style='color:{t10_col}; font-weight:bold;'>{t10_str}</span> &nbsp; 모두매수: <span style='color:{a_col}; font-weight:bold;'>{a_str}</span></span>"
 
 def format_invest_month(date_str):
     dt = pd.to_datetime(date_str)
@@ -151,7 +143,6 @@ with col5:
     
 st.markdown("<br><hr>", unsafe_allow_html=True)
 
-# 💡 수익률 데이터 강제 형변환 (연산 오류 방지)
 for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
     if c in df_k200.columns:
         df_k200[c] = pd.to_numeric(df_k200[c], errors='coerce').fillna(0)
@@ -162,12 +153,12 @@ t10_1m = df_k200['1개월(%)'].quantile(0.9)
 cond_perf = (df_k200['1개월(%)']>=q30['1개월(%)'])&(df_k200['3개월(%)']>=q30['3개월(%)'])&(df_k200['6개월(%)']>=q30['6개월(%)'])&(df_k200['12개월(%)']>=q30['12개월(%)']) & \
             (df_k200['1개월(%)']>0)&(df_k200['3개월(%)']>0)&(df_k200['6개월(%)']>0)&(df_k200['12개월(%)']>0)
 
-# 이제 무조건 모멘텀스코어 존재하므로 에러 발생하지 않음!
-df_perf = df_k200[cond_perf].sort_values('모멘텀스코어', ascending=False).copy()
-df_spec = df_k200[(df_k200['12개월(%)']>=q30['12개월(%)']) & (df_k200['1개월(%)']>=t10_1m)].sort_values('모멘텀스코어', ascending=False).copy()
+# 💡 '12개월(%)' 수익률 기준으로 표 정렬 복구
+df_perf = df_k200[cond_perf].sort_values('12개월(%)', ascending=False).copy()
+df_spec = df_k200[(df_k200['12개월(%)']>=q30['12개월(%)']) & (df_k200['1개월(%)']>=t10_1m)].sort_values('12개월(%)', ascending=False).copy()
 
 common_codes = set(df_perf['종목코드']).intersection(set(df_spec['종목코드']))
-df_common = df_k200[df_k200['종목코드'].isin(common_codes)].sort_values('모멘텀스코어', ascending=False).copy()
+df_common = df_k200[df_k200['종목코드'].isin(common_codes)].sort_values('12개월(%)', ascending=False).copy()
 
 main_cfg = {
     "통합티커_L": st.column_config.LinkColumn("티커", display_text=r"#(.+)"), 
