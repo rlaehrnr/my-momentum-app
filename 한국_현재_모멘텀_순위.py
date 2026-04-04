@@ -15,22 +15,14 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 💡 [대통령 주기 하드코딩] 8년차 주기 위험달 데이터
 PRESIDENTIAL_DANGEROUS_MONTHS = {
-    1: [2, 9],                 
-    2: [1, 2, 4, 5, 6, 9],       
-    3: [9],                 
-    4: [3],                    
-    5: [3],                     
-    6: [7],                    
-    7: [8, 9, 10, 11],         
-    8: [1, 9, 10, 11]       
+    1: [2, 9], 2: [1, 2, 4, 5, 6, 9], 3: [9], 4: [3],
+    5: [3], 6: [7], 7: [8, 9, 10, 11], 8: [1, 9, 10, 11]
 }
 
 def get_cycle_year(year):
     return ((year - 2021) % 8) + 1
 
-# 💡 [스타일 함수]
 def apply_k200_styling(row, idx_df, highlight_codes=None, overlap_codes=None):
     styles = [''] * len(row)
     market = row.get('시장', 'KOSPI')
@@ -70,18 +62,15 @@ def get_idx_kr(target_date=None):
         except: pass
     return pd.DataFrame(res).set_index('시장')
 
-# KOSPI 이동평균선 계산
 @st.cache_data(ttl=3600)
 def get_kospi_ma_status(target_date_str):
     target_date = pd.to_datetime(target_date_str)
     start_date = target_date - timedelta(days=400)
-    
     try:
         df = fdr.DataReader('KS11', start_date, target_date)
         if df.empty: return pd.DataFrame()
         
         curr_price = df['Close'].iloc[-1]
-        
         url_name = "https://m.stock.naver.com/domestic/index/KOSPI/total#KOSPI"
         url_price = f"https://m.stock.naver.com/fchart/domestic/index/KOSPI#{curr_price:,.2f}"
         
@@ -94,10 +83,8 @@ def get_kospi_ma_status(target_date_str):
             '12개월선': round(df['Close'].rolling(240).mean().iloc[-1], 2)
         }
         return pd.DataFrame([ma_values])
-    except: 
-        return pd.DataFrame()
+    except: return pd.DataFrame()
 
-# 이동평균선 색상 적용
 def style_kospi_ma(df):
     def apply_color(row):
         price = row['base_price']
@@ -127,7 +114,7 @@ tab1, tab2, tab3 = st.tabs(["🎯 KOSPI 200 강세 종목", "📅 전월 말일 
 f_kr = 'data/momentum_data.csv'
 f_daily = 'data/momentum_data_daily.csv'
 
-# 💡 [핵심 복구] 미국 페이지와 동일하게 '전달순위'를 TextColumn으로 고정하여 "NEW", "15위"가 깔끔하게 나오도록 수정
+# 💡 [복구] NumberColumn으로 되돌려 정렬 문제를 해결합니다. (NaN은 빈칸으로 나옵니다)
 main_cfg = {
     "통합티커_L": st.column_config.LinkColumn("티커", display_text=r"#(.+)"), 
     "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
@@ -137,7 +124,7 @@ main_cfg = {
     "6개월(%)": st.column_config.NumberColumn(format="%.1f"), 
     "12개월(%)": st.column_config.NumberColumn(format="%.1f"),
     "모멘텀스코어": st.column_config.NumberColumn("스코어", format="%.2f"),
-    "전달순위": st.column_config.TextColumn("전달 순위", width=75) 
+    "전달순위": st.column_config.NumberColumn("전달 순위", format="%d위")
 }
 
 # --- 탭 1: KOSPI 200 집중 분석 ---
@@ -190,8 +177,7 @@ with tab1:
         
         base_dt = pd.to_datetime(b_date_str)
         target_dt = base_dt + pd.DateOffset(months=1)
-        target_year = target_dt.year
-        target_month = target_dt.month
+        target_year, target_month = target_dt.year, target_dt.month
         
         cycle_year = get_cycle_year(target_year)
         bad_months = PRESIDENTIAL_DANGEROUS_MONTHS.get(cycle_year, [])
@@ -255,14 +241,13 @@ with tab2:
     if os.path.exists(f_kr):
         df_m = pd.read_csv(f_kr, dtype={'종목코드': str})
         
-        # 💡 [핵심 복구] 미국 페이지와 동일한 로직 적용 (문자열 '15위' / 'NEW' 변환)
+        # 💡 [복구 완료] 순수한 숫자로 변환하여 정렬을 보호합니다. (CSV 파일이 재생성되면 자동으로 채워집니다)
         if '전달순위' in df_m.columns:
             df_m['전달순위'] = pd.to_numeric(df_m['전달순위'], errors='coerce')
-            df_m['전달순위'] = df_m['전달순위'].apply(lambda x: f"{int(x)}위" if pd.notna(x) and x > 0 else "NEW")
             
         df_m.index = range(1, len(df_m) + 1)
-        
         b_date_m = df_m['기준일(월말)'].iloc[0]
+        
         st.markdown(f'<p class="main-title">📊 월간 모멘텀 (기준: {b_date_m})</p>', unsafe_allow_html=True)
         
         idx_m = get_idx_kr(pd.to_datetime(b_date_m))
@@ -284,14 +269,12 @@ with tab3:
     if os.path.exists(f_daily):
         df_d = pd.read_csv(f_daily, dtype={'종목코드': str})
         
-        # 💡 [핵심 복구] 미국 페이지와 동일한 로직 적용
         if '전달순위' in df_d.columns:
             df_d['전달순위'] = pd.to_numeric(df_d['전달순위'], errors='coerce')
-            df_d['전달순위'] = df_d['전달순위'].apply(lambda x: f"{int(x)}위" if pd.notna(x) and x > 0 else "NEW")
             
         df_d.index = range(1, len(df_d) + 1)
-        
         b_date_d = df_d['기준일'].iloc[0]
+        
         st.markdown(f'<p class="main-title">🕒 데일리 모멘텀 (기준: {b_date_d})</p>', unsafe_allow_html=True)
         
         idx_now = get_idx_kr()
