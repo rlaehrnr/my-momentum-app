@@ -127,8 +127,7 @@ tab1, tab2, tab3 = st.tabs(["🎯 KOSPI 200 강세 종목", "📅 전월 말일 
 f_kr = 'data/momentum_data.csv'
 f_daily = 'data/momentum_data_daily.csv'
 
-# 💡 [핵심 최적화] '전달 순위'를 column_config에서 아예 빼서 Styler가 온전히 화면표시(포맷팅)를 제어하도록 함.
-# 이렇게 하면 Streamlit은 백그라운드 데이터(순수 숫자)를 기준으로 완벽하게 정렬하고 화면에는 '15위' 또는 'NEW'를 띄워줍니다.
+# 💡 [핵심 복구] 미국 페이지와 동일하게 '전달순위'를 TextColumn으로 고정하여 "NEW", "15위"가 깔끔하게 나오도록 수정
 main_cfg = {
     "통합티커_L": st.column_config.LinkColumn("티커", display_text=r"#(.+)"), 
     "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
@@ -137,7 +136,8 @@ main_cfg = {
     "3개월(%)": st.column_config.NumberColumn(format="%.1f"), 
     "6개월(%)": st.column_config.NumberColumn(format="%.1f"), 
     "12개월(%)": st.column_config.NumberColumn(format="%.1f"),
-    "모멘텀스코어": st.column_config.NumberColumn("스코어", format="%.2f")
+    "모멘텀스코어": st.column_config.NumberColumn("스코어", format="%.2f"),
+    "전달순위": st.column_config.TextColumn("전달 순위", width=75) 
 }
 
 # --- 탭 1: KOSPI 200 집중 분석 ---
@@ -255,22 +255,14 @@ with tab2:
     if os.path.exists(f_kr):
         df_m = pd.read_csv(f_kr, dtype={'종목코드': str})
         
-        # 💡 [버그 픽스 & 동적 계산] 파일에 'None'이라고 적혀있어도 과거 파일을 열어 실제 숫자로 된 순위를 덮어씌웁니다.
-        b_date_m = df_m['기준일(월말)'].iloc[0]
-        prev_dt = pd.to_datetime(b_date_m).replace(day=1) - pd.Timedelta(days=1)
-        prev_file = os.path.join("archive", f"momentum_{prev_dt.strftime('%Y_%m')}.csv")
-        
-        if os.path.exists(prev_file):
-            df_p = pd.read_csv(prev_file, dtype={'종목코드': str})
-            df_p = df_p.sort_values('모멘텀스코어', ascending=False)
-            df_p['calc_rank'] = range(1, len(df_p) + 1)
-            rank_map = df_p.set_index('종목코드')['calc_rank'].to_dict()
-            df_m['전달 순위'] = df_m['종목코드'].map(rank_map) # 매칭 안되는 신규종목은 NaN(숫자)이 됨
-        else:
-            df_m['전달 순위'] = pd.to_numeric(df_m.get('전달순위', pd.NA), errors='coerce')
+        # 💡 [핵심 복구] 미국 페이지와 동일한 로직 적용 (문자열 '15위' / 'NEW' 변환)
+        if '전달순위' in df_m.columns:
+            df_m['전달순위'] = pd.to_numeric(df_m['전달순위'], errors='coerce')
+            df_m['전달순위'] = df_m['전달순위'].apply(lambda x: f"{int(x)}위" if pd.notna(x) and x > 0 else "NEW")
             
         df_m.index = range(1, len(df_m) + 1)
         
+        b_date_m = df_m['기준일(월말)'].iloc[0]
         st.markdown(f'<p class="main-title">📊 월간 모멘텀 (기준: {b_date_m})</p>', unsafe_allow_html=True)
         
         idx_m = get_idx_kr(pd.to_datetime(b_date_m))
@@ -285,27 +277,17 @@ with tab2:
         df_m['통합티커_L'] = df_m.apply(lambda r: f"https://finance.naver.com/item/main.naver?code={str(r['종목코드']).zfill(6)}#{r['시장']}:{str(r['종목코드']).zfill(6)}", axis=1)
         df_m['종목명_L'] = df_m.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{str(r['종목코드']).zfill(6)}#{r['종목명']}", axis=1)
         
-        # 💡 [Styler 적용] 데이터 자체는 숫자형이므로 정렬이 완벽히 동작하고, 화면 표기만 Pandas Styler로 덧입힙니다.
-        styled_df_m = df_m.style.apply(apply_k200_styling, idx_df=idx_m, axis=1).format({'전달 순위': '{:.0f}위'}, na_rep='NEW')
-        
-        st.dataframe(styled_df_m, use_container_width=True, height=550, 
-                     column_order=['통합티커_L', '종목명_L', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달 순위'], 
-                     column_config=main_cfg)
+        st.dataframe(df_m.style.apply(apply_k200_styling, idx_df=idx_m, axis=1), use_container_width=True, height=550, column_order=['통합티커_L', '종목명_L', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달순위'], column_config=main_cfg)
 
 # --- 탭 3: 오늘 기준 (데일리) ---
 with tab3:
     if os.path.exists(f_daily):
         df_d = pd.read_csv(f_daily, dtype={'종목코드': str})
         
-        # 💡 [버그 픽스 & 동적 계산] 데일리 탭의 전달 순위는 월간 모멘텀 파일(f_kr)에서 동적으로 다시 가져옵니다.
-        if os.path.exists(f_kr):
-            df_p = pd.read_csv(f_kr, dtype={'종목코드': str})
-            df_p = df_p.sort_values('모멘텀스코어', ascending=False)
-            df_p['calc_rank'] = range(1, len(df_p) + 1)
-            rank_map = df_p.set_index('종목코드')['calc_rank'].to_dict()
-            df_d['전달 순위'] = df_d['종목코드'].map(rank_map)
-        else:
-            df_d['전달 순위'] = pd.to_numeric(df_d.get('전달순위', pd.NA), errors='coerce')
+        # 💡 [핵심 복구] 미국 페이지와 동일한 로직 적용
+        if '전달순위' in df_d.columns:
+            df_d['전달순위'] = pd.to_numeric(df_d['전달순위'], errors='coerce')
+            df_d['전달순위'] = df_d['전달순위'].apply(lambda x: f"{int(x)}위" if pd.notna(x) and x > 0 else "NEW")
             
         df_d.index = range(1, len(df_d) + 1)
         
@@ -327,8 +309,4 @@ with tab3:
         daily_cfg["기준가"] = st.column_config.NumberColumn("현재가", format="%,d") 
         daily_cfg["전일거래량"] = st.column_config.NumberColumn("전일거래량", format="%,d")
         
-        styled_df_d = df_d.style.apply(apply_k200_styling, idx_df=idx_now, axis=1).format({'전달 순위': '{:.0f}위'}, na_rep='NEW')
-        
-        st.dataframe(styled_df_d, use_container_width=True, height=600, 
-                     column_order=['통합티커_L', '종목명_L', '기준가', '전일거래량', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달 순위'], 
-                     column_config=daily_cfg)
+        st.dataframe(df_d.style.apply(apply_k200_styling, idx_df=idx_now, axis=1), use_container_width=True, height=600, column_order=['통합티커_L', '종목명_L', '기준가', '전일거래량', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달순위'], column_config=daily_cfg)
