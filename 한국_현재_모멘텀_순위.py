@@ -127,7 +127,7 @@ tab1, tab2, tab3 = st.tabs(["🎯 KOSPI 200 강세 종목", "📅 전월 말일 
 f_kr = 'data/momentum_data.csv'
 f_daily = 'data/momentum_data_daily.csv'
 
-# 💡 [핵심 복구] 미국 페이지와 동일하게 '전달순위'를 TextColumn으로 고정하여 "NEW", "15위"가 깔끔하게 나오도록 수정
+# 💡 [복구 완료] 전달순위를 다시 NumberColumn으로 되돌려 정렬 문제와 값 누락을 원천 차단했습니다.
 main_cfg = {
     "통합티커_L": st.column_config.LinkColumn("티커", display_text=r"#(.+)"), 
     "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
@@ -137,7 +137,7 @@ main_cfg = {
     "6개월(%)": st.column_config.NumberColumn(format="%.1f"), 
     "12개월(%)": st.column_config.NumberColumn(format="%.1f"),
     "모멘텀스코어": st.column_config.NumberColumn("스코어", format="%.2f"),
-    "전달순위": st.column_config.TextColumn("전달 순위", width=75) 
+    "전달순위": st.column_config.NumberColumn("전달 순위", format="%d위")
 }
 
 # --- 탭 1: KOSPI 200 집중 분석 ---
@@ -255,10 +255,9 @@ with tab2:
     if os.path.exists(f_kr):
         df_m = pd.read_csv(f_kr, dtype={'종목코드': str})
         
-        # 💡 [핵심 복구] 미국 페이지와 동일한 로직 적용 (문자열 '15위' / 'NEW' 변환)
+        # 💡 [복구 완료] 순수 숫자(Int64) 타입으로 변환하여 NumberColumn과 완벽 호환되게 함
         if '전달순위' in df_m.columns:
-            df_m['전달순위'] = pd.to_numeric(df_m['전달순위'], errors='coerce')
-            df_m['전달순위'] = df_m['전달순위'].apply(lambda x: f"{int(x)}위" if pd.notna(x) and x > 0 else "NEW")
+            df_m['전달순위'] = pd.to_numeric(df_m['전달순위'], errors='coerce').astype('Int64')
             
         df_m.index = range(1, len(df_m) + 1)
         
@@ -267,6 +266,8 @@ with tab2:
         
         idx_m = get_idx_kr(pd.to_datetime(b_date_m))
         idx_m_disp = idx_m.reset_index().copy()
+        
+        # 💡 [유지] 지수 현재가 소수점 2자리 표시
         idx_m_disp['시장_L'] = idx_m_disp['시장'].apply(lambda x: f"https://m.stock.naver.com/domestic/index/{x}/total#{x}")
         idx_m_disp['현재가_L'] = idx_m_disp.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/index/{r['시장']}#{r['현재가']:,.2f}", axis=1)
         
@@ -284,10 +285,9 @@ with tab3:
     if os.path.exists(f_daily):
         df_d = pd.read_csv(f_daily, dtype={'종목코드': str})
         
-        # 💡 [핵심 복구] 미국 페이지와 동일한 로직 적용
+        # 💡 [복구 완료] 순수 숫자(Int64) 타입으로 변환하여 NumberColumn과 완벽 호환되게 함
         if '전달순위' in df_d.columns:
-            df_d['전달순위'] = pd.to_numeric(df_d['전달순위'], errors='coerce')
-            df_d['전달순위'] = df_d['전달순위'].apply(lambda x: f"{int(x)}위" if pd.notna(x) and x > 0 else "NEW")
+            df_d['전달순위'] = pd.to_numeric(df_d['전달순위'], errors='coerce').astype('Int64')
             
         df_d.index = range(1, len(df_d) + 1)
         
@@ -296,6 +296,8 @@ with tab3:
         
         idx_now = get_idx_kr()
         idx_now_disp = idx_now.reset_index().copy()
+        
+        # 💡 [유지] 지수 현재가 소수점 2자리 표시
         idx_now_disp['시장_L'] = idx_now_disp['시장'].apply(lambda x: f"https://m.stock.naver.com/domestic/index/{x}/total#{x}")
         idx_now_disp['현재가_L'] = idx_now_disp.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/index/{r['시장']}#{r['현재가']:,.2f}", axis=1)
         
