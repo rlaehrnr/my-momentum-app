@@ -57,20 +57,14 @@ def get_naver_stock_urls_cached(ticker, name, display_ticker):
             exchange = stock.info.get('exchange', '')
             
             mapping = {
-                'NMS': '.O',  
-                'NGM': '.O',  
-                'NCM': '.O',  
-                'NYQ': '',    
-                'ASE': '.A',  
-                'BATS': '.K', 
-                'PCX': '.P',  
+                'NMS': '.O', 'NGM': '.O', 'NCM': '.O',
+                'NYQ': '', 'ASE': '.A', 'BATS': '.K', 'PCX': '.P',
             }
             
             if exchange in mapping:
                 suffix = mapping[exchange]
             else:
                 suffix = '.O' if len(ticker_str) >= 4 else ''
-                
         except:
             suffix = '.O' if len(ticker_str) >= 4 else ''
 
@@ -79,7 +73,7 @@ def get_naver_stock_urls_cached(ticker, name, display_ticker):
     
     return total_url, chart_url
 
-# 💡 [지수 데이터 수집] 20, 60, 120, 150, 200일선으로 변경
+# 지수 데이터 수집 및 이동평균선 현황
 @st.cache_data(ttl=3600)
 def get_index_ma_status(target_date_str):
     indices = {'S&P 500': 'US500', 'NASDAQ': 'IXIC'}
@@ -91,10 +85,8 @@ def get_index_ma_status(target_date_str):
         try:
             df = fdr.DataReader(code, start_date, target_date)
             if df.empty: continue
-            
             curr_price = df['Close'].iloc[-1]
             
-            # S&P 500 및 NASDAQ에 따라 링크 다르게 생성
             if name == 'S&P 500':
                 url_name = f"https://m.stock.naver.com/worldstock/index/.INX/total#{name}"
                 url_price = f"https://m.stock.naver.com/fchart/foreign/index/.INX#{curr_price:,.2f}"
@@ -103,12 +95,10 @@ def get_index_ma_status(target_date_str):
                 url_price = f"https://m.stock.naver.com/fchart/foreign/index/.IXIC#{curr_price:,.2f}"
             
             ma_values = {
-                '지수_L': url_name,
-                '현재가_L': url_price,
-                'base_price': round(curr_price, 2), # 스타일 비교용
+                '지수_L': url_name, '현재가_L': url_price, 'base_price': round(curr_price, 2),
                 '20일선': round(df['Close'].rolling(20).mean().iloc[-1], 2),
                 '60일선': round(df['Close'].rolling(60).mean().iloc[-1], 2),
-                '120일선': round(df['Close'].rolling(120).mean().iloc[-1], 2), # 💡 추가
+                '120일선': round(df['Close'].rolling(120).mean().iloc[-1], 2),
                 '150일선': round(df['Close'].rolling(150).mean().iloc[-1], 2),
                 '200일선': round(df['Close'].rolling(200).mean().iloc[-1], 2)
             }
@@ -116,7 +106,6 @@ def get_index_ma_status(target_date_str):
         except: pass
     return pd.DataFrame(res)
 
-# 이동평균선 색상 스타일 함수
 def style_index_ma(df):
     def apply_color(row):
         price = row['base_price']
@@ -125,14 +114,11 @@ def style_index_ma(df):
             if '일선' in col:
                 val = row[col]
                 if pd.notna(val):
-                    if val < price:
-                        styles[i] = 'color: #EF4444; font-weight: bold;' 
-                    elif val > price:
-                        styles[i] = 'color: #3B82F6; font-weight: bold;' 
+                    if val < price: styles[i] = 'color: #EF4444; font-weight: bold;' 
+                    elif val > price: styles[i] = 'color: #3B82F6; font-weight: bold;' 
         return styles
     return df.style.apply(apply_color, axis=1)
 
-# 💡 지수 테이블 설정 (10일선 제거 및 120일선 추가)
 ma_config = {
     "지수_L": st.column_config.LinkColumn("지수", display_text=r"#(.+)"),
     "현재가_L": st.column_config.LinkColumn("현재가", display_text=r"#(.+)"),
@@ -152,7 +138,6 @@ def highlight_name_only(row, common_tickers):
             styles[name_idx] = 'background-color: #FFF9C4; color: #1F2937; font-weight: bold; border-radius: 4px;'
     return styles
 
-# 종목 테이블 컬럼 설정
 base_config = {
     "순위": st.column_config.NumberColumn("순위", format="%d", width=40),
     "통합티커_L": st.column_config.LinkColumn("티커", display_text=r"#(.+)", width=105), 
@@ -170,40 +155,18 @@ base_config = {
     "전달순위": st.column_config.TextColumn("전월순위", width=75), 
 }
 
-@st.cache_data(ttl=3600)
-def get_idx_us(target_date=None):
-    indices = {'미국 시장': 'US500', 'NASDAQ': 'IXIC'}
-    today = datetime.today()
-    res = []
-    for name, code in indices.items():
-        try:
-            df = fdr.DataReader(code, today - pd.DateOffset(months=16), today)
-            curr_val = df.loc[df.index <= target_date]['Close'].iloc[-1] if target_date else df['Close'].iloc[-1]
-            last_idx_date = df.index[df.index <= (target_date if target_date else today)][-1]
-            def get_ret(m):
-                ref_day = (last_idx_date.replace(day=1) - pd.DateOffset(months=m-1)) - timedelta(days=1)
-                p_df = df[df.index <= ref_day]
-                return round((curr_val - p_df['Close'].iloc[-1]) / p_df['Close'].iloc[-1] * 100, 2) if not p_df.empty else 0.0
-            res.append({'시장': name, '현재가': curr_val, '1개월(%)': get_ret(1), '3개월(%)': get_ret(3), '6개월(%)': get_ret(6), '12개월(%)': get_ret(12)})
-        except: pass
-    return pd.DataFrame(res).set_index('시장')
-
 def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
     st.markdown(f"### 📊 주요 지수 이동평균선 현황 (기준일: {target_date_str})")
     ma_df = get_index_ma_status(target_date_str)
-    
-    # 💡 [지수 테이블 출력] 10일선 제거하고 120일선 추가된 순서로 변경
     if not ma_df.empty:
-        st.dataframe(
-            style_index_ma(ma_df), 
-            use_container_width=True, 
-            hide_index=True, 
-            column_order=["지수_L", "현재가_L", "20일선", "60일선", "120일선", "150일선", "200일선"],
-            column_config=ma_config
-        )
+        st.dataframe(style_index_ma(ma_df), use_container_width=True, hide_index=True, 
+                     column_order=["지수_L", "현재가_L", "20일선", "60일선", "120일선", "150일선", "200일선"],
+                     column_config=ma_config)
     st.markdown("<br>", unsafe_allow_html=True)
 
     df_300 = df_raw.head(300).copy()
+    # 💡 순위를 1부터 시작하게 설정
+    df_300.index = range(1, len(df_300) + 1)
     
     if not is_daily:
         if '전달순위' not in df_300.columns and '기준일(월말)' in df_raw.columns:
@@ -234,64 +197,69 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
     df_300['통합티커_L'] = links_df[0] 
     df_300['종목명_L'] = links_df[1]  
 
-    top10_12_1 = df_300.sort_values('12-1개월(%)', ascending=False).head(10)
-    top10_6_1 = df_300.sort_values('6-1개월(%)', ascending=False).head(10)
-    top10_3_1 = df_300.sort_values('3-1개월(%)', ascending=False).head(10)
+    # 💡 KeyError 방지를 위한 컬럼 존재 여부 확인 후 소팅
+    sort_cols = ['12-1개월(%)', '6-1개월(%)', '3-1개월(%)']
+    available_sort_cols = [c for c in sort_cols if c in df_300.columns]
+    
+    if len(available_sort_cols) == 3:
+        top10_12_1 = df_300.sort_values('12-1개월(%)', ascending=False).head(10)
+        top10_6_1 = df_300.sort_values('6-1개월(%)', ascending=False).head(10)
+        top10_3_1 = df_300.sort_values('3-1개월(%)', ascending=False).head(10)
 
-    overlap_12_6 = top10_12_1[top10_12_1['종목코드'].isin(top10_6_1['종목코드'])].sort_values('6-1개월(%)', ascending=False).copy()
-    overlap_6_3 = top10_6_1[top10_6_1['종목코드'].isin(top10_3_1['종목코드'])].sort_values('6-1개월(%)', ascending=False).copy()
-    common_tickers = set(overlap_12_6['종목코드']).intersection(set(overlap_6_3['종목코드']))
+        overlap_12_6 = top10_12_1[top10_12_1['종목코드'].isin(top10_6_1['종목코드'])].sort_values('6-1개월(%)', ascending=False).copy()
+        overlap_6_3 = top10_6_1[top10_6_1['종목코드'].isin(top10_3_1['종목코드'])].sort_values('6-1개월(%)', ascending=False).copy()
+        common_tickers = set(overlap_12_6['종목코드']).intersection(set(overlap_6_3['종목코드']))
 
-    # --- 상단: 교집합 ---
-    st.markdown("### 🌟 모멘텀 교집합 (TOP 10 중복 분석)")
-    c_over1, c_over2 = st.columns(2)
-    with c_over1:
-        st.markdown('<div class="overlap-header">🔥 12-1M & 6-1M 중복</div>', unsafe_allow_html=True)
-        if not overlap_12_6.empty:
-            overlap_12_6['순위'] = range(1, len(overlap_12_6) + 1)
-            st.dataframe(overlap_12_6.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
-                         use_container_width=True, hide_index=True,
-                         column_order=['순위', '통합티커_L', '종목명_L', '12-1개월(%)', '6-1개월(%)'], column_config=base_config)
-        else: st.info("중복 종목 없음")
-    with c_over2:
-        st.markdown('<div class="overlap-header">⚡ 6-1M & 3-1M 중복</div>', unsafe_allow_html=True)
-        if not overlap_6_3.empty:
-            overlap_6_3['순위'] = range(1, len(overlap_6_3) + 1)
-            st.dataframe(overlap_6_3.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
-                         use_container_width=True, hide_index=True,
-                         column_order=['순위', '통합티커_L', '종목명_L', '6-1개월(%)', '3-1개월(%)'], column_config=base_config)
-        else: st.info("중복 종목 없음")
+        # --- 상단: 교집합 ---
+        st.markdown("### 🌟 모멘텀 교집합 (TOP 10 중복 분석)")
+        c_over1, c_over2 = st.columns(2)
+        with c_over1:
+            st.markdown('<div class="overlap-header">🔥 12-1M & 6-1M 중복</div>', unsafe_allow_html=True)
+            if not overlap_12_6.empty:
+                overlap_12_6['순위'] = range(1, len(overlap_12_6) + 1)
+                st.dataframe(overlap_12_6.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
+                             use_container_width=True, hide_index=True,
+                             column_order=['순위', '통합티커_L', '종목명_L', '12-1개월(%)', '6-1개월(%)'], column_config=base_config)
+            else: st.info("중복 종목 없음")
+        with c_over2:
+            st.markdown('<div class="overlap-header">⚡ 6-1M & 3-1M 중복</div>', unsafe_allow_html=True)
+            if not overlap_6_3.empty:
+                overlap_6_3['순위'] = range(1, len(overlap_6_3) + 1)
+                st.dataframe(overlap_6_3.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
+                             use_container_width=True, hide_index=True,
+                             column_order=['순위', '통합티커_L', '종목명_L', '6-1개월(%)', '3-1개월(%)'], column_config=base_config)
+            else: st.info("중복 종목 없음")
+    else:
+        st.error("데이터에 '12-1개월(%)' 등의 필수 컬럼이 없습니다. update_monthly.py를 다시 실행해 주세요.")
+        common_tickers = set()
 
+    # --- 중단: 상위 30위 ---
     st.markdown("<br>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
-    
     sub_config = base_config.copy()
-    sub_config["12-1개월(%)"] = st.column_config.NumberColumn("12-1", format="%.1f%%", width="small")
-    sub_config["6-1개월(%)"] = st.column_config.NumberColumn("6-1", format="%.1f%%", width="small")
-    sub_config["3-1개월(%)"] = st.column_config.NumberColumn("3-1", format="%.1f%%", width="small")
+    for c in ["12-1개월(%)", "6-1개월(%)", "3-1개월(%)"]:
+        if c in sub_config: sub_config[c] = st.column_config.NumberColumn(c.replace("개월(%)",""), format="%.1f%%", width="small")
 
     for col, title, sort_col in zip([col1, col2, col3], 
                                    ["🏆 12-1개월 상위 30", "🏆 6-1개월 상위 30", "🏆 3-1개월 상위 30"], 
                                    ["12-1개월(%)", "6-1개월(%)", "3-1개월(%)"]):
         with col:
             st.markdown(f'<div class="section-header">{title}</div>', unsafe_allow_html=True)
-            df_sub = df_300.sort_values(sort_col, ascending=False).head(30).copy()
-            df_sub['순위'] = range(1, 31)
-            st.dataframe(df_sub.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
-                         use_container_width=True, height=450, hide_index=True,
-                         column_order=['순위', '통합티커_L', '종목명_L', sort_col], column_config=sub_config)
+            if sort_col in df_300.columns:
+                df_sub = df_300.sort_values(sort_col, ascending=False).head(30).copy()
+                df_sub['순위'] = range(1, 31)
+                st.dataframe(df_sub.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
+                             use_container_width=True, height=450, hide_index=True,
+                             column_order=['순위', '통합티커_L', '종목명_L', sort_col], column_config=sub_config)
 
+    # --- 하단: 전체 ---
     st.markdown("---")
     st.markdown(f'### 📊 미국 시총상위 300종목 전체 (기준: {target_date_str})')
     df_300_all = df_300.copy()
     df_300_all['순위'] = range(1, len(df_300_all) + 1)
-    
     full_order = ['순위', '통합티커_L', '종목명_L', '현재가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '3-1개월(%)', '6-1개월(%)', '12-1개월(%)', '모멘텀스코어', '전달순위']
-    if is_daily:
-        full_order.insert(4, '전일거래량')
-    
+    if is_daily: full_order.insert(4, '전일거래량')
     full_order = [col for col in full_order if col in df_300_all.columns or col in ['순위', '통합티커_L', '종목명_L']]
-    
     st.dataframe(df_300_all.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
                  use_container_width=True, height=600, hide_index=True,
                  column_order=full_order, column_config=base_config)
@@ -305,12 +273,15 @@ f_us, f_daily = 'data/momentum_data_us.csv', 'data/momentum_data_daily_us.csv'
 with t1:
     if os.path.exists(f_us):
         df = pd.read_csv(f_us, dtype={'종목코드': str})
-        df_m.columns = df_m.columns.str.strip().str.replace(' ', '')
-        df.columns = df.columns.str.replace(' ', '')
-        display_momentum_dashboard(df, df['기준일(월말)'].iloc[0], is_daily=False)
+        # 💡 NameError 해결: 변수명을 df로 일치시킴
+        df.columns = df.columns.str.strip().str.replace(' ', '')
+        if not df.empty:
+            display_momentum_dashboard(df, df['기준일(월말)'].iloc[0], is_daily=False)
+
 with t2:
     if os.path.exists(f_daily):
-        df = pd.read_csv(f_daily, dtype={'종목코드': str})
-        df_m.columns = df_m.columns.str.strip().str.replace(' ', '')
-        df.columns = df.columns.str.replace(' ', '')
-        display_momentum_dashboard(df, df['기준일'].iloc[0], is_daily=True)
+        df_d = pd.read_csv(f_daily, dtype={'종목코드': str})
+        # 💡 NameError 해결: 변수명을 df_d로 일치시킴
+        df_d.columns = df_d.columns.str.strip().str.replace(' ', '')
+        if not df_d.empty:
+            display_momentum_dashboard(df_d, df_d['기준일'].iloc[0], is_daily=True)
