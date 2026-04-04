@@ -17,14 +17,14 @@ st.markdown("""
 
 # 💡 [대통령 주기 하드코딩] 8년차 주기 위험달 데이터
 PRESIDENTIAL_DANGEROUS_MONTHS = {
-    1: [2, 9],                 # 1년차 (초선 1년차)
-    2: [1, 2, 4, 5, 6, 9],       # 2년차 (초선 중간선거)
-    3: [9],                 # 3년차 (초선 3년차)
-    4: [3],                    # 4년차 (초선 대선해)
-    5: [3],                     # 5년차 (재선 1년차 / 2025년 트럼프 2기)
-    6: [7],                    # 6년차 (재선 중간선거 / 2026년)
-    7: [8, 9, 10, 11],         # 7년차 (재선 3년차 / 2027년 예상)
-    8: [1, 9, 10, 11]       # 8년차 (재선 대선해 / 2028년 예상)
+    1: [2, 9],                 
+    2: [1, 2, 4, 5, 6, 9],       
+    3: [9],                 
+    4: [3],                    
+    5: [3],                     
+    6: [7],                    
+    7: [8, 9, 10, 11],         
+    8: [1, 9, 10, 11]       
 }
 
 def get_cycle_year(year):
@@ -70,11 +70,11 @@ def get_idx_kr(target_date=None):
         except: pass
     return pd.DataFrame(res).set_index('시장')
 
-# KOSPI 이동평균선 계산 함수
+# KOSPI 이동평균선 계산
 @st.cache_data(ttl=3600)
 def get_kospi_ma_status(target_date_str):
     target_date = pd.to_datetime(target_date_str)
-    start_date = target_date - timedelta(days=400) 
+    start_date = target_date - timedelta(days=400)
     
     try:
         df = fdr.DataReader('KS11', start_date, target_date)
@@ -86,10 +86,8 @@ def get_kospi_ma_status(target_date_str):
         url_price = f"https://m.stock.naver.com/fchart/domestic/index/KOSPI#{curr_price:,.2f}"
         
         ma_values = {
-            '지수_L': url_name,
-            '현재가_L': url_price,
-            'base_price': round(curr_price, 2),
-            '4개월선': round(df['Close'].rolling(80).mean().iloc[-1], 2), 
+            '지수_L': url_name, '현재가_L': url_price, 'base_price': round(curr_price, 2),
+            '4개월선': round(df['Close'].rolling(80).mean().iloc[-1], 2),
             '5개월선': round(df['Close'].rolling(100).mean().iloc[-1], 2),
             '6개월선': round(df['Close'].rolling(120).mean().iloc[-1], 2),
             '10개월선': round(df['Close'].rolling(200).mean().iloc[-1], 2),
@@ -99,7 +97,7 @@ def get_kospi_ma_status(target_date_str):
     except: 
         return pd.DataFrame()
 
-# 이동평균선 색상 적용 함수
+# 이동평균선 색상 적용
 def style_kospi_ma(df):
     def apply_color(row):
         price = row['base_price']
@@ -108,10 +106,8 @@ def style_kospi_ma(df):
             if '개월선' in col:
                 val = row[col]
                 if pd.notna(val):
-                    if price > val:
-                        styles[i] = 'color: #EF4444; font-weight: bold;' 
-                    elif price < val:
-                        styles[i] = 'color: #3B82F6; font-weight: bold;' 
+                    if price > val: styles[i] = 'color: #EF4444; font-weight: bold;' 
+                    elif price < val: styles[i] = 'color: #3B82F6; font-weight: bold;' 
         return styles
     return df.style.apply(apply_color, axis=1)
 
@@ -131,7 +127,8 @@ tab1, tab2, tab3 = st.tabs(["🎯 KOSPI 200 강세 종목", "📅 전월 말일 
 f_kr = 'data/momentum_data.csv'
 f_daily = 'data/momentum_data_daily.csv'
 
-# 💡 [핵심 수정] 전달순위 정렬 깨짐 방지: NumberColumn 유지 + 포맷팅 적용
+# 💡 [핵심 최적화] '전달 순위'를 column_config에서 아예 빼서 Styler가 온전히 화면표시(포맷팅)를 제어하도록 함.
+# 이렇게 하면 Streamlit은 백그라운드 데이터(순수 숫자)를 기준으로 완벽하게 정렬하고 화면에는 '15위' 또는 'NEW'를 띄워줍니다.
 main_cfg = {
     "통합티커_L": st.column_config.LinkColumn("티커", display_text=r"#(.+)"), 
     "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
@@ -140,8 +137,7 @@ main_cfg = {
     "3개월(%)": st.column_config.NumberColumn(format="%.1f"), 
     "6개월(%)": st.column_config.NumberColumn(format="%.1f"), 
     "12개월(%)": st.column_config.NumberColumn(format="%.1f"),
-    "모멘텀스코어": st.column_config.NumberColumn("스코어", format="%.2f"),
-    "전달순위": st.column_config.NumberColumn("전달 순위", format="%d위")
+    "모멘텀스코어": st.column_config.NumberColumn("스코어", format="%.2f")
 }
 
 # --- 탭 1: KOSPI 200 집중 분석 ---
@@ -158,13 +154,9 @@ with tab1:
         kospi_4m_ma = 0
         
         if not kospi_ma_df.empty:
-            st.dataframe(
-                style_kospi_ma(kospi_ma_df), 
-                use_container_width=True, 
-                hide_index=True, 
-                column_order=["지수_L", "현재가_L", "4개월선", "5개월선", "6개월선", "10개월선", "12개월선"],
-                column_config=kospi_ma_config
-            )
+            st.dataframe(style_kospi_ma(kospi_ma_df), use_container_width=True, hide_index=True, 
+                         column_order=["지수_L", "현재가_L", "4개월선", "5개월선", "6개월선", "10개월선", "12개월선"],
+                         column_config=kospi_ma_config)
             kospi_curr = kospi_ma_df['base_price'].iloc[0]
             kospi_4m_ma = kospi_ma_df['4개월선'].iloc[0]
             
@@ -178,7 +170,6 @@ with tab1:
         df_k200['종목코드'] = df_k200['종목코드'].astype(str).str.zfill(6)
         df_k200 = df_k200[df_k200['종목코드'].str.endswith('0')].copy()
         
-        # 파일 내 시가총액 로직
         if '시가총액' in df_k200.columns:
             df_k200['시가총액'] = pd.to_numeric(df_k200['시가총액'], errors='coerce').fillna(0)
             if df_k200['시가총액'].max() > 10**10:
@@ -206,7 +197,6 @@ with tab1:
         bad_months = PRESIDENTIAL_DANGEROUS_MONTHS.get(cycle_year, [])
         bad_m_str = ", ".join(f"{m}월" for m in bad_months) if bad_months else "없음"
 
-        # 투자 판단 로직
         is_bad_market = (neg_1m_cnt >= 100) and (neg_3m_cnt >= 100)
         is_below_4m_ma = (kospi_curr < kospi_4m_ma) if kospi_curr > 0 else False
         
@@ -265,19 +255,26 @@ with tab2:
     if os.path.exists(f_kr):
         df_m = pd.read_csv(f_kr, dtype={'종목코드': str})
         
-        # 💡 [핵심 수정] 전달순위 문자로 된 'None'이나 NaN을 모두 숫자(NaN)로 통일 처리
-        if '전달순위' in df_m.columns:
-            df_m['전달순위'] = pd.to_numeric(df_m['전달순위'], errors='coerce')
+        # 💡 [버그 픽스 & 동적 계산] 파일에 'None'이라고 적혀있어도 과거 파일을 열어 실제 숫자로 된 순위를 덮어씌웁니다.
+        b_date_m = df_m['기준일(월말)'].iloc[0]
+        prev_dt = pd.to_datetime(b_date_m).replace(day=1) - pd.Timedelta(days=1)
+        prev_file = os.path.join("archive", f"momentum_{prev_dt.strftime('%Y_%m')}.csv")
+        
+        if os.path.exists(prev_file):
+            df_p = pd.read_csv(prev_file, dtype={'종목코드': str})
+            df_p = df_p.sort_values('모멘텀스코어', ascending=False)
+            df_p['calc_rank'] = range(1, len(df_p) + 1)
+            rank_map = df_p.set_index('종목코드')['calc_rank'].to_dict()
+            df_m['전달 순위'] = df_m['종목코드'].map(rank_map) # 매칭 안되는 신규종목은 NaN(숫자)이 됨
+        else:
+            df_m['전달 순위'] = pd.to_numeric(df_m.get('전달순위', pd.NA), errors='coerce')
             
         df_m.index = range(1, len(df_m) + 1)
         
-        b_date_m = df_m['기준일(월말)'].iloc[0]
         st.markdown(f'<p class="main-title">📊 월간 모멘텀 (기준: {b_date_m})</p>', unsafe_allow_html=True)
         
         idx_m = get_idx_kr(pd.to_datetime(b_date_m))
         idx_m_disp = idx_m.reset_index().copy()
-        
-        # 💡 [수정 사항] 지수 현재가를 소수점 둘째 자리까지 표시되도록 링크 포맷팅 수정
         idx_m_disp['시장_L'] = idx_m_disp['시장'].apply(lambda x: f"https://m.stock.naver.com/domestic/index/{x}/total#{x}")
         idx_m_disp['현재가_L'] = idx_m_disp.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/index/{r['시장']}#{r['현재가']:,.2f}", axis=1)
         
@@ -288,16 +285,27 @@ with tab2:
         df_m['통합티커_L'] = df_m.apply(lambda r: f"https://finance.naver.com/item/main.naver?code={str(r['종목코드']).zfill(6)}#{r['시장']}:{str(r['종목코드']).zfill(6)}", axis=1)
         df_m['종목명_L'] = df_m.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{str(r['종목코드']).zfill(6)}#{r['종목명']}", axis=1)
         
-        st.dataframe(df_m.style.apply(apply_k200_styling, idx_df=idx_m, axis=1), use_container_width=True, height=550, column_order=['통합티커_L', '종목명_L', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달순위'], column_config=main_cfg)
+        # 💡 [Styler 적용] 데이터 자체는 숫자형이므로 정렬이 완벽히 동작하고, 화면 표기만 Pandas Styler로 덧입힙니다.
+        styled_df_m = df_m.style.apply(apply_k200_styling, idx_df=idx_m, axis=1).format({'전달 순위': '{:.0f}위'}, na_rep='NEW')
+        
+        st.dataframe(styled_df_m, use_container_width=True, height=550, 
+                     column_order=['통합티커_L', '종목명_L', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달 순위'], 
+                     column_config=main_cfg)
 
 # --- 탭 3: 오늘 기준 (데일리) ---
 with tab3:
     if os.path.exists(f_daily):
         df_d = pd.read_csv(f_daily, dtype={'종목코드': str})
         
-        # 💡 [핵심 수정] 전달순위 문자로 된 'None'이나 NaN을 모두 숫자(NaN)로 통일 처리
-        if '전달순위' in df_d.columns:
-            df_d['전달순위'] = pd.to_numeric(df_d['전달순위'], errors='coerce')
+        # 💡 [버그 픽스 & 동적 계산] 데일리 탭의 전달 순위는 월간 모멘텀 파일(f_kr)에서 동적으로 다시 가져옵니다.
+        if os.path.exists(f_kr):
+            df_p = pd.read_csv(f_kr, dtype={'종목코드': str})
+            df_p = df_p.sort_values('모멘텀스코어', ascending=False)
+            df_p['calc_rank'] = range(1, len(df_p) + 1)
+            rank_map = df_p.set_index('종목코드')['calc_rank'].to_dict()
+            df_d['전달 순위'] = df_d['종목코드'].map(rank_map)
+        else:
+            df_d['전달 순위'] = pd.to_numeric(df_d.get('전달순위', pd.NA), errors='coerce')
             
         df_d.index = range(1, len(df_d) + 1)
         
@@ -306,8 +314,6 @@ with tab3:
         
         idx_now = get_idx_kr()
         idx_now_disp = idx_now.reset_index().copy()
-        
-        # 💡 [수정 사항] 지수 현재가를 소수점 둘째 자리까지 표시되도록 링크 포맷팅 수정
         idx_now_disp['시장_L'] = idx_now_disp['시장'].apply(lambda x: f"https://m.stock.naver.com/domestic/index/{x}/total#{x}")
         idx_now_disp['현재가_L'] = idx_now_disp.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/index/{r['시장']}#{r['현재가']:,.2f}", axis=1)
         
@@ -321,4 +327,8 @@ with tab3:
         daily_cfg["기준가"] = st.column_config.NumberColumn("현재가", format="%,d") 
         daily_cfg["전일거래량"] = st.column_config.NumberColumn("전일거래량", format="%,d")
         
-        st.dataframe(df_d.style.apply(apply_k200_styling, idx_df=idx_now, axis=1), use_container_width=True, height=600, column_order=['통합티커_L', '종목명_L', '기준가', '전일거래량', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달순위'], column_config=daily_cfg)
+        styled_df_d = df_d.style.apply(apply_k200_styling, idx_df=idx_now, axis=1).format({'전달 순위': '{:.0f}위'}, na_rep='NEW')
+        
+        st.dataframe(styled_df_d, use_container_width=True, height=600, 
+                     column_order=['통합티커_L', '종목명_L', '기준가', '전일거래량', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달 순위'], 
+                     column_config=daily_cfg)
