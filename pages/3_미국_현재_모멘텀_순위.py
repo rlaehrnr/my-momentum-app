@@ -305,10 +305,12 @@ f_us, f_daily = 'data/momentum_data_us.csv', 'data/momentum_data_daily_us.csv'
 with t1:
     if os.path.exists(f_us):
         df = pd.read_csv(f_us, dtype={'종목코드': str})
+        df_m.columns = df_m.columns.str.strip().str.replace(' ', '')
         df.columns = df.columns.str.replace(' ', '')
         display_momentum_dashboard(df, df['기준일(월말)'].iloc[0], is_daily=False)
 with t2:
     if os.path.exists(f_daily):
         df = pd.read_csv(f_daily, dtype={'종목코드': str})
+        df_m.columns = df_m.columns.str.strip().str.replace(' ', '')
         df.columns = df.columns.str.replace(' ', '')
         display_momentum_dashboard(df, df['기준일'].iloc[0], is_daily=True)
