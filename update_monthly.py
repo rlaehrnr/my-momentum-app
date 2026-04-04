@@ -75,14 +75,15 @@ def process_stock_monthly(row, mkt_name, market_type, ref_date, next_month_end, 
             '1개월(%)': round(r1, 1), '3개월(%)': round(r3, 1), '6개월(%)': round(r6, 1), '12개월(%)': round(r12, 1),
             '3-1개월(%)': r3_1, '6-1개월(%)': r6_1, '12-1개월(%)': r12_1,
             '모멘텀스코어': score, '다음달수익률(%)': next_ret,
-            '전달순위': prev_rank_map.get(code.upper(), None) # 💡 이제 정상적인 맵퍼가 들어갑니다.
+            '전달순위': prev_rank_map.get(code.upper(), None)
         }
     except Exception: return None
 
 def run_monthly(market_type='KR'):
+    # 💡 150으로 통일
     conf = {
-        'KR': ("한국", 'data/momentum_data.csv', 'archive', ['KOSPI', 'KOSDAQ'], 200),
-        'US': ("미국", 'data/momentum_data_us.csv', 'archive_us', ['NYSE', 'NASDAQ'], 200),
+        'KR': ("한국", 'data/momentum_data.csv', 'archive', ['KOSPI', 'KOSDAQ'], 150),
+        'US': ("미국", 'data/momentum_data_us.csv', 'archive_us', ['NYSE', 'NASDAQ'], 150),
         'SP500': ("S&P 500", 'data/momentum_data_sp500.csv', 'archive_sp500', ['S&P500'], 505)
     }
     name_tag, main_file, arch_dir, market_list, limit = conf[market_type]
@@ -91,7 +92,6 @@ def run_monthly(market_type='KR'):
     ref_date = today.replace(day=1) - timedelta(days=1)
     next_month_end = today 
     
-    # 💡 [핵심 수정] 두 달 전 아카이브 파일을 찾아서 '전달순위'를 미리 계산합니다.
     prev_ref_date = ref_date.replace(day=1) - timedelta(days=1)
     archive_prefix = 'us_' if market_type=='US' else ('sp500_' if market_type=='SP500' else '')
     prev_arch_name = f"momentum_{archive_prefix}{prev_ref_date.strftime('%Y_%m')}.csv"
@@ -103,7 +103,6 @@ def run_monthly(market_type='KR'):
             df_p = pd.read_csv(prev_arch_path, dtype={'종목코드': str})
             df_p = df_p.sort_values('모멘텀스코어', ascending=False).reset_index(drop=True)
             for i, r in df_p.iterrows():
-                # 한국 종목은 6자리 0채움 처리, 미국은 그대로 대문자화
                 c_key = str(r['종목코드']).zfill(6) if market_type == 'KR' else str(r['종목코드']).upper()
                 prev_rank_map[c_key] = i + 1
         except: pass
@@ -115,12 +114,14 @@ def run_monthly(market_type='KR'):
     
     res = []
     for mkt_name in market_list:
-        target_stocks = get_top_stocks(mkt_name, limit)
+        # 💡 [여기서 코스피만 200개로 강제 고정] 코스피가 아니면 위에서 정한 150개 사용
+        current_limit = 200 if mkt_name == 'KOSPI' else limit
+        target_stocks = get_top_stocks(mkt_name, current_limit)
+        
         if target_stocks.empty: continue
             
-        print(f"🔎 {mkt_name} 분석 중...")
+        print(f"🔎 {mkt_name} {current_limit}개 분석 중...")
         with ThreadPoolExecutor(max_workers=10) as executor:
-            # 💡 {} 하드코딩 대신 prev_rank_map 을 전달!
             futures = [executor.submit(process_stock_monthly, row, mkt_name, market_type, ref_date, next_month_end, prev_rank_map) for _, row in target_stocks.iterrows()]
             for future in as_completed(futures):
                 result = future.result()
@@ -130,7 +131,7 @@ def run_monthly(market_type='KR'):
         final_df = pd.DataFrame(res).sort_values('모멘텀스코어', ascending=False)
         final_df.to_csv(main_file, index=False, encoding='utf-8-sig')
         final_df.to_csv(arch_path, index=False, encoding='utf-8-sig')
-        print(f"✅ {name_tag} 업데이트 완료! (전달순위 정상 복구됨)")
+        print(f"✅ {name_tag} 업데이트 완료!")
 
 if __name__ == "__main__":
     for m in ['KR', 'US', 'SP500']:
