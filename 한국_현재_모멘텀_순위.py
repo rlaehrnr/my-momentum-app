@@ -15,7 +15,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 💡 [대통령 주기 하드코딩] 사용자가 제공한 8년차 주기 위험달 데이터
+# 💡 [대통령 주기 하드코딩] 8년차 주기 위험달 데이터
 PRESIDENTIAL_DANGEROUS_MONTHS = {
     1: [2, 9],                 # 1년차 (초선 1년차)
     2: [1, 2, 4, 5, 6, 9],       # 2년차 (초선 중간선거)
@@ -28,10 +28,9 @@ PRESIDENTIAL_DANGEROUS_MONTHS = {
 }
 
 def get_cycle_year(year):
-    # 2021년을 1년차로 기준하여 8년 주기 계산 (2021=1, 2025=5, 2026=6...)
     return ((year - 2021) % 8) + 1
 
-# 💡 [스타일 함수] Top 5 단일 강조(녹색) & Top 5 교집합 강조(노랑+빨강) 동시 적용
+# 💡 [스타일 함수]
 def apply_k200_styling(row, idx_df, highlight_codes=None, overlap_codes=None):
     styles = [''] * len(row)
     market = row.get('시장', 'KOSPI')
@@ -71,11 +70,11 @@ def get_idx_kr(target_date=None):
         except: pass
     return pd.DataFrame(res).set_index('시장')
 
-# 💡 [신규 추가] KOSPI 이동평균선(4, 5, 6, 10, 12개월) 계산 함수
+# KOSPI 이동평균선 계산 함수
 @st.cache_data(ttl=3600)
 def get_kospi_ma_status(target_date_str):
     target_date = pd.to_datetime(target_date_str)
-    start_date = target_date - timedelta(days=400) # 240영업일(12개월) 계산을 위해 넉넉히 400일 전 데이터 호출
+    start_date = target_date - timedelta(days=400) 
     
     try:
         df = fdr.DataReader('KS11', start_date, target_date)
@@ -83,7 +82,6 @@ def get_kospi_ma_status(target_date_str):
         
         curr_price = df['Close'].iloc[-1]
         
-        # 네이버 금융 KOSPI 링크
         url_name = "https://m.stock.naver.com/domestic/index/KOSPI/total#KOSPI"
         url_price = f"https://m.stock.naver.com/fchart/domestic/index/KOSPI#{curr_price:,.2f}"
         
@@ -91,7 +89,7 @@ def get_kospi_ma_status(target_date_str):
             '지수_L': url_name,
             '현재가_L': url_price,
             'base_price': round(curr_price, 2),
-            '4개월선': round(df['Close'].rolling(80).mean().iloc[-1], 2),   # 1개월 = 약 20영업일 기준
+            '4개월선': round(df['Close'].rolling(80).mean().iloc[-1], 2), 
             '5개월선': round(df['Close'].rolling(100).mean().iloc[-1], 2),
             '6개월선': round(df['Close'].rolling(120).mean().iloc[-1], 2),
             '10개월선': round(df['Close'].rolling(200).mean().iloc[-1], 2),
@@ -101,7 +99,7 @@ def get_kospi_ma_status(target_date_str):
     except: 
         return pd.DataFrame()
 
-# 💡 [신규 추가] 이동평균선 색상 적용 함수
+# 이동평균선 색상 적용 함수
 def style_kospi_ma(df):
     def apply_color(row):
         price = row['base_price']
@@ -110,7 +108,6 @@ def style_kospi_ma(df):
             if '개월선' in col:
                 val = row[col]
                 if pd.notna(val):
-                    # 현재가가 이평선보다 높으면 붉은색(강세), 낮으면 파란색(약세)
                     if price > val:
                         styles[i] = 'color: #EF4444; font-weight: bold;' 
                     elif price < val:
@@ -134,6 +131,7 @@ tab1, tab2, tab3 = st.tabs(["🎯 KOSPI 200 강세 종목", "📅 전월 말일 
 f_kr = 'data/momentum_data.csv'
 f_daily = 'data/momentum_data_daily.csv'
 
+# 💡 [핵심 수정] 전달순위 정렬 깨짐 방지: NumberColumn 유지 + 포맷팅 적용
 main_cfg = {
     "통합티커_L": st.column_config.LinkColumn("티커", display_text=r"#(.+)"), 
     "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
@@ -155,9 +153,7 @@ with tab1:
         b_date_str = df_raw['기준일(월말)'].iloc[0]
         st.markdown(f'<p class="main-title">🎯 KOSPI 200 집중 분석 (기준: {b_date_str})</p>', unsafe_allow_html=True)
         
-        # 💡 [신규 추가] KOSPI 이동평균선 대시보드 출력
         kospi_ma_df = get_kospi_ma_status(b_date_str)
-        
         kospi_curr = 0
         kospi_4m_ma = 0
         
@@ -169,7 +165,6 @@ with tab1:
                 column_order=["지수_L", "현재가_L", "4개월선", "5개월선", "6개월선", "10개월선", "12개월선"],
                 column_config=kospi_ma_config
             )
-            # 투자 판단 로직을 위해 현재가와 4개월선 값 추출
             kospi_curr = kospi_ma_df['base_price'].iloc[0]
             kospi_4m_ma = kospi_ma_df['4개월선'].iloc[0]
             
@@ -183,7 +178,7 @@ with tab1:
         df_k200['종목코드'] = df_k200['종목코드'].astype(str).str.zfill(6)
         df_k200 = df_k200[df_k200['종목코드'].str.endswith('0')].copy()
         
-        # 시가총액 로직 (파일 데이터 활용)
+        # 파일 내 시가총액 로직
         if '시가총액' in df_k200.columns:
             df_k200['시가총액'] = pd.to_numeric(df_k200['시가총액'], errors='coerce').fillna(0)
             if df_k200['시가총액'].max() > 10**10:
@@ -211,7 +206,7 @@ with tab1:
         bad_months = PRESIDENTIAL_DANGEROUS_MONTHS.get(cycle_year, [])
         bad_m_str = ", ".join(f"{m}월" for m in bad_months) if bad_months else "없음"
 
-        # 💡 [업데이트된 투자 중지 로직]
+        # 투자 판단 로직
         is_bad_market = (neg_1m_cnt >= 100) and (neg_3m_cnt >= 100)
         is_below_4m_ma = (kospi_curr < kospi_4m_ma) if kospi_curr > 0 else False
         
@@ -233,7 +228,6 @@ with tab1:
         with col3: st.metric(label="📉 1개월 하락", value=f"{neg_1m_cnt}개")
         with col4: st.metric(label="📉 3개월 하락", value=f"{neg_3m_cnt}개")
         with col5:
-            # 주기는 표시하지만 투자 로직엔 관여하지 않음
             st.markdown(f'<div style="background-color: #f0f2f6; padding: 12px 10px; border-radius: 10px; text-align: center; border: 1px solid #d1d5db; height: 100%;"><div style="font-size: 13px; font-weight: bold; color: #333; margin-bottom: 5px;">🇺🇸대통령 <span style="color:#0047AB; font-size:15px;">{cycle_year}년차</span> ({target_year}년)</div><div style="font-size: 13px; font-weight: bold; color: #D84315;">위험달: {bad_m_str}</div></div>', unsafe_allow_html=True)
         with col6:
             st.markdown(f'<div style="background-color: {box_color}; padding: 10px; border-radius: 10px; text-align: center; border: 1px solid {text_color};"><p style="margin: 0; font-size: 12px; color: {text_color}; font-weight: bold;">최종 판단 ({status_desc})</p><h3 style="margin: 3px 0 0 0; color: {text_color};">{invest_status}</h3></div>', unsafe_allow_html=True)
@@ -270,7 +264,11 @@ with tab1:
 with tab2:
     if os.path.exists(f_kr):
         df_m = pd.read_csv(f_kr, dtype={'종목코드': str})
-        df_m['전달순위'] = pd.to_numeric(df_m['전달순위'], errors='coerce')
+        
+        # 💡 [핵심 수정] 전달순위 문자로 된 'None'이나 NaN을 모두 숫자(NaN)로 통일 처리
+        if '전달순위' in df_m.columns:
+            df_m['전달순위'] = pd.to_numeric(df_m['전달순위'], errors='coerce')
+            
         df_m.index = range(1, len(df_m) + 1)
         
         b_date_m = df_m['기준일(월말)'].iloc[0]
@@ -278,8 +276,10 @@ with tab2:
         
         idx_m = get_idx_kr(pd.to_datetime(b_date_m))
         idx_m_disp = idx_m.reset_index().copy()
+        
+        # 💡 [수정 사항] 지수 현재가를 소수점 둘째 자리까지 표시되도록 링크 포맷팅 수정
         idx_m_disp['시장_L'] = idx_m_disp['시장'].apply(lambda x: f"https://m.stock.naver.com/domestic/index/{x}/total#{x}")
-        idx_m_disp['현재가_L'] = idx_m_disp.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/index/{r['시장']}#{r['현재가']:,.0f}", axis=1)
+        idx_m_disp['현재가_L'] = idx_m_disp.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/index/{r['시장']}#{r['현재가']:,.2f}", axis=1)
         
         idx_cfg = {"시장_L": st.column_config.LinkColumn("시장", display_text=r"#(.+)"), "현재가_L": st.column_config.LinkColumn("현재가", display_text=r"#(.+)")}
         st.dataframe(idx_m_disp[['시장_L', '현재가_L', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']], use_container_width=True, hide_index=True, column_config=idx_cfg)
@@ -287,12 +287,18 @@ with tab2:
         st.markdown("---")
         df_m['통합티커_L'] = df_m.apply(lambda r: f"https://finance.naver.com/item/main.naver?code={str(r['종목코드']).zfill(6)}#{r['시장']}:{str(r['종목코드']).zfill(6)}", axis=1)
         df_m['종목명_L'] = df_m.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{str(r['종목코드']).zfill(6)}#{r['종목명']}", axis=1)
+        
         st.dataframe(df_m.style.apply(apply_k200_styling, idx_df=idx_m, axis=1), use_container_width=True, height=550, column_order=['통합티커_L', '종목명_L', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달순위'], column_config=main_cfg)
 
 # --- 탭 3: 오늘 기준 (데일리) ---
 with tab3:
     if os.path.exists(f_daily):
         df_d = pd.read_csv(f_daily, dtype={'종목코드': str})
+        
+        # 💡 [핵심 수정] 전달순위 문자로 된 'None'이나 NaN을 모두 숫자(NaN)로 통일 처리
+        if '전달순위' in df_d.columns:
+            df_d['전달순위'] = pd.to_numeric(df_d['전달순위'], errors='coerce')
+            
         df_d.index = range(1, len(df_d) + 1)
         
         b_date_d = df_d['기준일'].iloc[0]
@@ -300,8 +306,10 @@ with tab3:
         
         idx_now = get_idx_kr()
         idx_now_disp = idx_now.reset_index().copy()
+        
+        # 💡 [수정 사항] 지수 현재가를 소수점 둘째 자리까지 표시되도록 링크 포맷팅 수정
         idx_now_disp['시장_L'] = idx_now_disp['시장'].apply(lambda x: f"https://m.stock.naver.com/domestic/index/{x}/total#{x}")
-        idx_now_disp['현재가_L'] = idx_now_disp.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/index/{r['시장']}#{r['현재가']:,.0f}", axis=1)
+        idx_now_disp['현재가_L'] = idx_now_disp.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/index/{r['시장']}#{r['현재가']:,.2f}", axis=1)
         
         st.dataframe(idx_now_disp[['시장_L', '현재가_L', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']], use_container_width=True, hide_index=True, column_config=idx_cfg)
         
@@ -312,4 +320,5 @@ with tab3:
         daily_cfg = main_cfg.copy()
         daily_cfg["기준가"] = st.column_config.NumberColumn("현재가", format="%,d") 
         daily_cfg["전일거래량"] = st.column_config.NumberColumn("전일거래량", format="%,d")
+        
         st.dataframe(df_d.style.apply(apply_k200_styling, idx_df=idx_now, axis=1), use_container_width=True, height=600, column_order=['통합티커_L', '종목명_L', '기준가', '전일거래량', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달순위'], column_config=daily_cfg)
