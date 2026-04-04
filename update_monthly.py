@@ -4,13 +4,11 @@ from datetime import datetime, timedelta
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# 폴더 생성
 folders = ['data', 'archive', 'archive_us', 'archive_sp500']
 for d in folders:
     if not os.path.exists(d): os.makedirs(d)
 
 def get_top_stocks(market, limit=150):
-    """시가총액 상위 종목 추출 및 시가총액 데이터 미리 확보"""
     try:
         if market in ['KOSPI', 'KOSDAQ']:
             df = fdr.StockListing('KRX')
@@ -28,34 +26,27 @@ def get_top_stocks(market, limit=150):
         if cap_col:
             target_col = cap_col[0]
             df['시가총액_raw'] = pd.to_numeric(df[target_col].astype(str).str.replace(r'[^0-9.eE+-]', '', regex=True), errors='coerce').fillna(0)
-            
             if market in ['KOSPI', 'KOSDAQ']:
                 df['시가총액'] = (df['시가총액_raw'] / 100000000).astype(int)
             else:
                 df['시가총액'] = df['시가총액_raw']
-                
             df = df.sort_values('시가총액_raw', ascending=False)
 
         symbol_col = 'Symbol' if 'Symbol' in df.columns else 'Code'
         df = df.drop_duplicates(subset=[symbol_col])
         return df.head(limit)
-        
     except Exception as e:
         print(f"❌ {market} 리스트 가져오기 실패: {e}")
         return pd.DataFrame()
 
 def process_stock_monthly(row, mkt_name, market_type, ref_date, next_month_end, prev_rank_map):
-    """월말 기준 데이터 분석, 상대 모멘텀 및 다음달 수익률 계산"""
     try:
         code = str(row.get('Code', row.get('Symbol', '')))
         if market_type == 'KR': code = code.zfill(6)
-        
         clean_code = code.replace('.', '-') if market_type in ['US', 'SP500'] else code
         
-        # 데이터 로드 (분석을 위해 16개월치)
         df = fdr.DataReader(clean_code, ref_date - pd.DateOffset(months=16), next_month_end)
         if df.empty: return None
-        
         df_base = df[df.index <= ref_date]
         if df_base.empty: return None
         
@@ -68,16 +59,12 @@ def process_stock_monthly(row, mkt_name, market_type, ref_date, next_month_end, 
             return (curr_price - past['Close'].iloc[-1]) / past['Close'].iloc[-1] * 100
         
         r1, r3, r6, r12 = get_ret(1), get_ret(3), get_ret(6), get_ret(12)
-        
-        # 💡 [해결 포인트] 상대 모멘텀(3-1, 6-1, 12-1) 계산 로직 복구
         denom = (1 + r1 / 100) + 1e-9
         r3_1 = round(((1 + r3/100) / denom - 1) * 100, 2)
         r6_1 = round(((1 + r6/100) / denom - 1) * 100, 2)
         r12_1 = round(((1 + r12/100) / denom - 1) * 100, 2)
         
         score = round((r1 * -0.5) + (r3 * 0.8) + (r6 * 0.5) + (r12 * 0.2), 1)
-        
-        # 다음달 수익률 (백테스팅용)
         df_next = df[(df.index > ref_date) & (df.index <= next_month_end)]
         next_ret = round(((df_next['Close'].iloc[-1] / curr_price) - 1) * 100, 2) if not df_next.empty else 0.0
 
@@ -86,13 +73,11 @@ def process_stock_monthly(row, mkt_name, market_type, ref_date, next_month_end, 
             '시장': mkt_name, '종목명': row['Name'], '종목코드': code, 
             '시가총액': row.get('시가총액', 0), '기준가': round(curr_price, 2),
             '1개월(%)': round(r1, 1), '3개월(%)': round(r3, 1), '6개월(%)': round(r6, 1), '12개월(%)': round(r12, 1),
-            '3-1개월(%)': r3_1, '6-1개월(%)': r6_1, '12-1개월(%)': r12_1, # 💡 미국 페이지 필수 컬럼
-            '모멘텀스코어': score,
-            '다음달수익률(%)': next_ret,
-            '전달순위': prev_rank_map.get(code.upper(), None)
+            '3-1개월(%)': r3_1, '6-1개월(%)': r6_1, '12-1개월(%)': r12_1,
+            '모멘텀스코어': score, '다음달수익률(%)': next_ret,
+            '전달순위': prev_rank_map.get(code.upper(), None) # 💡 이제 정상적인 맵퍼가 들어갑니다.
         }
-    except Exception:
-        return None
+    except Exception: return None
 
 def run_monthly(market_type='KR'):
     conf = {
@@ -106,7 +91,24 @@ def run_monthly(market_type='KR'):
     ref_date = today.replace(day=1) - timedelta(days=1)
     next_month_end = today 
     
-    archive_name = f"momentum_{'us_' if market_type=='US' else ('sp500_' if market_type=='SP500' else '')}{ref_date.strftime('%Y_%m')}.csv"
+    # 💡 [핵심 수정] 두 달 전 아카이브 파일을 찾아서 '전달순위'를 미리 계산합니다.
+    prev_ref_date = ref_date.replace(day=1) - timedelta(days=1)
+    archive_prefix = 'us_' if market_type=='US' else ('sp500_' if market_type=='SP500' else '')
+    prev_arch_name = f"momentum_{archive_prefix}{prev_ref_date.strftime('%Y_%m')}.csv"
+    prev_arch_path = os.path.join(arch_dir, prev_arch_name)
+    
+    prev_rank_map = {}
+    if os.path.exists(prev_arch_path):
+        try:
+            df_p = pd.read_csv(prev_arch_path, dtype={'종목코드': str})
+            df_p = df_p.sort_values('모멘텀스코어', ascending=False).reset_index(drop=True)
+            for i, r in df_p.iterrows():
+                # 한국 종목은 6자리 0채움 처리, 미국은 그대로 대문자화
+                c_key = str(r['종목코드']).zfill(6) if market_type == 'KR' else str(r['종목코드']).upper()
+                prev_rank_map[c_key] = i + 1
+        except: pass
+
+    archive_name = f"momentum_{archive_prefix}{ref_date.strftime('%Y_%m')}.csv"
     arch_path = os.path.join(arch_dir, archive_name)
 
     print(f"📅 {name_tag} 월간 업데이트 시작... (기준일: {ref_date.strftime('%Y-%m-%d')})")
@@ -118,7 +120,8 @@ def run_monthly(market_type='KR'):
             
         print(f"🔎 {mkt_name} 분석 중...")
         with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = [executor.submit(process_stock_monthly, row, mkt_name, market_type, ref_date, next_month_end, {}) for _, row in target_stocks.iterrows()]
+            # 💡 {} 하드코딩 대신 prev_rank_map 을 전달!
+            futures = [executor.submit(process_stock_monthly, row, mkt_name, market_type, ref_date, next_month_end, prev_rank_map) for _, row in target_stocks.iterrows()]
             for future in as_completed(futures):
                 result = future.result()
                 if result: res.append(result)
@@ -127,7 +130,7 @@ def run_monthly(market_type='KR'):
         final_df = pd.DataFrame(res).sort_values('모멘텀스코어', ascending=False)
         final_df.to_csv(main_file, index=False, encoding='utf-8-sig')
         final_df.to_csv(arch_path, index=False, encoding='utf-8-sig')
-        print(f"✅ {name_tag} 업데이트 완료! (상대 모멘텀 및 시가총액 포함)")
+        print(f"✅ {name_tag} 업데이트 완료! (전달순위 정상 복구됨)")
 
 if __name__ == "__main__":
     for m in ['KR', 'US', 'SP500']:
