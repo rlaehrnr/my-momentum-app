@@ -21,18 +21,32 @@ st.markdown("""
 
 st.markdown('<p class="main-title">💼 내 퀀트 포트폴리오 관리</p>', unsafe_allow_html=True)
 
-# --- [2. 💡 한국 전체 종목 리스트 캐싱 (검색창 용도)] ---
-@st.cache_data(ttl=86400) # 하루에 한 번만 갱신
+# --- [2. 💡 에러 방어막: 종목 검색용 마스터 리스트 가져오기] ---
+@st.cache_data(ttl=86400)
 def get_krx_master():
     try:
+        # 1차 시도: API로 전체 종목 가져오기
         df = fdr.StockListing('KRX')
         code_col = 'Code' if 'Code' in df.columns else 'Symbol'
         df['종목코드'] = df[code_col].astype(str).str.zfill(6)
-        # 드롭다운에 보여줄 포맷: [005930] 삼성전자
         df['검색명'] = "[" + df['종목코드'] + "] " + df['Name']
         return df[['종목코드', 'Name', '검색명']]
     except:
-        return pd.DataFrame(columns=['종목코드', 'Name', '검색명'])
+        # 💡 2차 시도(에러 방지): API가 막히면 우리가 가진 로컬 데이터에서 상위 종목들을 빼옵니다.
+        res = []
+        for f in ['data/momentum_data.csv', 'data/momentum_data_daily.csv']:
+            if os.path.exists(f):
+                try:
+                    tmp = pd.read_csv(f, dtype={'종목코드': str})
+                    for _, row in tmp.iterrows():
+                        code = str(row['종목코드']).zfill(6)
+                        name = row.get('종목명', code)
+                        res.append({'종목코드': code, 'Name': name, '검색명': f"[{code}] {name}"})
+                except: pass
+        if res:
+            return pd.DataFrame(res).drop_duplicates(subset=['종목코드'])
+        else:
+            return pd.DataFrame(columns=['종목코드', 'Name', '검색명'])
 
 master_df = get_krx_master()
 search_options = ["🔍 종목을 검색하세요 (예: 삼성)"] + master_df['검색명'].tolist()
@@ -57,10 +71,10 @@ def fetch_live_data(tickers):
     results = []
     for code in tickers:
         code_str = str(code).zfill(6)
-        name, price, marcap = code_str, 0, 0
+        api_name, price, marcap = code_str, 0, 0
         
         if code_str in local_info:
-            name = local_info[code_str]['Name']
+            api_name = local_info[code_str]['Name']
             marcap = local_info[code_str]['Marcap']
 
         try:
@@ -69,15 +83,19 @@ def fetch_live_data(tickers):
                 price = int(df['Close'].iloc[-1])
         except: pass
 
-        results.append({'종목코드': code_str, '종목명': name, '현재가': price, '시가총액_raw': marcap})
+        # api_종목명으로 리턴 (사용자가 입력한 종목명과 겹치지 않게)
+        results.append({'종목코드': code_str, 'api_종목명': api_name, '현재가': price, '시가총액_raw': marcap})
     
     return pd.DataFrame(results)
 
-# --- [4. 데이터 로드] ---
+# --- [4. 데이터 로드 (종목명 포함)] ---
 if os.path.exists(PORTFOLIO_PATH):
     df_load = pd.read_csv(PORTFOLIO_PATH, dtype={'종목코드': str})
+    # 과거 파일에 '종목명' 컬럼이 없으면 팅기는 것 방지
+    if '종목명' not in df_load.columns:
+        df_load.insert(0, '종목명', '')
 else:
-    df_load = pd.DataFrame(columns=["종목코드", "매수단가", "수량"])
+    df_load = pd.DataFrame(columns=["종목명", "종목코드", "매수단가", "수량"])
 
 # --- [5. UI 레이아웃 (검색창 & 편집기)] ---
 col_search, col_edit = st.columns([1.2, 2])
@@ -86,7 +104,6 @@ with col_search:
     st.markdown("### 🔎 종목명으로 자동 추가")
     st.info("입력창을 클릭하고 '삼성'이나 '현대'를 쳐보세요!")
     
-    # 💡 폼을 사용하여 종목 검색 및 추가
     with st.form("add_stock_form", clear_on_submit=True):
         selected_stock = st.selectbox("종목 선택", options=search_options)
         
@@ -100,23 +117,25 @@ with col_search:
             if selected_stock == search_options[0]:
                 st.warning("종목을 검색해서 선택해주세요!")
             else:
-                # "[005930] 삼성전자" 에서 "005930"만 추출
+                # 💡 "[005930] 삼성전자" 에서 코드와 이름 모두 추출하여 표에 쏙!
                 extracted_code = selected_stock[1:7]
-                new_row = pd.DataFrame([{"종목코드": extracted_code, "매수단가": buy_p, "수량": qty}])
+                extracted_name = selected_stock[9:] 
+                new_row = pd.DataFrame([{"종목명": extracted_name, "종목코드": extracted_code, "매수단가": buy_p, "수량": qty}])
                 df_load = pd.concat([df_load, new_row], ignore_index=True)
                 df_load.to_csv(PORTFOLIO_PATH, index=False, encoding='utf-8-sig')
-                st.rerun() # 추가 즉시 화면 새로고침
+                st.rerun()
 
 with col_edit:
     st.markdown("### 📝 포트폴리오 목록 (수정/삭제 가능)")
-    # 표에서 직접 숫자를 바꾸거나, 행을 선택해 삭제(Delete 키)할 수 있습니다.
     edited_df = st.data_editor(
         df_load, 
         num_rows="dynamic", 
         use_container_width=True,
         key="portfolio_editor",
+        column_order=["종목명", "종목코드", "매수단가", "수량"],
         column_config={
-            "종목코드": st.column_config.TextColumn("종목코드", help="미국 티커는 표에서 직접 입력하세요"),
+            "종목명": st.column_config.TextColumn("종목명 (직접입력 가능)"),
+            "종목코드": st.column_config.TextColumn("종목코드(티커)", help="한국은 6자리, 미국은 티커 입력"),
             "매수단가": st.column_config.NumberColumn("매수단가", format="%,d"),
             "수량": st.column_config.NumberColumn("수량", format="%,d")
         }
@@ -144,6 +163,9 @@ if st.button("🔄 실시간 수익률 조회하기", use_container_width=True, 
             
             merged = pd.merge(my_portfolio, live_info, on='종목코드', how='left')
             merged = merged.dropna(subset=['현재가'])
+            
+            # 사용자가 종목명을 안 썼으면 API에서 가져온 이름으로 채워줌
+            merged['종목명'] = merged['종목명'].replace('', pd.NA).fillna(merged['api_종목명'])
             
             merged['평가금액'] = merged['현재가'] * merged['수량']
             merged['평가손익'] = (merged['현재가'] - merged['매수단가']) * merged['수량']
