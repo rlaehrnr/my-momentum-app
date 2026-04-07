@@ -1,6 +1,9 @@
 import streamlit as st
 import pandas as pd
 import FinanceDataReader as fdr
+from datetime import datetime, timedelta
+import yfinance as yf
+import os
 
 # --- [1. 페이지 설정] ---
 st.set_page_config(page_title="내 포트폴리오", layout="wide")
@@ -15,17 +18,66 @@ st.markdown("""
 st.markdown('<p class="main-title">💼 내 퀀트 포트폴리오 트래커</p>', unsafe_allow_html=True)
 st.info("💡 엑셀(CSV) 파일을 업로드하거나, 아래 표의 빈칸을 클릭해 직접 종목코드와 매수단가를 입력/수정하세요.")
 
-# --- [2. KRX 전체 데이터 캐싱 (현재가, 시가총액, 종목명 가져오기 용도)] ---
-@st.cache_data(ttl=600) # 10분마다 갱신
-def get_krx_data():
-    df = fdr.StockListing('KRX')
-    # 라이브러리 버전에 따라 Code 또는 Symbol로 나옴
-    code_col = 'Code' if 'Code' in df.columns else 'Symbol'
-    df = df.rename(columns={code_col: '종목코드', 'Name': '종목명', 'Close': '현재가', 'Marcap': '시가총액'})
-    df['종목코드'] = df['종목코드'].astype(str).str.zfill(6)
-    return df[['종목코드', '종목명', '현재가', '시가총액']]
+# --- [2. 🚨에러 방지🚨: 입력된 종목만 개별적으로 실시간 주가/정보 조회] ---
+@st.cache_data(ttl=60) # 실시간 성격을 위해 1분마다 캐시 갱신
+def fetch_portfolio_data(tickers):
+    # 1. 저장된 로컬 모멘텀 데이터를 우선 뒤져서 종목명과 시가총액을 빠르게 찾습니다.
+    local_info = {}
+    for f in ['data/momentum_data.csv', 'data/momentum_data_daily.csv']:
+        if os.path.exists(f):
+            try:
+                tmp = pd.read_csv(f, dtype={'종목코드': str})
+                for _, row in tmp.iterrows():
+                    code = str(row['종목코드']).zfill(6)
+                    if code not in local_info:
+                        local_info[code] = {
+                            '종목명': row.get('종목명', code),
+                            '시가총액': row.get('시가총액', 0) * 100000000  # 억 단위를 원 단위로 임시 복구
+                        }
+            except: pass
 
-krx_df = get_krx_data()
+    results = []
+    for code in tickers:
+        code_str = str(code).zfill(6)
+        name = code_str
+        price = 0
+        marcap = 0
+
+        # 로컬 데이터에 있으면 이름과 시총 가져오기
+        if code_str in local_info:
+            name = local_info[code_str]['종목명']
+            marcap = local_info[code_str]['시가총액']
+
+        # 2. 현재가는 무조건 Naver 금융(fdr.DataReader)에서 실시간으로 긁어옵니다.
+        try:
+            df = fdr.DataReader(code_str, datetime.today() - timedelta(days=10))
+            if not df.empty:
+                price = int(df['Close'].iloc[-1])
+        except:
+            pass
+
+        # 3. 로컬 파일에도 없는 신규 종목이면 야후 파이낸스에서 이름과 시총을 보조로 가져옵니다.
+        if name == code_str:
+            try:
+                t = yf.Ticker(code_str + ".KS")
+                inf = t.info
+                if 'regularMarketPrice' not in inf:
+                    t = yf.Ticker(code_str + ".KQ")
+                    inf = t.info
+                name = inf.get('shortName', inf.get('longName', code_str))
+                if marcap == 0:
+                    marcap = inf.get('marketCap', 0)
+            except:
+                pass
+
+        results.append({
+            '종목코드': code_str,
+            '종목명': name,
+            '현재가': price,
+            '시가총액': marcap
+        })
+    return pd.DataFrame(results)
+
 
 # --- [3. 입력부: 파일 업로드 or 직접 입력] ---
 col1, col2 = st.columns([1, 2])
@@ -48,7 +100,6 @@ with col1:
 
 with col2:
     st.markdown("### ✍️ 포트폴리오 편집")
-    # 사용자가 화면에서 직접 행을 추가/삭제하고 숫자를 수정할 수 있는 에디터
     edited_df = st.data_editor(
         df_input, 
         num_rows="dynamic", 
@@ -65,21 +116,22 @@ st.markdown("---")
 
 if st.button("🔄 실시간 수익률 계산하기", type="primary"):
     with st.spinner("실시간 주가 및 시가총액을 불러오는 중..."):
-        # 입력된 종목코드 보정
         my_portfolio = edited_df.dropna(subset=['종목코드']).copy()
         my_portfolio['종목코드'] = my_portfolio['종목코드'].astype(str).str.zfill(6)
         
-        # KRX 데이터와 병합하여 현재가, 시가총액, 이름 가져오기
-        merged = pd.merge(my_portfolio, krx_df, on='종목코드', how='left')
+        # 입력된 종목코드만 실시간으로 데이터 조회 (에러 원천 차단)
+        tickers_to_fetch = my_portfolio['종목코드'].unique()
+        live_data_df = fetch_portfolio_data(tickers_to_fetch)
         
-        # 값이 없는(상장폐지나 오타) 종목 제외
+        # 포트폴리오와 실시간 데이터 병합
+        merged = pd.merge(my_portfolio, live_data_df, on='종목코드', how='left')
         merged = merged.dropna(subset=['현재가'])
         
         # 계산 로직
-        merged['수익률(%)'] = ((merged['현재가'] - merged['매수단가']) / merged['매수단가']) * 100
+        merged['수익률(%)'] = merged.apply(lambda x: ((x['현재가'] - x['매수단가']) / x['매수단가'] * 100) if x['매수단가'] > 0 else 0, axis=1)
         merged['평가손익'] = (merged['현재가'] - merged['매수단가']) * merged.get('수량', 1)
         merged['평가금액'] = merged['현재가'] * merged.get('수량', 1)
-        merged['시가총액(억)'] = (merged['시가총액'] / 100000000).astype(int)
+        merged['시가총액(억)'] = (merged['시가총액'] / 100000000).fillna(0).astype(int)
         
         # 링크 생성
         merged['통합티커_L'] = merged.apply(lambda r: f"https://finance.naver.com/item/main.naver?code={r['종목코드']}#KOSPI:{r['종목코드']}", axis=1)
@@ -108,10 +160,8 @@ if st.button("🔄 실시간 수익률 계산하기", type="primary"):
         
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # 결과 테이블 렌더링 (스타일 적용)
         def style_portfolio(df):
             styles = pd.DataFrame('', index=df.index, columns=df.columns)
-            # 수익률과 평가손익에 색상 적용 (빨강=수익, 파랑=손실)
             for col in ['수익률(%)', '평가손익']:
                 if col in df.columns:
                     styles[col] = df[col].apply(lambda x: 'color: #EF4444; font-weight: bold;' if x > 0 else ('color: #3B82F6; font-weight: bold;' if x < 0 else ''))
