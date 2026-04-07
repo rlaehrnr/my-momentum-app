@@ -120,7 +120,8 @@ if st.button("🔄 실시간 수익률 계산하기", type="primary"):
         my_portfolio['종목코드'] = my_portfolio['종목코드'].astype(str).str.zfill(6)
         
         # 입력된 종목코드만 실시간으로 데이터 조회 (에러 원천 차단)
-        tickers_to_fetch = my_portfolio['종목코드'].unique()
+        # 💡 tuple()로 감싸서 Streamlit 캐시 해싱 에러를 방지합니다.
+        tickers_to_fetch = tuple(my_portfolio['종목코드'].unique()) 
         live_data_df = fetch_portfolio_data(tickers_to_fetch)
         
         # 포트폴리오와 실시간 데이터 병합
