@@ -13,7 +13,6 @@ MASTER_TICKER_PATH = 'data/krx_stock_master.csv'
 if not os.path.exists('data'):
     os.makedirs('data')
 
-# 💡 CSS 수정: 다크모드/라이트모드에서 모두 잘 보이도록 텍스트 색상 고정 해제 및 반투명 박스 적용
 st.markdown("""
     <style>
     .block-container { padding-top: 3rem !important; }
@@ -56,7 +55,7 @@ def get_stock_master():
 master_df = get_stock_master()
 search_options = ["🔍 검색해서 추가 (삼성, 카카오 등)"] + master_df['검색명'].tolist() if not master_df.empty else ["검색 데이터가 없습니다."]
 
-# --- [3. 💡 실시간 가격 수집 함수 (가장 튼튼한 방식으로 수정)] ---
+# --- [3. 실시간 가격 수집 함수] ---
 @st.cache_data(ttl=60)
 def fetch_multi_prices(tickers):
     if not tickers: return {}
@@ -66,7 +65,6 @@ def fetch_multi_prices(tickers):
         val = 0
         code_str = str(t).zfill(6) if str(t).isdigit() else str(t)
         
-        # 1. 한국/미국 주식 모두 잘 잡는 fdr을 최우선으로 시도
         try:
             df = fdr.DataReader(code_str, datetime.today() - timedelta(days=10))
             if not df.empty:
@@ -74,14 +72,13 @@ def fetch_multi_prices(tickers):
         except:
             pass
             
-        # 2. 만약 실패했다면 yfinance로 다시 시도 (주로 해외주식 백업용)
         if val == 0:
             try:
                 yf_t = code_str + ".KS" if code_str.isdigit() else code_str
                 hist = yf.Ticker(yf_t).history(period="5d")
                 if not hist.empty:
                     val = int(hist['Close'].iloc[-1])
-                elif code_str.isdigit(): # 코스닥 시도
+                elif code_str.isdigit(): 
                     hist_kq = yf.Ticker(code_str + ".KQ").history(period="5d")
                     if not hist_kq.empty:
                         val = int(hist_kq['Close'].iloc[-1])
@@ -124,7 +121,6 @@ if not valid_portfolio.empty:
         display_df['평가금액'] = display_df['현재가'] * display_df['수량']
         display_df['평가손익'] = (display_df['현재가'] - display_df['매수단가']) * display_df['수량']
         
-        # 수익률 계산 시 0으로 나누는 것 방지
         display_df['수익률(%)'] = display_df.apply(
             lambda r: (r['평가손익'] / (r['매수단가'] * r['수량']) * 100) if (r['매수단가'] * r['수량']) > 0 else 0, 
             axis=1
@@ -203,31 +199,46 @@ with col_add:
 
 with col_file:
     with st.expander("📂 엑셀/CSV로 한꺼번에 넣기", expanded=True):
-        up_file = st.file_uploader("파일 선택", type=['csv', 'xlsx'])
+        up_file = st.file_uploader("파일 양식 (종목코드, 매수단가, 수량)", type=['csv', 'xlsx'])
         if up_file:
             try:
+                # 💡 강철 방어: 파일 읽을 때 자료형을 지정하지 않고 일단 모두 읽어옵니다.
                 if up_file.name.endswith('csv'): 
-                    try: up_df = pd.read_csv(up_file, dtype={'종목코드': str}, encoding='utf-8-sig')
-                    except: up_df = pd.read_csv(up_file, dtype={'종목코드': str}, encoding='cp949')
+                    try: up_df = pd.read_csv(up_file, encoding='utf-8-sig')
+                    except: up_df = pd.read_csv(up_file, encoding='cp949')
                 else: 
-                    up_df = pd.read_excel(up_file, dtype={'종목코드': str})
+                    up_df = pd.read_excel(up_file)
+                
+                # 컬럼명 공백 제거 (사용자 실수 방지)
+                up_df.columns = up_df.columns.str.strip()
                 
                 if st.button("🚀 업로드 데이터 반영하기"):
-                    up_df['종목코드'] = up_df['종목코드'].str.zfill(6)
-                    if '종목명' not in up_df.columns:
-                        name_map = master_df.set_index('종목코드')['종목명'].to_dict() if not master_df.empty else {}
-                        up_df['종목명'] = up_df['종목코드'].map(name_map).fillna('미등록종목')
-                    
-                    cols_to_keep = ["종목명", "종목코드", "매수단가", "수량"]
-                    for c in cols_to_keep:
-                        if c not in up_df.columns: up_df[c] = 0 if c in ['매수단가', '수량'] else ''
-                    
-                    st.session_state.temp_df = up_df[cols_to_keep]
-                    st.session_state.temp_df.to_csv(PORTFOLIO_PATH, index=False, encoding='utf-8-sig')
-                    st.success("업로드 완료!")
-                    st.rerun()
+                    if '종목코드' not in up_df.columns:
+                        st.error("엑셀 파일 가장 윗줄에 '종목코드'라는 글자가 꼭 있어야 합니다!")
+                    else:
+                        # 엑셀이 5930.0 처럼 읽어오는 것 방지
+                        up_df['종목코드'] = up_df['종목코드'].astype(str).str.replace(r'\.0$', '', regex=True)
+                        up_df['종목코드'] = up_df['종목코드'].apply(lambda x: x.zfill(6) if x.isdigit() else x)
+                        
+                        if '종목명' not in up_df.columns:
+                            name_map = master_df.set_index('종목코드')['종목명'].to_dict() if not master_df.empty else {}
+                            up_df['종목명'] = up_df['종목코드'].map(name_map).fillna('미등록종목')
+                        
+                        cols_to_keep = ["종목명", "종목코드", "매수단가", "수량"]
+                        for c in cols_to_keep:
+                            if c not in up_df.columns: 
+                                up_df[c] = 0 if c in ['매수단가', '수량'] else ''
+                        
+                        # 숫자 데이터 강제 변환 (문자 섞여있어도 에러 안 나게)
+                        up_df['매수단가'] = pd.to_numeric(up_df['매수단가'], errors='coerce').fillna(0)
+                        up_df['수량'] = pd.to_numeric(up_df['수량'], errors='coerce').fillna(0)
+                        
+                        st.session_state.temp_df = up_df[cols_to_keep]
+                        st.session_state.temp_df.to_csv(PORTFOLIO_PATH, index=False, encoding='utf-8-sig')
+                        st.success("✅ 파일 업로드가 완벽하게 처리되었습니다!")
+                        st.rerun()
             except Exception as e: 
-                st.error(f"파일 양식이 맞지 않습니다. (필수: 종목코드, 매수단가, 수량)")
+                st.error(f"알 수 없는 오류가 발생했습니다. 헤더 이름을 확인해 주세요.")
 
 st.markdown("### 📝 포트폴리오 목록 편집")
 edited_df = st.data_editor(
