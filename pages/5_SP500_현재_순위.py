@@ -41,7 +41,7 @@ st.markdown("""
 # 💡 [오류 완벽 해결] 시장 자동 판별 및 정확한 네이버 링크 생성
 def fetch_single_url(ticker, name):
     ticker_str = str(ticker).strip()
-    exceptions = {'CIEN': '.K', 'COHR': '.K'}
+    exceptions = {'CIEN': '.K', 'COHR': '.K', 'EQNR': '.K'}
     
     # 기본값 세팅
     suffix = ''
