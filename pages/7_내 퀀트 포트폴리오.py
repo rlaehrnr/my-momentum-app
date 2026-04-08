@@ -202,21 +202,20 @@ with col_file:
         up_file = st.file_uploader("파일 양식 (종목코드, 매수단가, 수량)", type=['csv', 'xlsx'])
         if up_file:
             try:
-                # 💡 강철 방어: 파일 읽을 때 자료형을 지정하지 않고 일단 모두 읽어옵니다.
+                # 💡 엑셀 업로드 시 인코딩 에러 방지
                 if up_file.name.endswith('csv'): 
                     try: up_df = pd.read_csv(up_file, encoding='utf-8-sig')
                     except: up_df = pd.read_csv(up_file, encoding='cp949')
                 else: 
                     up_df = pd.read_excel(up_file)
                 
-                # 컬럼명 공백 제거 (사용자 실수 방지)
+                # 컬럼명 공백 제거
                 up_df.columns = up_df.columns.str.strip()
                 
                 if st.button("🚀 업로드 데이터 반영하기"):
                     if '종목코드' not in up_df.columns:
                         st.error("엑셀 파일 가장 윗줄에 '종목코드'라는 글자가 꼭 있어야 합니다!")
                     else:
-                        # 엑셀이 5930.0 처럼 읽어오는 것 방지
                         up_df['종목코드'] = up_df['종목코드'].astype(str).str.replace(r'\.0$', '', regex=True)
                         up_df['종목코드'] = up_df['종목코드'].apply(lambda x: x.zfill(6) if x.isdigit() else x)
                         
@@ -229,16 +228,18 @@ with col_file:
                             if c not in up_df.columns: 
                                 up_df[c] = 0 if c in ['매수단가', '수량'] else ''
                         
-                        # 숫자 데이터 강제 변환 (문자 섞여있어도 에러 안 나게)
-                        up_df['매수단가'] = pd.to_numeric(up_df['매수단가'], errors='coerce').fillna(0)
-                        up_df['수량'] = pd.to_numeric(up_df['수량'], errors='coerce').fillna(0)
+                        # 💡 엑셀의 ₩, 쉼표(,) 등을 전부 날려버리고 순수 숫자만 추출하는 강력한 정규식 방어막 적용
+                        up_df['매수단가'] = pd.to_numeric(up_df['매수단가'].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce').fillna(0)
+                        up_df['수량'] = pd.to_numeric(up_df['수량'].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce').fillna(0)
                         
                         st.session_state.temp_df = up_df[cols_to_keep]
                         st.session_state.temp_df.to_csv(PORTFOLIO_PATH, index=False, encoding='utf-8-sig')
                         st.success("✅ 파일 업로드가 완벽하게 처리되었습니다!")
                         st.rerun()
             except Exception as e: 
-                st.error(f"알 수 없는 오류가 발생했습니다. 헤더 이름을 확인해 주세요.")
+                # 💡 진짜 에러 원인을 화면에 빨간 글씨로 띄워줍니다.
+                st.error(f"오류 발생 원인: {e}")
+                st.info("💡 엑셀 파일인 경우 'openpyxl' 라이브러리가 필요합니다. requirements.txt를 확인해주세요.")
 
 st.markdown("### 📝 포트폴리오 목록 편집")
 edited_df = st.data_editor(
