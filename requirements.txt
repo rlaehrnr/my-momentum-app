@@ -5,3 +5,4 @@ python-dateutil
 pykrx
 pyarrow
 yfinance
+openpyxl
