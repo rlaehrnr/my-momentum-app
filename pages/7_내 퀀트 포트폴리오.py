@@ -55,7 +55,7 @@ def get_stock_master():
 master_df = get_stock_master()
 search_options = ["🔍 검색해서 추가 (삼성, 카카오 등)"] + master_df['검색명'].tolist() if not master_df.empty else ["검색 데이터가 없습니다."]
 
-# --- [3. 💡 실시간 가격 수집 함수 (현재가 + 어제 종가 동시 수집)] ---
+# --- [3. 실시간 가격 수집 함수 (현재가 + 어제 종가 동시 수집)] ---
 @st.cache_data(ttl=60)
 def fetch_multi_prices(tickers):
     if not tickers: return {}
@@ -68,7 +68,6 @@ def fetch_multi_prices(tickers):
         code_str = t_str.zfill(6) if t_str.isdigit() else t_str
         
         try:
-            # 15일치 데이터를 불러와 확실하게 어제와 오늘 가격을 가져옵니다.
             df = fdr.DataReader(code_str, datetime.today() - timedelta(days=15))
             if not df.empty and len(df) >= 2:
                 curr_val = int(df['Close'].iloc[-1])
@@ -94,7 +93,6 @@ def fetch_multi_prices(tickers):
             except:
                 pass
         
-        # 방어 로직: 전일 종가가 0으로 잡히면 현재가와 같다고 임시 처리
         if prev_val == 0: prev_val = curr_val
                 
         price_map[t] = {'curr': curr_val, 'prev': prev_val}
@@ -134,11 +132,9 @@ if not valid_portfolio.empty:
         unique_tickers = tuple(display_df['종목코드'].unique())
         price_dict = fetch_multi_prices(unique_tickers)
         
-        # 💡 현재가 및 전일종가 매핑
         display_df['현재가'] = display_df['종목코드'].apply(lambda x: price_dict.get(x, {}).get('curr', 0)).astype(int)
         display_df['전일종가'] = display_df['종목코드'].apply(lambda x: price_dict.get(x, {}).get('prev', 0)).astype(int)
         
-        # 💡 전일비 및 전일대비(%) 계산
         display_df['전일비'] = display_df['현재가'] - display_df['전일종가']
         display_df['전일대비(%)'] = display_df.apply(
             lambda r: (r['전일비'] / r['전일종가'] * 100) if r['전일종가'] > 0 else 0, 
@@ -146,6 +142,7 @@ if not valid_portfolio.empty:
         )
 
         display_df['평가금액'] = display_df['현재가'] * display_df['수량']
+        display_df['전일평가금액'] = display_df['전일종가'] * display_df['수량'] # 💡 전체 전일비 계산용
         display_df['평가손익'] = (display_df['현재가'] - display_df['매수단가']) * display_df['수량']
         display_df['수익률(%)'] = display_df.apply(
             lambda r: (r['평가손익'] / (r['매수단가'] * r['수량']) * 100) if (r['매수단가'] * r['수량']) > 0 else 0, 
@@ -167,24 +164,30 @@ if not valid_portfolio.empty:
 
         display_df[['티커_L', '종목명_L']] = display_df.apply(make_links, axis=1)
 
+        # 💡 전체 요약 수치 계산
         total_buy = (display_df['매수단가'] * display_df['수량']).sum()
         total_val = display_df['평가금액'].sum()
+        total_prev_val = display_df['전일평가금액'].sum()
+        
+        total_daily_diff = total_val - total_prev_val # 포트폴리오 총 전일비
+        total_daily_pct = (total_daily_diff / total_prev_val * 100) if total_prev_val > 0 else 0 # 포트폴리오 총 전일비(%)
+        
         total_profit = display_df['평가손익'].sum()
         total_pct = (total_profit / total_buy * 100) if total_buy > 0 else 0
         
-        c1, c2, c3, c4 = st.columns(4)
+        # 💡 상단 요약 박스 (5칸으로 확장)
+        c1, c2, c3, c4, c5 = st.columns(5)
         c1.metric("💰 총 매수", f"{int(total_buy):,}원")
         c2.metric("📈 총 평가액", f"{int(total_val):,}원")
-        c3.metric("손익금", f"{int(total_profit):,}원", delta=f"{int(total_profit):,}원")
-        c4.metric("수익률", f"{total_pct:.2f}%", delta=f"{total_pct:.2f}%")
+        c3.metric("🌟 오늘 변동액", f"{int(total_daily_diff):,}원", delta=f"{total_daily_pct:.2f}%")
+        c4.metric("💸 총 평가손익", f"{int(total_profit):,}원", delta=f"{int(total_profit):,}원")
+        c5.metric("📊 총 수익률", f"{total_pct:.2f}%", delta=f"{total_pct:.2f}%")
         
-        # 💡 성적표 인덱스(번호) 1부터 시작하도록 설정
         display_df.index = range(1, len(display_df) + 1)
         
         def style_fn(df):
             styles = pd.DataFrame('', index=df.index, columns=df.columns)
-            # 전일비, 수익률 등에 색상 적용
-            for c in ['수익률(%)', '평가손익', '전일비', '전일대비(%)']:
+            for c in ['수익률(%)', '평가손익', '전일대비(%)']:
                 if c in df.columns:
                     styles[c] = df[c].apply(lambda x: 'color: #EF4444; font-weight:bold;' if x > 0 else ('color: #3B82F6; font-weight:bold;' if x < 0 else ''))
             return styles
@@ -192,14 +195,14 @@ if not valid_portfolio.empty:
         st.dataframe(
             display_df.style.apply(style_fn, axis=None),
             use_container_width=True, 
-            hide_index=False, # 💡 번호가 보이도록 명시적 설정
-            column_order=['티커_L', '종목명_L', '수량', '매수단가', '현재가', '전일비', '전일대비(%)', '평가금액', '평가손익', '수익률(%)'],
+            hide_index=False,
+            # 💡 '전일비' 제외, '전일대비(%)' 유지
+            column_order=['티커_L', '종목명_L', '수량', '매수단가', '현재가', '전일대비(%)', '평가금액', '평가손익', '수익률(%)'],
             column_config={
                 "티커_L": st.column_config.LinkColumn("티커", display_text=r"#(.+)"),
                 "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"),
                 "매수단가": st.column_config.NumberColumn(format="%,d"),
                 "현재가": st.column_config.NumberColumn(format="%,d"),
-                "전일비": st.column_config.NumberColumn("전일비", format="%,d"),
                 "전일대비(%)": st.column_config.NumberColumn("전일비(%)", format="%.2f%%"),
                 "평가금액": st.column_config.NumberColumn(format="%,d"),
                 "평가손익": st.column_config.NumberColumn(format="%,d"),
@@ -279,7 +282,6 @@ edit_view_df = st.session_state.temp_df.copy()
 edit_view_df['매수단가'] = pd.to_numeric(edit_view_df['매수단가'], errors='coerce').fillna(0).astype(int)
 edit_view_df['수량'] = pd.to_numeric(edit_view_df['수량'], errors='coerce').fillna(0).astype(int)
 
-# 💡 편집 표 인덱스(번호) 1부터 시작하도록 명시
 edit_view_df.index = range(1, len(edit_view_df) + 1)
 
 edited_df = st.data_editor(
