@@ -4,6 +4,7 @@ import FinanceDataReader as fdr
 from datetime import datetime, timedelta
 import os
 import yfinance as yf
+from concurrent.futures import ThreadPoolExecutor, as_completed # 💡 초고속 병렬 처리 모듈
 
 # 1. 페이지 설정
 st.set_page_config(page_title="S&P 500 모멘텀 순위", layout="wide")
@@ -38,15 +39,10 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 💡 [기능 반영] 티커용(total)과 종목명용(fchart) 네이버 링크 2개를 생성 (캐싱)
-@st.cache_data(ttl=604800)
-def get_naver_stock_urls_cached(ticker, name, display_ticker):
+# 💡 [핵심 최적화 1] 개별 주소 생성 로직 분리
+def fetch_single_url(ticker, name, display_ticker):
     ticker_str = str(ticker).strip()
-    
-    exceptions = {
-        'CIEN': '.K',
-        'COHR': '.K',
-    }
+    exceptions = {'CIEN': '.K', 'COHR': '.K'}
     
     if ticker_str in exceptions:
         suffix = exceptions[ticker_str]
@@ -58,30 +54,35 @@ def get_naver_stock_urls_cached(ticker, name, display_ticker):
             
             mapping = {
                 'NMS': '.O', 'NGM': '.O', 'NCM': '.O',
-                'NYQ': '.N',
-                'ASE': '.A',
-                'BATS': '.K',
-                'PCX': '.P',
+                'NYQ': '.N', 'ASE': '.A', 'BATS': '.K', 'PCX': '.P',
             }
             
             if exchange in mapping:
                 suffix = mapping[exchange]
             else:
                 suffix = '.O' if len(ticker_str) >= 4 else ''
-                
         except:
             suffix = '.O' if len(ticker_str) >= 4 else ''
 
-    # 1. 티커 클릭 시: 네이버 해외주식 종합정보
     total_url = f"https://m.stock.naver.com/worldstock/stock/{ticker_str}{suffix}/total#{display_ticker}"
-    
-    # 2. 종목명 클릭 시: 네이버 해외주식 차트
     chart_url = f"https://m.stock.naver.com/fchart/foreign/stock/{ticker_str}{suffix}#{name}"
     
-    return total_url, chart_url
+    return ticker_str, total_url, chart_url
 
-# 💡 [지수 데이터 수집] 20~200일선 및 링크 분리 적용
-@st.cache_data(ttl=3600)
+# 💡 [핵심 최적화 2] 500개 종목을 50명이 동시에 작업 (일주일 캐싱으로 두 번째 접속부터는 0.1초 컷)
+@st.cache_data(ttl=604800, show_spinner=False)
+def get_all_urls_concurrently(ticker_data_tuples):
+    urls = {}
+    # S&P 500의 방대한 물량을 처리하기 위해 워커(작업자)를 50명으로 세팅
+    with ThreadPoolExecutor(max_workers=50) as executor:
+        futures = [executor.submit(fetch_single_url, t, n, d) for t, n, d in ticker_data_tuples]
+        for future in as_completed(futures):
+            t_str, total_url, chart_url = future.result()
+            urls[t_str] = (total_url, chart_url)
+    return urls
+
+# 지수 데이터 수집 및 이동평균선 현황 (로딩바 숨김)
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_index_ma_status(target_date_str):
     indices = {'S&P 500': 'US500', 'NASDAQ': 'IXIC'}
     target_date = pd.to_datetime(target_date_str)
@@ -182,7 +183,6 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
         if '전일거래량' in df_500.columns:
             df_500['전일거래량'] = pd.to_numeric(df_500['전일거래량'], errors='coerce').fillna(0)
 
-    # 전달순위 텍스트화
     if '전달순위' in df_500.columns:
         df_500['전달순위'] = pd.to_numeric(df_500['전달순위'], errors='coerce')
         df_500['전달순위'] = df_500['전달순위'].apply(lambda x: f"{int(x)}위" if pd.notna(x) and x > 0 else "NEW")
@@ -191,19 +191,18 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
         if c in df_500.columns:
             df_500[c] = pd.to_numeric(df_500[c], errors='coerce').fillna(0.0)
 
-    # 💡 티커/종목명 네이버 링크 생성
-    links_df = df_500.apply(
-        lambda r: pd.Series(get_naver_stock_urls_cached(r['종목코드'], r['종목명'], f"{r.get('시장', 'S&P 500')}:{r['종목코드']}")), 
-        axis=1
-    )
-    df_500['통합티커_L'] = links_df[0] # 종합정보
-    df_500['종목명_L'] = links_df[1]  # 차트
+    # 💡 [핵심] S&P 500 종목 병렬 처리 (화면 멈춤 방지)
+    with st.spinner("🚀 S&P 500 전체 종목 정보를 초고속으로 동기화 중입니다... (최초 1회 약 10초 소요)"):
+        ticker_tuples = tuple((str(r['종목코드']), str(r['종목명']), f"{r.get('시장', 'S&P 500')}:{r['종목코드']}") for _, r in df_500.iterrows())
+        url_map = get_all_urls_concurrently(ticker_tuples)
+        
+        df_500['통합티커_L'] = df_500['종목코드'].astype(str).apply(lambda x: url_map.get(x, ("", ""))[0])
+        df_500['종목명_L'] = df_500['종목코드'].astype(str).apply(lambda x: url_map.get(x, ("", ""))[1])
 
     top10_12_1 = df_500.sort_values('12-1개월(%)', ascending=False).head(10)
     top10_6_1 = df_500.sort_values('6-1개월(%)', ascending=False).head(10)
     top10_3_1 = df_500.sort_values('3-1개월(%)', ascending=False).head(10)
 
-    # 💡 [정렬 반영] 교집합 데이터를 6-1M 기준으로 내림차순 정렬
     overlap_12_6 = top10_12_1[top10_12_1['종목코드'].isin(top10_6_1['종목코드'])].sort_values('6-1개월(%)', ascending=False).copy()
     overlap_6_3 = top10_6_1[top10_6_1['종목코드'].isin(top10_3_1['종목코드'])].sort_values('6-1개월(%)', ascending=False).copy()
     common_tickers = set(overlap_12_6['종목코드']).intersection(set(overlap_6_3['종목코드']))
@@ -275,7 +274,6 @@ with t1:
         df_m = pd.read_csv(f_sp500, dtype={'종목코드': str})
         df_m.columns = df_m.columns.str.replace(' ', '')
         
-        # 전달순위 계산 로직 유지
         if '전달순위' not in df_m.columns or df_m['전달순위'].isnull().all():
             try:
                 b_date_str = df_m['기준일(월말)'].iloc[0]
