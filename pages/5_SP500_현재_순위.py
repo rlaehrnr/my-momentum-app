@@ -4,7 +4,7 @@ import FinanceDataReader as fdr
 from datetime import datetime, timedelta
 import os
 import yfinance as yf
-from concurrent.futures import ThreadPoolExecutor, as_completed # 💡 초고속 병렬 처리 모듈
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # 1. 페이지 설정
 st.set_page_config(page_title="S&P 500 모멘텀 순위", layout="wide")
@@ -16,7 +16,6 @@ st.markdown("""
     h1 { font-size: 2.2rem !important; font-weight: 800; margin-bottom: 10px; }
     .stTabs [data-baseweb="tab"] { font-size: 18px; font-weight: bold; }
     
-    /* 섹션 제목 스타일 */
     .section-header {
         background-color: #1F2937;
         color: #FFFFFF;
@@ -39,10 +38,14 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 💡 [핵심 최적화 1] 개별 주소 생성 로직 분리
-def fetch_single_url(ticker, name, display_ticker):
+# 💡 [오류 완벽 해결] 시장 자동 판별 및 정확한 네이버 링크 생성
+def fetch_single_url(ticker, name):
     ticker_str = str(ticker).strip()
     exceptions = {'CIEN': '.K', 'COHR': '.K'}
+    
+    # 기본값 세팅
+    suffix = ''
+    exchange_display = "NYSE" 
     
     if ticker_str in exceptions:
         suffix = exceptions[ticker_str]
@@ -52,36 +55,48 @@ def fetch_single_url(ticker, name, display_ticker):
             stock = yf.Ticker(yf_ticker)
             exchange = stock.info.get('exchange', '')
             
-            mapping = {
-                'NMS': '.O', 'NGM': '.O', 'NCM': '.O',
-                'NYQ': '.N', 'ASE': '.A', 'BATS': '.K', 'PCX': '.P',
-            }
-            
-            if exchange in mapping:
-                suffix = mapping[exchange]
+            # 💡 엑셀을 무시하고 야후에서 진짜 소속 시장을 알아냅니다.
+            if exchange in ['NMS', 'NGM', 'NCM', 'NASDAQ']:
+                suffix = '.O'
+                exchange_display = "NASDAQ"
+            elif exchange in ['NYQ', 'NYSE']:
+                suffix = '' # 💡 핵심 해결: 네이버는 NYSE 종목 뒤에 .N을 안 붙입니다!
+                exchange_display = "NYSE"
+            elif exchange == 'ASE':
+                suffix = '.A'
+                exchange_display = "AMEX"
+            elif exchange == 'BATS':
+                suffix = '.K'
+                exchange_display = "BATS"
             else:
+                # API 실패 시 글자 수로 눈치껏 추론 (보통 4글자 이상은 나스닥)
                 suffix = '.O' if len(ticker_str) >= 4 else ''
+                exchange_display = "NASDAQ" if len(ticker_str) >= 4 else "NYSE"
         except:
             suffix = '.O' if len(ticker_str) >= 4 else ''
+            exchange_display = "NASDAQ" if len(ticker_str) >= 4 else "NYSE"
 
+    # 표에 보여줄 티커명 (예: NASDAQ:AAPL)
+    display_ticker = f"{exchange_display}:{ticker_str}"
+    
     total_url = f"https://m.stock.naver.com/worldstock/stock/{ticker_str}{suffix}/total#{display_ticker}"
     chart_url = f"https://m.stock.naver.com/fchart/foreign/stock/{ticker_str}{suffix}#{name}"
     
     return ticker_str, total_url, chart_url
 
-# 💡 [핵심 최적화 2] 500개 종목을 50명이 동시에 작업 (일주일 캐싱으로 두 번째 접속부터는 0.1초 컷)
+# 💡 500개 종목을 50명이 동시에 작업 (캐싱으로 매우 빠름)
 @st.cache_data(ttl=604800, show_spinner=False)
 def get_all_urls_concurrently(ticker_data_tuples):
     urls = {}
-    # S&P 500의 방대한 물량을 처리하기 위해 워커(작업자)를 50명으로 세팅
     with ThreadPoolExecutor(max_workers=50) as executor:
-        futures = [executor.submit(fetch_single_url, t, n, d) for t, n, d in ticker_data_tuples]
+        # 매개변수를 2개(티커, 종목명)만 넘기도록 수정
+        futures = [executor.submit(fetch_single_url, t, n) for t, n in ticker_data_tuples]
         for future in as_completed(futures):
             t_str, total_url, chart_url = future.result()
             urls[t_str] = (total_url, chart_url)
     return urls
 
-# 지수 데이터 수집 및 이동평균선 현황 (로딩바 숨김)
+# 지수 데이터 수집 및 이동평균선 현황
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_index_ma_status(target_date_str):
     indices = {'S&P 500': 'US500', 'NASDAQ': 'IXIC'}
@@ -104,9 +119,7 @@ def get_index_ma_status(target_date_str):
                 url_price = f"https://m.stock.naver.com/fchart/foreign/index/.IXIC#{curr_price:,.2f}"
             
             ma_values = {
-                '지수_L': url_name,
-                '현재가_L': url_price,
-                'base_price': round(curr_price, 2),
+                '지수_L': url_name, '현재가_L': url_price, 'base_price': round(curr_price, 2),
                 '20일선': round(df['Close'].rolling(20).mean().iloc[-1], 2),
                 '60일선': round(df['Close'].rolling(60).mean().iloc[-1], 2),
                 '120일선': round(df['Close'].rolling(120).mean().iloc[-1], 2),
@@ -117,7 +130,6 @@ def get_index_ma_status(target_date_str):
         except: pass
     return pd.DataFrame(res)
 
-# 이동평균선 스타일
 def style_index_ma(df):
     def apply_color(row):
         price = row['base_price']
@@ -150,7 +162,6 @@ def highlight_name_only(row, common_tickers):
             styles[name_idx] = 'background-color: #FFF9C4; color: #1F2937; font-weight: bold; border-radius: 4px;'
     return styles
 
-# 컬럼 설정
 base_config = {
     "순위": st.column_config.NumberColumn("순위", format="%d", width=40),
     "통합티커_L": st.column_config.LinkColumn("티커", display_text=r"#(.+)", width=105),
@@ -191,9 +202,9 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
         if c in df_500.columns:
             df_500[c] = pd.to_numeric(df_500[c], errors='coerce').fillna(0.0)
 
-    # 💡 [핵심] S&P 500 종목 병렬 처리 (화면 멈춤 방지)
+    # 💡 엑셀의 '시장' 컬럼은 무시하고, 종목코드와 종목명 2개만 넘겨서 확실하게 파악합니다.
     with st.spinner("🚀 S&P 500 전체 종목 정보를 초고속으로 동기화 중입니다... (최초 1회 약 10초 소요)"):
-        ticker_tuples = tuple((str(r['종목코드']), str(r['종목명']), f"{r.get('시장', 'S&P 500')}:{r['종목코드']}") for _, r in df_500.iterrows())
+        ticker_tuples = tuple((str(r['종목코드']), str(r['종목명'])) for _, r in df_500.iterrows())
         url_map = get_all_urls_concurrently(ticker_tuples)
         
         df_500['통합티커_L'] = df_500['종목코드'].astype(str).apply(lambda x: url_map.get(x, ("", ""))[0])
@@ -207,7 +218,6 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
     overlap_6_3 = top10_6_1[top10_6_1['종목코드'].isin(top10_3_1['종목코드'])].sort_values('6-1개월(%)', ascending=False).copy()
     common_tickers = set(overlap_12_6['종목코드']).intersection(set(overlap_6_3['종목코드']))
 
-    # --- 상단: 교집합 ---
     st.markdown("### 🌟 모멘텀 교집합 (TOP 10 중복 분석)")
     c_over1, c_over2 = st.columns(2)
     with c_over1:
@@ -227,7 +237,6 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
                          column_order=['순위', '통합티커_L', '종목명_L', '6-1개월(%)', '3-1개월(%)'], column_config=base_config)
         else: st.info("중복 종목 없음")
 
-    # --- 중단: 상위 30위 ---
     st.markdown("<br>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
     
@@ -247,7 +256,6 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
                          use_container_width=True, height=450, hide_index=True,
                          column_order=['순위', '통합티커_L', '종목명_L', sort_col], column_config=sub_config)
 
-    # --- 하단: 전체 ---
     st.markdown("---")
     st.markdown(f'### 📊 S&P 500 전체 종목 (기준: {target_date_str})')
     df_500_all = df_500.copy()
