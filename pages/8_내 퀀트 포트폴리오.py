@@ -13,22 +13,21 @@ MASTER_TICKER_PATH = 'data/krx_stock_master.csv'
 if not os.path.exists('data'):
     os.makedirs('data')
 
-# 💡 여백(padding-top)을 1.5rem -> 3rem으로 늘려서 타이틀이 잘리지 않게 수정
+# 💡 CSS 수정: 다크모드/라이트모드에서 모두 잘 보이도록 텍스트 색상 고정 해제 및 반투명 박스 적용
 st.markdown("""
     <style>
     .block-container { padding-top: 3rem !important; }
-    .main-title { font-size: 1.8rem !important; font-weight: bold; margin-bottom: 1rem; color: #1F2937; }
-    .stMetric { background-color: #f8f9fa; padding: 10px; border-radius: 10px; border: 1px solid #e9ecef; }
+    .main-title { font-size: 1.8rem !important; font-weight: bold; margin-bottom: 1rem; }
+    .stMetric { background-color: rgba(130, 130, 130, 0.1); padding: 15px; border-radius: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
 st.markdown('<p class="main-title">💼 내 퀀트 포트폴리오 대시보드</p>', unsafe_allow_html=True)
 
-# --- [2. 마스터 데이터 로드 (💡 인코딩 에러 철벽 방어)] ---
+# --- [2. 마스터 데이터 로드] ---
 @st.cache_data(ttl=86400)
 def get_stock_master():
     if os.path.exists(MASTER_TICKER_PATH):
-        # 엑셀에서 저장된 CSV의 다양한 한글 인코딩 방식을 모두 시도합니다.
         for enc in ['utf-8-sig', 'cp949', 'euc-kr', 'utf-8']:
             try:
                 df = pd.read_csv(MASTER_TICKER_PATH, dtype={'종목코드': str}, encoding=enc)
@@ -39,7 +38,6 @@ def get_stock_master():
             except:
                 continue
                 
-    # 파일이 없거나 도저히 못 읽겠으면 임시방편으로 기존 데이터에서 추출
     res = []
     for f in ['data/momentum_data.csv', 'data/momentum_data_daily.csv']:
         if os.path.exists(f):
@@ -58,32 +56,39 @@ def get_stock_master():
 master_df = get_stock_master()
 search_options = ["🔍 검색해서 추가 (삼성, 카카오 등)"] + master_df['검색명'].tolist() if not master_df.empty else ["검색 데이터가 없습니다."]
 
-# --- [3. 실시간 가격 대량 수집 함수] ---
+# --- [3. 💡 실시간 가격 수집 함수 (가장 튼튼한 방식으로 수정)] ---
 @st.cache_data(ttl=60)
 def fetch_multi_prices(tickers):
     if not tickers: return {}
     price_map = {}
     
-    yf_tickers = [ (t + ".KS" if t.isdigit() else t) for t in tickers ]
-    try:
-        data = yf.download(yf_tickers, period="5d", interval="1d", group_by='ticker', progress=False)
-        for t in tickers:
-            yf_t = t + ".KS" if t.isdigit() else t
+    for t in tickers:
+        val = 0
+        code_str = str(t).zfill(6) if str(t).isdigit() else str(t)
+        
+        # 1. 한국/미국 주식 모두 잘 잡는 fdr을 최우선으로 시도
+        try:
+            df = fdr.DataReader(code_str, datetime.today() - timedelta(days=10))
+            if not df.empty:
+                val = int(df['Close'].iloc[-1])
+        except:
+            pass
+            
+        # 2. 만약 실패했다면 yfinance로 다시 시도 (주로 해외주식 백업용)
+        if val == 0:
             try:
-                if len(tickers) == 1: val = data['Close'].iloc[-1]
-                else: val = data[yf_t]['Close'].iloc[-1]
+                yf_t = code_str + ".KS" if code_str.isdigit() else code_str
+                hist = yf.Ticker(yf_t).history(period="5d")
+                if not hist.empty:
+                    val = int(hist['Close'].iloc[-1])
+                elif code_str.isdigit(): # 코스닥 시도
+                    hist_kq = yf.Ticker(code_str + ".KQ").history(period="5d")
+                    if not hist_kq.empty:
+                        val = int(hist_kq['Close'].iloc[-1])
+            except:
+                pass
                 
-                if pd.isna(val) and t.isdigit():
-                    val = yf.download(t + ".KQ", period="1d", progress=False)['Close'].iloc[-1]
-                
-                price_map[t] = int(val) if not pd.isna(val) else 0
-            except: price_map[t] = 0
-    except:
-        for t in tickers:
-            try:
-                df = fdr.DataReader(t, datetime.today() - timedelta(days=7))
-                price_map[t] = int(df['Close'].iloc[-1]) if not df.empty else 0
-            except: price_map[t] = 0
+        price_map[t] = val
             
     return price_map
 
@@ -108,7 +113,7 @@ st.markdown("### 🚀 실시간 성적표")
 valid_portfolio = st.session_state.temp_df.dropna(subset=['종목코드']).copy()
 
 if not valid_portfolio.empty:
-    with st.spinner("실시간 주가 분석 중..."):
+    with st.spinner("실시간 주가 분석 중... (수 초 소요)"):
         display_df = valid_portfolio.copy()
         display_df['종목코드'] = display_df['종목코드'].astype(str).apply(lambda x: x.zfill(6) if x.isdigit() else x)
         
@@ -118,13 +123,18 @@ if not valid_portfolio.empty:
         display_df['현재가'] = display_df['종목코드'].map(price_dict).fillna(0)
         display_df['평가금액'] = display_df['현재가'] * display_df['수량']
         display_df['평가손익'] = (display_df['현재가'] - display_df['매수단가']) * display_df['수량']
-        display_df['수익률(%)'] = (display_df['평가손익'] / (display_df['매수단가'] * display_df['수량']) * 100).fillna(0)
+        
+        # 수익률 계산 시 0으로 나누는 것 방지
+        display_df['수익률(%)'] = display_df.apply(
+            lambda r: (r['평가손익'] / (r['매수단가'] * r['수량']) * 100) if (r['매수단가'] * r['수량']) > 0 else 0, 
+            axis=1
+        )
         
         if '시장구분' in master_df.columns:
             m_info = master_df.set_index('종목코드')[['시장구분']]
             display_df = display_df.join(m_info, on='종목코드')
         else:
-            display_df['시장구분'] = "KOSPI" # 기본값
+            display_df['시장구분'] = "KOSPI"
         
         def make_links(r):
             m = "KOSDAQ" if "코스닥" in str(r.get('시장구분', '')) else "KOSPI"
@@ -196,7 +206,6 @@ with col_file:
         up_file = st.file_uploader("파일 선택", type=['csv', 'xlsx'])
         if up_file:
             try:
-                # 엑셀 업로드 시 인코딩 에러 방지
                 if up_file.name.endswith('csv'): 
                     try: up_df = pd.read_csv(up_file, dtype={'종목코드': str}, encoding='utf-8-sig')
                     except: up_df = pd.read_csv(up_file, dtype={'종목코드': str}, encoding='cp949')
@@ -209,7 +218,6 @@ with col_file:
                         name_map = master_df.set_index('종목코드')['종목명'].to_dict() if not master_df.empty else {}
                         up_df['종목명'] = up_df['종목코드'].map(name_map).fillna('미등록종목')
                     
-                    # 필수 컬럼만 추출하여 반영
                     cols_to_keep = ["종목명", "종목코드", "매수단가", "수량"]
                     for c in cols_to_keep:
                         if c not in up_df.columns: up_df[c] = 0 if c in ['매수단가', '수량'] else ''
