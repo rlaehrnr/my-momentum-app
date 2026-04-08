@@ -42,7 +42,7 @@ st.markdown("""
 # 💡 [핵심 최적화] 개별 주소 생성 (독립 함수로 분리)
 def fetch_single_url(ticker, name, display_ticker):
     ticker_str = str(ticker).strip()
-    exceptions = {'CIEN': '.K', 'COHR': '.K'}
+    exceptions = {'CIEN': '.K', 'COHR': '.K', 'EQNR': '.K'}
     
     if ticker_str in exceptions:
         suffix = exceptions[ticker_str]
