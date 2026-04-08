@@ -63,7 +63,9 @@ def fetch_multi_prices(tickers):
     
     for t in tickers:
         val = 0
-        code_str = str(t).zfill(6) if str(t).isdigit() else str(t)
+        # 💡 float 에러 방지: 무조건 문자열로 바꾸고 .0 제거
+        t_str = str(t).replace('.0', '')
+        code_str = t_str.zfill(6) if t_str.isdigit() else t_str
         
         try:
             df = fdr.DataReader(code_str, datetime.today() - timedelta(days=10))
@@ -94,7 +96,7 @@ def load_portfolio():
     if os.path.exists(PORTFOLIO_PATH):
         try:
             df = pd.read_csv(PORTFOLIO_PATH, dtype={'종목코드': str})
-            df['종목코드'] = df['종목코드'].str.zfill(6)
+            df['종목코드'] = df['종목코드'].astype(str).str.replace(r'\.0$', '', regex=True).str.zfill(6)
             return df
         except: pass
     return pd.DataFrame(columns=["종목명", "종목코드", "매수단가", "수량"])
@@ -112,7 +114,8 @@ valid_portfolio = st.session_state.temp_df.dropna(subset=['종목코드']).copy(
 if not valid_portfolio.empty:
     with st.spinner("실시간 주가 분석 중... (수 초 소요)"):
         display_df = valid_portfolio.copy()
-        display_df['종목코드'] = display_df['종목코드'].astype(str).apply(lambda x: x.zfill(6) if x.isdigit() else x)
+        # 💡 float 에러 방지
+        display_df['종목코드'] = display_df['종목코드'].astype(str).str.replace(r'\.0$', '', regex=True).apply(lambda x: str(x).zfill(6) if str(x).isdigit() else str(x))
         
         unique_tickers = tuple(display_df['종목코드'].unique())
         price_dict = fetch_multi_prices(unique_tickers)
@@ -202,22 +205,24 @@ with col_file:
         up_file = st.file_uploader("파일 양식 (종목코드, 매수단가, 수량)", type=['csv', 'xlsx'])
         if up_file:
             try:
-                # 💡 엑셀 업로드 시 인코딩 에러 방지
                 if up_file.name.endswith('csv'): 
                     try: up_df = pd.read_csv(up_file, encoding='utf-8-sig')
                     except: up_df = pd.read_csv(up_file, encoding='cp949')
                 else: 
                     up_df = pd.read_excel(up_file)
                 
-                # 컬럼명 공백 제거
                 up_df.columns = up_df.columns.str.strip()
                 
                 if st.button("🚀 업로드 데이터 반영하기"):
                     if '종목코드' not in up_df.columns:
                         st.error("엑셀 파일 가장 윗줄에 '종목코드'라는 글자가 꼭 있어야 합니다!")
                     else:
+                        # 💡 파일 안의 빈칸 제거
+                        up_df = up_df.dropna(subset=['종목코드'])
+                        
+                        # 💡 철벽 방어: float을 str로 바꾸고 .0 날리고 zfill 처리
                         up_df['종목코드'] = up_df['종목코드'].astype(str).str.replace(r'\.0$', '', regex=True)
-                        up_df['종목코드'] = up_df['종목코드'].apply(lambda x: x.zfill(6) if x.isdigit() else x)
+                        up_df['종목코드'] = up_df['종목코드'].apply(lambda x: str(x).zfill(6) if str(x).isdigit() else str(x))
                         
                         if '종목명' not in up_df.columns:
                             name_map = master_df.set_index('종목코드')['종목명'].to_dict() if not master_df.empty else {}
@@ -228,7 +233,6 @@ with col_file:
                             if c not in up_df.columns: 
                                 up_df[c] = 0 if c in ['매수단가', '수량'] else ''
                         
-                        # 💡 엑셀의 ₩, 쉼표(,) 등을 전부 날려버리고 순수 숫자만 추출하는 강력한 정규식 방어막 적용
                         up_df['매수단가'] = pd.to_numeric(up_df['매수단가'].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce').fillna(0)
                         up_df['수량'] = pd.to_numeric(up_df['수량'].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce').fillna(0)
                         
@@ -237,9 +241,7 @@ with col_file:
                         st.success("✅ 파일 업로드가 완벽하게 처리되었습니다!")
                         st.rerun()
             except Exception as e: 
-                # 💡 진짜 에러 원인을 화면에 빨간 글씨로 띄워줍니다.
                 st.error(f"오류 발생 원인: {e}")
-                st.info("💡 엑셀 파일인 경우 'openpyxl' 라이브러리가 필요합니다. requirements.txt를 확인해주세요.")
 
 st.markdown("### 📝 포트폴리오 목록 편집")
 edited_df = st.data_editor(
@@ -256,6 +258,8 @@ edited_df = st.data_editor(
 )
 
 if st.button("💾 위 표의 변경사항 저장 (삭제/수정)", use_container_width=True):
-    st.session_state.temp_df = edited_df.dropna(subset=['종목코드'])
+    save_df = edited_df.dropna(subset=['종목코드']).copy()
+    save_df['종목코드'] = save_df['종목코드'].astype(str).str.replace(r'\.0$', '', regex=True).apply(lambda x: str(x).zfill(6) if str(x).isdigit() else str(x))
+    st.session_state.temp_df = save_df
     st.session_state.temp_df.to_csv(PORTFOLIO_PATH, index=False, encoding='utf-8-sig')
     st.rerun()
