@@ -88,11 +88,19 @@ def get_index_ma_status(target_date_str):
     target_date = pd.to_datetime(target_date_str)
     start_date = target_date - timedelta(days=400) 
     
+    # 💡 [핵심 해결] 라이브러리가 마지막 날짜를 빼먹는 것을 방지하기 위해 이틀(+2일) 넉넉히 가져옵니다.
+    fetch_end_date = target_date + timedelta(days=2)
+    
     res = []
     for name, code in indices.items():
         try:
-            df = fdr.DataReader(code, start_date, target_date)
+            df = fdr.DataReader(code, start_date, fetch_end_date)
+            
+            # 💡 넉넉히 가져온 데이터 중에서, 우리가 정확히 원하는 '기준일'까지만 필터링해서 자릅니다.
+            df = df[df.index <= target_date]
+            
             if df.empty: continue
+            
             curr_price = df['Close'].iloc[-1]
             
             if name == 'S&P 500':
