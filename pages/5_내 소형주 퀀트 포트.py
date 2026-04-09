@@ -35,6 +35,7 @@ st.markdown("""
         }
     }
     
+    /* 요약 표 디자인 */
     .summary-table { width: 100%; border-collapse: collapse; text-align: center; font-size: 1.15rem; background-color: #111827; border-radius: 8px; overflow: hidden; margin-top: 10px; }
     .summary-table th { background-color: #374151; padding: 14px; border-bottom: 2px solid #4B5563; color: #F3F4F6; }
     .summary-table td { padding: 14px; border-bottom: 1px solid #374151; color: #E5E7EB; font-weight: 600; }
@@ -132,6 +133,10 @@ def load_portfolio(path):
         for enc in ['utf-8-sig', 'cp949', 'euc-kr', 'utf-8']:
             try:
                 df = pd.read_csv(path, dtype={'종목코드': str}, encoding=enc)
+                # 💡 [핵심 방어 1] 파일에 '종목명' 컬럼이 없으면 강제로 만들어줍니다.
+                if '종목명' not in df.columns:
+                    df['종목명'] = ''
+                    
                 df['종목코드'] = df['종목코드'].astype(str).str.replace(r'\.0$', '', regex=True).str.zfill(6)
                 df['매수단가'] = pd.to_numeric(df['매수단가'], errors='coerce').fillna(0).astype(int)
                 df['수량'] = pd.to_numeric(df['수량'], errors='coerce').fillna(0).astype(int)
@@ -142,7 +147,6 @@ def load_portfolio(path):
 
 # --- [5. 개별 포트폴리오 렌더링 함수] ---
 def render_portfolio_tab(port_name, port_key, path):
-    # 💡 [버그 완벽 수정] 탭을 전환할 때마다 최신 파일을 로드하도록 보장
     if f'df_{port_key}' not in st.session_state:
         st.session_state[f'df_{port_key}'] = load_portfolio(path)
 
@@ -152,7 +156,6 @@ def render_portfolio_tab(port_name, port_key, path):
     col_add, col_file = st.columns([1.5, 1])
     with col_add:
         with st.expander(f"➕ {port_name} 포트폴리오 개별 종목 추가", expanded=True):
-            # 💡 [핵심] 폼(Form)과 입력창의 key를 완벽히 분리
             with st.form(f"add_form_{port_key}", clear_on_submit=True):
                 sel = st.selectbox("종목 검색", options=search_options, key=f"sel_{port_key}")
                 c1, c2 = st.columns(2)
@@ -207,8 +210,6 @@ def render_portfolio_tab(port_name, port_key, path):
                     except Exception as e: st.error(f"파일을 읽을 수 없습니다: {e}")
 
     st.markdown(f"### 📝 {port_name} 목록 편집")
-    
-    # 💡 데이터 에디터에 표시하기 전 데이터 복사 및 정제
     edit_view_df = st.session_state[f'df_{port_key}'].copy()
     edit_view_df['매수단가'] = pd.to_numeric(edit_view_df['매수단가'], errors='coerce').fillna(0).astype(int)
     edit_view_df['수량'] = pd.to_numeric(edit_view_df['수량'], errors='coerce').fillna(0).astype(int)
@@ -262,12 +263,14 @@ def render_portfolio_tab(port_name, port_key, path):
                     display_df = pd.merge(display_df, m_info, on='종목코드', how='left')
                 else: display_df['시장구분'] = "KOSPI"
                 
+                # 💡 [핵심 방어 2] .get()을 사용하여 종목명이 없어도 절대 에러나지 않게 보호
                 def make_links(r):
                     market_val = str(r.get('시장구분', ''))
                     m = "KOSDAQ" if "코스닥" in market_val or "KOSDAQ" in market_val.upper() else "KOSPI"
-                    t_url = f"https://finance.naver.com/item/main.naver?code={r['종목코드']}#{m}:{r['종목코드']}"
-                    n_url = f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드']}#{r['종목명']}"
+                    t_url = f"https://finance.naver.com/item/main.naver?code={r.get('종목코드', '')}#{m}:{r.get('종목코드', '')}"
+                    n_url = f"https://m.stock.naver.com/fchart/domestic/stock/{r.get('종목코드', '')}#{r.get('종목명', '이름없음')}"
                     return pd.Series([t_url, n_url])
+                    
                 display_df[['티커_L', '종목명_L']] = display_df.apply(make_links, axis=1)
 
                 total_buy = (display_df['매수단가'] * display_df['수량']).sum()
@@ -359,7 +362,6 @@ with tab_summary:
     all_tickers = set()
     ports = [("또", "ddo", PORT_PATHS["ddo"]), ("쏘", "sso", PORT_PATHS["sso"]), ("맘", "mom", PORT_PATHS["mom"])]
     
-    # 각 포트폴리오별 파일을 읽어서 티커 수집
     for _, _, path in ports:
         df = load_portfolio(path)
         all_tickers.update(df['종목코드'].tolist())
