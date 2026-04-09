@@ -9,6 +9,27 @@ folders = ['data', 'archive', 'archive_us', 'archive_sp500']
 for d in folders:
     if not os.path.exists(d): os.makedirs(d)
 
+# 💡 [새로 추가된 핵심 기능] 소형주 포함 2,500여개 전 종목 시가총액 마스터 파일 생성
+def update_krx_master():
+    print("📈 KRX 전체 종목 마스터 데이터(시가총액 포함) 업데이트 중...")
+    try:
+        df = fdr.StockListing('KRX')
+        ticker_col = 'Symbol' if 'Symbol' in df.columns else 'Code'
+        df[ticker_col] = df[ticker_col].astype(str).str.zfill(6)
+        
+        if 'Marcap' in df.columns:
+            df['시가총액(억)'] = (pd.to_numeric(df['Marcap'], errors='coerce').fillna(0) / 100000000).astype(int)
+        else:
+            df['시가총액(억)'] = 0
+            
+        master_df = df[[ticker_col, 'Name', 'Market', '시가총액(억)']].copy()
+        master_df.rename(columns={ticker_col: '종목코드', 'Name': '종목명', 'Market': '시장구분'}, inplace=True)
+        
+        master_df.to_csv('data/krx_stock_master.csv', index=False, encoding='utf-8-sig')
+        print("✅ data/krx_stock_master.csv 업데이트 완료! (소형주 포함 전 종목 시가총액 탑재)")
+    except Exception as e:
+        print(f"❌ 마스터 데이터 업데이트 실패: {e}")
+
 def get_top_stocks(market, limit=150):
     """시가총액 상위 종목 추출 및 시가총액 데이터 포함"""
     try:
@@ -143,6 +164,9 @@ def run_daily(market_type='KR'):
         print(f"✅ {name_tag} 데일리 업데이트 완료! (시가총액 데이터 포함됨)")
 
 if __name__ == "__main__":
+    # 💡 최우선 작업: 포트폴리오를 위한 전 종목 시가총액 마스터 파일 만들기
+    update_krx_master()
+    
     # 데이터 수집 순서: KR -> US -> SP500
     for m in ['KR', 'US', 'SP500']:
         try:
