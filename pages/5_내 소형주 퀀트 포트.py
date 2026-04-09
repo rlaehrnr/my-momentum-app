@@ -36,14 +36,13 @@ st.markdown("""
         }
     }
     
-    /* 📊 종합 요약 표 디자인 */
+    /* 📊 종합 요약 표 디자인 (이전 스타일 유지) */
     .summary-table { width: 100%; border-collapse: collapse; text-align: center; font-size: 1.15rem; background-color: #1a1c24; border-radius: 12px; overflow: hidden; margin-top: 10px; }
     .summary-table th { background-color: #2d313e; padding: 15px; color: #9ca3af; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; }
     .summary-table td { padding: 16px; border-bottom: 1px solid #2d313e; color: #e5e7eb; }
     .highlight-cell { background-color: rgba(255, 255, 255, 0.03); font-size: 1.2rem; }
     .summary-total { background-color: #242834; font-size: 1.3rem; border-top: 2px solid #4b5563; }
     
-    /* 요약 탭 전용 색상 */
     .val-red { color: #ff6b6b !important; }
     .val-blue { color: #5dade2 !important; }
     .val-white { color: #ffffff !important; }
@@ -52,7 +51,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- [2. 설정 파일 관리] ---
+# --- [2. 설정 관리] ---
 def load_config():
     default_config = {"start_date": str(datetime.today().date()), "start_ddo": 0, "start_sso": 0, "start_mom": 0}
     if os.path.exists(CONFIG_PATH):
@@ -68,10 +67,10 @@ def load_config():
 def save_config(config_data):
     with open(CONFIG_PATH, 'w', encoding='utf-8') as f: json.dump(config_data, f)
 
-# --- [3. 마스터 & 가격 수집 로직] ---
+# --- [3. 마스터 & 가격 수집] ---
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_stock_master_and_cap():
-    master_df = pd.DataFrame(columns=['종목코드', '종목명', '시장구분', '검색명', '시가총액(억)'])
+    master_df = pd.DataFrame(columns=['종목코드', '종목명', '시장구분', '시가총액(억)'])
     cap_map = {}
     if os.path.exists(MASTER_TICKER_PATH):
         for enc in ['utf-8-sig', 'cp949', 'euc-kr', 'utf-8']:
@@ -79,7 +78,6 @@ def get_stock_master_and_cap():
                 df = pd.read_csv(MASTER_TICKER_PATH, dtype={'종목코드': str}, encoding=enc)
                 if '종목코드' in df.columns:
                     df['종목코드'] = df['종목코드'].astype(str).str.zfill(6)
-                    df['검색명'] = "[" + df['종목코드'] + "] " + df.get('종목명', df['종목코드'])
                     if '시가총액(억)' in df.columns:
                         df['시가총액(억)'] = pd.to_numeric(df['시가총액(억)'].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce').fillna(0).astype(int)
                         cap_map = df.set_index('종목코드')['시가총액(억)'].to_dict()
@@ -89,6 +87,9 @@ def get_stock_master_and_cap():
     return master_df, cap_map
 
 master_df, global_cap_map = get_stock_master_and_cap()
+# 검색명 생성
+if not master_df.empty:
+    master_df['검색명'] = "[" + master_df['종목코드'] + "] " + master_df.get('종목명', master_df['종목코드'])
 search_options = ["🔍 종목 검색"] + master_df['검색명'].tolist() if not master_df.empty else ["검색 데이터 없음"]
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -145,6 +146,7 @@ def render_portfolio_tab(port_name, port_key, path):
 
     scoreboard_placeholder = st.container()
     st.markdown("---")
+    
     col_add, col_file = st.columns([1.5, 1])
     with col_add:
         with st.expander(f"➕ {port_name} 종목 추가", expanded=False):
@@ -195,22 +197,48 @@ def render_portfolio_tab(port_name, port_key, path):
                 df['평가손익'] = (df['현재가'] - df['매수단가']) * df['수량']
                 df['수익률(%)'] = (df['평가손익'] / (df['매수단가'] * df['수량']) * 100).fillna(0)
                 
-                c1, c2, c3, c4, c5 = st.columns(5)
-                c1.metric("총 매수", f"₩{(df['매수단가']*df['수량']).sum():,}")
-                c2.metric("총 평가액", f"₩{df['평가금액'].sum():,}")
-                c4.metric("평가손익", f"₩{df['평가손익'].sum():,}")
-                c5.metric("수익률", f"{df['평가손익'].sum()/(df['매수단가']*df['수량']).sum()*100:.2f}%")
+                # 상단 성적표 (복구)
+                t_buy = (df['매수단가']*df['수량']).sum()
+                t_val = df['평가금액'].sum()
+                t_profit = df['평가손익'].sum()
+                t_prev_val = (df['전일종가']*df['수량']).sum()
+                d_diff = t_val - t_prev_val
+                d_pct = (d_diff / t_prev_val * 100) if t_prev_val > 0 else 0
                 
-                # 💡 [핵심] 개별 탭 컬러 복구 (상승 빨강, 하락 파랑)
-                def style_port(st_df):
+                c1, c2, c3, c4, c5 = st.columns(5)
+                c1.metric("총 매수", f"{int(t_buy):,}원")
+                c2.metric("총 평가액", f"{int(t_val):,}원")
+                c3.metric("오늘 변동액", f"{int(d_diff):,}원", delta=f"{d_pct:.2f}%")
+                c4.metric("총 평가손익", f"{int(t_profit):,}원", delta=f"{int(t_profit):,}원")
+                c5.metric("총 수익률", f"{t_profit/t_buy*100:.2f}%", delta=f"{t_profit/t_buy*100:.2f}%")
+                
+                # 링크 및 스타일링 준비
+                def make_links(r):
+                    market_val = str(r.get('시장구분', ''))
+                    m = "KOSDAQ" if "코스닥" in market_val or "KOSDAQ" in market_val.upper() else "KOSPI"
+                    t_url = f"https://finance.naver.com/item/main.naver?code={r['종목코드']}#{m}:{r['종목코드']}"
+                    n_url = f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드']}#{r['종목명']}"
+                    return pd.Series([t_url, n_url])
+                
+                df[['티커_L', '종목명_L']] = df.apply(make_links, axis=1)
+
+                def style_port_final(st_df):
                     s = pd.DataFrame('', index=st_df.index, columns=st_df.columns)
+                    # 💡 [진한 빨강/파랑 복구]
                     for col in ['전일비(%)', '평가손익', '수익률(%)']:
-                        s[col] = st_df[col].apply(lambda x: 'color: #ff6b6b; font-weight:bold;' if x > 0 else ('color: #5dade2; font-weight:bold;' if x < 0 else ''))
+                        s[col] = st_df[col].apply(lambda x: 'color: #FF0000; font-weight:bold;' if x > 0 else ('color: #007BFF; font-weight:bold;' if x < 0 else ''))
+                    # 💡 [시총 150억 이하 노란색 강조]
+                    if '시총(억)' in st_df.columns:
+                        s['시총(억)'] = st_df['시총(억)'].apply(lambda x: 'background-color: #FFFF00; color: #000000; font-weight:bold;' if 0 < x <= 150 else '')
                     return s
 
-                st.dataframe(df.style.apply(style_port, axis=None).format({'전일비(%)':'{:.2f}%','수익률(%)':'{:.2f}%','시총(억)':'{:,}','매수단가':'{:,}','현재가':'{:,}','평가금액':'{:,}','평가손익':'{:,}'}), 
+                st.dataframe(df.style.apply(style_port_final, axis=None).format({'전일비(%)':'{:.2f}%','수익률(%)':'{:.2f}%','시총(억)':'{:,}','매수단가':'{:,}','현재가':'{:,}','평가금액':'{:,}','평가손익':'{:,}'}), 
                              use_container_width=True, hide_index=True,
-                             column_order=['종목코드', '종목명', '시총(억)', '수량', '매수단가', '현재가', '전일비(%)', '평가금액', '평가손익', '수익률(%)'])
+                             column_order=['티커_L', '종목명_L', '시총(억)', '수량', '매수단가', '현재가', '전일비(%)', '평가금액', '평가손익', '수익률(%)'],
+                             column_config={
+                                 "티커_L": st.column_config.LinkColumn("코드", display_text=r"#(.+)"),
+                                 "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)")
+                             })
 
 # =========================================================
 # 🚀 메인 대시보드
@@ -234,8 +262,7 @@ with tabs[0]:
         config.update({"start_date": str(new_date), "start_ddo": new_ddo, "start_sso": new_sso, "start_mom": new_mom})
         save_config(config); st.rerun()
 
-    # 💡 [업데이트] 제목 크기를 다시 시원하게 키움
-    st.markdown('<p class="section-title">🏆 포트폴리오 성과 요약</p>', unsafe_allow_html=True)
+    st.markdown('<p class="section-title" style="font-size:1.6rem;">🏆 포트폴리오 성과 요약</p>', unsafe_allow_html=True)
     
     summary_data, total_buy, total_profit, total_daily, total_since = [], 0, 0, 0, 0
     all_codes = []
@@ -260,7 +287,7 @@ with tabs[0]:
             summary_data.append({"name": p_name, "daily": 0, "pct": 0, "profit": 0, "since": -start_val})
             total_since -= start_val
 
-    # 💡 요약 표 가독성 디자인
+    # 요약 표 출력 (이전 세련된 디자인 유지)
     html = "<table class='summary-table'><thead><tr><th>포트폴리오</th><th>오늘의 등락</th><th>총 수익률</th><th>현재 수익 금액</th><th style='color:#ffffff; background-color:#3e4452;'>시작일 기준 수익 금액</th></tr></thead><tbody>"
     
     def get_cls(v, is_box=False):
