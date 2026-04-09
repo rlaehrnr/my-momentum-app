@@ -38,12 +38,11 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 💡 [오류 완벽 해결] 시장 자동 판별 및 정확한 네이버 링크 생성
+# 💡 시장 자동 판별 및 정확한 네이버 링크 생성
 def fetch_single_url(ticker, name):
     ticker_str = str(ticker).strip()
     exceptions = {'CIEN': '.K', 'COHR': '.K', 'EQNR': '.K','DELL': '.K'}
     
-    # 기본값 세팅
     suffix = ''
     exchange_display = "NYSE" 
     
@@ -55,12 +54,11 @@ def fetch_single_url(ticker, name):
             stock = yf.Ticker(yf_ticker)
             exchange = stock.info.get('exchange', '')
             
-            # 💡 엑셀을 무시하고 야후에서 진짜 소속 시장을 알아냅니다.
             if exchange in ['NMS', 'NGM', 'NCM', 'NASDAQ']:
                 suffix = '.O'
                 exchange_display = "NASDAQ"
             elif exchange in ['NYQ', 'NYSE']:
-                suffix = '' # 💡 핵심 해결: 네이버는 NYSE 종목 뒤에 .N을 안 붙입니다!
+                suffix = ''
                 exchange_display = "NYSE"
             elif exchange == 'ASE':
                 suffix = '.A'
@@ -69,34 +67,28 @@ def fetch_single_url(ticker, name):
                 suffix = '.K'
                 exchange_display = "BATS"
             else:
-                # API 실패 시 글자 수로 눈치껏 추론 (보통 4글자 이상은 나스닥)
                 suffix = '.O' if len(ticker_str) >= 4 else ''
                 exchange_display = "NASDAQ" if len(ticker_str) >= 4 else "NYSE"
         except:
             suffix = '.O' if len(ticker_str) >= 4 else ''
             exchange_display = "NASDAQ" if len(ticker_str) >= 4 else "NYSE"
 
-    # 표에 보여줄 티커명 (예: NASDAQ:AAPL)
     display_ticker = f"{exchange_display}:{ticker_str}"
-    
     total_url = f"https://m.stock.naver.com/worldstock/stock/{ticker_str}{suffix}/total#{display_ticker}"
     chart_url = f"https://m.stock.naver.com/fchart/foreign/stock/{ticker_str}{suffix}#{name}"
     
     return ticker_str, total_url, chart_url
 
-# 💡 500개 종목을 50명이 동시에 작업 (캐싱으로 매우 빠름)
 @st.cache_data(ttl=604800, show_spinner=False)
 def get_all_urls_concurrently(ticker_data_tuples):
     urls = {}
     with ThreadPoolExecutor(max_workers=50) as executor:
-        # 매개변수를 2개(티커, 종목명)만 넘기도록 수정
         futures = [executor.submit(fetch_single_url, t, n) for t, n in ticker_data_tuples]
         for future in as_completed(futures):
             t_str, total_url, chart_url = future.result()
             urls[t_str] = (total_url, chart_url)
     return urls
 
-# 지수 데이터 수집 및 이동평균선 현황
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_index_ma_status(target_date_str):
     indices = {'S&P 500': 'US500', 'NASDAQ': 'IXIC'}
@@ -154,12 +146,13 @@ ma_config = {
     "base_price": None
 }
 
-def highlight_name_only(row, common_tickers):
+# 💡 다양한 색상으로 표를 칠할 수 있는 다용도 하이라이트 함수
+def highlight_target_codes(row, target_codes, bg_color="#FFF9C4", text_color="#1F2937"):
     styles = [''] * len(row)
-    if row.get('종목코드') in common_tickers:
+    if row.get('종목코드') in target_codes:
         if '종목명_L' in row.index:
             name_idx = row.index.get_loc('종목명_L')
-            styles[name_idx] = 'background-color: #FFF9C4; color: #1F2937; font-weight: bold; border-radius: 4px;'
+            styles[name_idx] = f'background-color: {bg_color}; color: {text_color}; font-weight: bold; border-radius: 4px;'
     return styles
 
 base_config = {
@@ -180,12 +173,27 @@ base_config = {
 }
 
 def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
-    st.markdown(f"### 📊 주요 지수 이동평균선 현황 (기준일: {target_date_str})")
     ma_df = get_index_ma_status(target_date_str)
+    
+    # 💡 [업데이트 1] 200일선 기준 투자 상태 판별 및 배지 출력
     if not ma_df.empty:
+        # S&P 500 데이터 추출 (첫 번째 행)
+        sp500_row = ma_df.iloc[0]
+        sp500_curr = sp500_row['base_price']
+        sp500_200ma = sp500_row['200일선']
+        
+        if sp500_curr >= sp500_200ma:
+            status_html = f'<span style="background-color: #E8F5E9; color: #2E7D32; padding: 4px 10px; border-radius: 6px; font-size: 1.1rem; margin-left: 15px; vertical-align: middle;">✅ 투자 진행 (현재가 > 200일선)</span>'
+        else:
+            status_html = f'<span style="background-color: #FFEBEE; color: #C62828; padding: 4px 10px; border-radius: 6px; font-size: 1.1rem; margin-left: 15px; vertical-align: middle;">🛑 투자 중지 (현재가 < 200일선)</span>'
+            
+        st.markdown(f"### 📊 주요 지수 이동평균선 현황 (기준일: {target_date_str}){status_html}", unsafe_allow_html=True)
         st.dataframe(style_index_ma(ma_df), use_container_width=True, hide_index=True, 
                      column_order=["지수_L", "현재가_L", "20일선", "60일선", "120일선", "150일선", "200일선"],
                      column_config=ma_config)
+    else:
+        st.markdown(f"### 📊 주요 지수 이동평균선 현황 (기준일: {target_date_str})")
+        
     st.markdown("<br>", unsafe_allow_html=True)
 
     df_500 = df_raw.head(500).copy() 
@@ -202,7 +210,6 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
         if c in df_500.columns:
             df_500[c] = pd.to_numeric(df_500[c], errors='coerce').fillna(0.0)
 
-    # 💡 엑셀의 '시장' 컬럼은 무시하고, 종목코드와 종목명 2개만 넘겨서 확실하게 파악합니다.
     with st.spinner("🚀 S&P 500 전체 종목 정보를 초고속으로 동기화 중입니다... (최초 1회 약 10초 소요)"):
         ticker_tuples = tuple((str(r['종목코드']), str(r['종목명'])) for _, r in df_500.iterrows())
         url_map = get_all_urls_concurrently(ticker_tuples)
@@ -224,7 +231,7 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
         st.markdown('<div class="overlap-header">🔥 12-1M & 6-1M 중복</div>', unsafe_allow_html=True)
         if not overlap_12_6.empty:
             overlap_12_6['순위'] = range(1, len(overlap_12_6) + 1)
-            st.dataframe(overlap_12_6.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
+            st.dataframe(overlap_12_6.style.apply(highlight_target_codes, target_codes=common_tickers, axis=1), 
                          use_container_width=True, hide_index=True,
                          column_order=['순위', '통합티커_L', '종목명_L', '12-1개월(%)', '6-1개월(%)'], column_config=base_config)
         else: st.info("중복 종목 없음")
@@ -232,7 +239,7 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
         st.markdown('<div class="overlap-header">⚡ 6-1M & 3-1M 중복</div>', unsafe_allow_html=True)
         if not overlap_6_3.empty:
             overlap_6_3['순위'] = range(1, len(overlap_6_3) + 1)
-            st.dataframe(overlap_6_3.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
+            st.dataframe(overlap_6_3.style.apply(highlight_target_codes, target_codes=common_tickers, axis=1), 
                          use_container_width=True, hide_index=True,
                          column_order=['순위', '통합티커_L', '종목명_L', '6-1개월(%)', '3-1개월(%)'], column_config=base_config)
         else: st.info("중복 종목 없음")
@@ -252,21 +259,26 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
             st.markdown(f'<div class="section-header">{title}</div>', unsafe_allow_html=True)
             df_sub = df_500.sort_values(sort_col, ascending=False).head(30).copy()
             df_sub['순위'] = range(1, 31)
-            st.dataframe(df_sub.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
+            st.dataframe(df_sub.style.apply(highlight_target_codes, target_codes=common_tickers, axis=1), 
                          use_container_width=True, height=450, hide_index=True,
                          column_order=['순위', '통합티커_L', '종목명_L', sort_col], column_config=sub_config)
 
+    # --- 하단: 전체 ---
     st.markdown("---")
     st.markdown(f'### 📊 S&P 500 전체 종목 (기준: {target_date_str})')
+    
     df_500_all = df_500.copy()
     df_500_all['순위'] = range(1, len(df_500_all) + 1)
     
+    # 💡 [업데이트 2] 모멘텀 스코어 상위 8위 추출 및 하이라이트 (초록색 배경)
+    top8_momentum_codes = df_500_all.sort_values('모멘텀스코어', ascending=False).head(8)['종목코드'].tolist()
+    
     full_order = ['순위', '통합티커_L', '종목명_L', '현재가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '3-1개월(%)', '6-1개월(%)', '12-1개월(%)', '모멘텀스코어', '전달순위']
     if is_daily: full_order.insert(4, '전일거래량')
-    
     full_order = [col for col in full_order if col in df_500_all.columns or col in ['순위', '통합티커_L', '종목명_L']]
     
-    st.dataframe(df_500_all.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
+    # 전체 표에는 상위 8위 종목을 눈에 띄는 초록색으로 칠합니다
+    st.dataframe(df_500_all.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, bg_color="#E8F5E9", text_color="#2E7D32", axis=1), 
                  use_container_width=True, height=600, hide_index=True,
                  column_order=full_order, column_config=base_config)
 
