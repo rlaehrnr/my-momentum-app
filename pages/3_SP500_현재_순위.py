@@ -89,7 +89,7 @@ def get_all_urls_concurrently(ticker_data_tuples):
             urls[t_str] = (total_url, chart_url)
     return urls
 
-# 💡 [가장 치명적인 버그 수정!] NaN 데이터를 완벽하게 쳐내는 무적의 지수 수집 함수
+# 💡 [업데이트] 실제로 불러온 데이터의 "진짜 날짜"를 추적하는 기능 추가
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_index_data_bulletproof(target_date_str):
     try:
@@ -102,7 +102,6 @@ def fetch_index_data_bulletproof(target_date_str):
     for name, ticker, fdr_ticker in [('S&P 500', '^GSPC', 'US500'), ('NASDAQ', '^IXIC', 'IXIC')]:
         df = pd.DataFrame()
         try: 
-            # 2년치 넉넉히 가져옴 (에러 회피)
             df = yf.Ticker(ticker).history(period="2y")
         except: pass
         
@@ -111,25 +110,25 @@ def fetch_index_data_bulletproof(target_date_str):
             except: pass
             
         if not df.empty:
-            # 🚨 [해결의 핵심] 종가(Close)가 비어있는 쓰레기(NaN) 데이터 무조건 삭제!!!
             df = df.dropna(subset=['Close'])
             
             if not df.empty:
-                # 시간대 충돌 방지
                 df.index = pd.to_datetime(df.index)
                 if df.index.tz is not None:
                     df.index = df.index.tz_localize(None)
                 df.index = df.index.normalize()
                 
-                # 기준일까지만 필터링
                 filtered_df = df[df.index <= target_date]
                 if filtered_df.empty: 
                     filtered_df = df 
                     
                 curr = filtered_df['Close'].iloc[-1]
+                # 💡 [핵심] 필터링된 데이터의 마지막 날짜를 추출
+                actual_date = filtered_df.index[-1].strftime('%Y-%m-%d')
                 url_idx = ".INX" if name == 'S&P 500' else ".IXIC"
                 
                 res.append({
+                    '실제기준일': actual_date, # <--- 실제 날짜 저장
                     '지수_L': f"https://m.stock.naver.com/worldstock/index/{url_idx}/total#{name}", 
                     '현재가_L': f"https://m.stock.naver.com/fchart/foreign/index/{url_idx}#{curr:,.2f}", 
                     'base_price': round(curr, 2),
@@ -162,7 +161,8 @@ ma_config = {
     "120일선": st.column_config.NumberColumn("120일선", format="%,.2f"),
     "150일선": st.column_config.NumberColumn("150일선", format="%,.2f"),
     "200일선": st.column_config.NumberColumn("200일선", format="%,.2f"),
-    "base_price": None
+    "base_price": None,
+    "실제기준일": None # 화면 표에서는 숨김 처리
 }
 
 def highlight_target_codes(row, target_codes, bg_color="#E8F5E9", text_color="#2E7D32"):
@@ -191,16 +191,16 @@ base_config = {
 }
 
 def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
-    # 💡 NaN을 걸러내는 수호자 함수 호출
     ma_df = fetch_index_data_bulletproof(target_date_str)
-    display_date = str(target_date_str).split(' ')[0]
+    
+    # 💡 [업데이트] 데이터가 있으면 "진짜 날짜"를, 없으면 요청했던 날짜를 사용
+    actual_display_date = ma_df.iloc[0]['실제기준일'] if not ma_df.empty else str(target_date_str).split(' ')[0]
     
     if not ma_df.empty:
         sp500_row = ma_df.iloc[0]
         sp500_curr = sp500_row['base_price']
         sp500_200ma = sp500_row['200일선']
         
-        # 💡 NaN 비교 에러 방지
         if pd.notna(sp500_200ma) and sp500_curr >= sp500_200ma:
             status_html = f'<span style="background-color: #E8F5E9; color: #2E7D32; padding: 4px 10px; border-radius: 6px; font-size: 1.1rem; margin-left: 15px; vertical-align: middle;">✅ 투자 진행 (현재가 > 200일선)</span>'
         elif pd.notna(sp500_200ma):
@@ -208,12 +208,13 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
         else:
             status_html = ""
             
-        st.markdown(f"### 📊 주요 지수 이동평균선 현황 (기준일: {display_date}){status_html}", unsafe_allow_html=True)
+        # 💡 진짜 날짜 출력!
+        st.markdown(f"### 📊 주요 지수 이동평균선 현황 (기준일: {actual_display_date}){status_html}", unsafe_allow_html=True)
         st.dataframe(style_index_ma(ma_df), use_container_width=True, hide_index=True, 
                      column_order=["지수_L", "현재가_L", "20일선", "60일선", "120일선", "150일선", "200일선"],
                      column_config=ma_config)
     else:
-        st.markdown(f"### 📊 주요 지수 이동평균선 현황 (기준일: {display_date})")
+        st.markdown(f"### 📊 주요 지수 이동평균선 현황 (기준일: {actual_display_date})")
         st.warning("⚠️ 지수 데이터를 일시적으로 불러오지 못했습니다.")
         
     st.markdown("<br>", unsafe_allow_html=True)
@@ -292,7 +293,8 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
 
     # --- 하단: 전체 ---
     st.markdown("---")
-    st.markdown(f'### 📊 S&P 500 전체 종목 (기준: {display_date})')
+    # 💡 하단 제목도 진짜 날짜로 통일!
+    st.markdown(f'### 📊 S&P 500 전체 종목 (기준: {actual_display_date})')
     
     df_500_all = df_500.copy()
     df_500_all['순위'] = range(1, len(df_500_all) + 1)
@@ -305,14 +307,13 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
                  use_container_width=True, height=600, hide_index=True,
                  column_order=full_order, column_config=base_config)
 
-# 💡 안전하게 날짜 컬럼을 찾아내는 함수
 def get_date_column(df):
     for col in ['기준일(월말)', '기준일', '기준일(데일리)', 'Date', 'date', '날짜']:
         if col in df.columns: return col
     return None
 
 # ==========================================
-# 🚀 실행부 (과거 가장 안정적이었던 파일 읽기 로직)
+# 🚀 실행부
 # ==========================================
 st.title("🇺🇸 S&P 500 모멘텀 순위")
 t1, t2 = st.tabs(["📅 전월 말일 기준", "🕒 오늘(데일리) 기준"])
@@ -322,9 +323,7 @@ f_daily = 'data/momentum_data_daily_sp500.csv'
 
 def safe_read(filepath):
     try:
-        # 무조건 종목코드는 문자로 가져와서 0 소실 방지
         df = pd.read_csv(filepath, dtype={'종목코드': str})
-        # 투명 특수문자나 띄어쓰기 완벽 제거
         df.columns = df.columns.str.strip().str.replace('\ufeff', '')
         return df
     except:
