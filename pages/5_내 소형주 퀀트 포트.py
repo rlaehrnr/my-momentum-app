@@ -25,42 +25,42 @@ st.markdown("""
     <style>
     .block-container { padding-top: 2.5rem !important; }
     .main-title { font-size: 1.8rem !important; font-weight: bold; margin-bottom: 1.5rem; }
+    .section-title { font-size: 1.6rem !important; font-weight: bold; margin-top: 20px; margin-bottom: 15px; }
+    .stMetric { background-color: rgba(130, 130, 130, 0.1); padding: 15px; border-radius: 10px; }
     .stTabs [data-baseweb="tab"] { font-size: 18px; font-weight: bold; }
     
-    /* 💡 요약 표 세련된 디자인 */
-    .summary-table { width: 100%; border-collapse: collapse; text-align: center; font-size: 1.1rem; background-color: #1a1c24; border-radius: 12px; overflow: hidden; }
+    @media (max-width: 768px) {
+        div[data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; }
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+            min-width: 45% !important; flex: 1 1 45% !important; margin-bottom: 10px !important;
+        }
+    }
+    
+    /* 📊 종합 요약 표 디자인 */
+    .summary-table { width: 100%; border-collapse: collapse; text-align: center; font-size: 1.15rem; background-color: #1a1c24; border-radius: 12px; overflow: hidden; margin-top: 10px; }
     .summary-table th { background-color: #2d313e; padding: 15px; color: #9ca3af; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; }
     .summary-table td { padding: 16px; border-bottom: 1px solid #2d313e; color: #e5e7eb; }
-    
-    /* 강조 컬럼 (시작일 기준 수익) */
     .highlight-cell { background-color: rgba(255, 255, 255, 0.03); font-size: 1.2rem; }
+    .summary-total { background-color: #242834; font-size: 1.3rem; border-top: 2px solid #4b5563; }
     
-    /* 합계 행 */
-    .summary-total { background-color: #242834; font-size: 1.25rem; border-top: 2px solid #4b5563; }
-    
-    /* 숫자 색상 (눈 편한 톤) */
+    /* 요약 탭 전용 색상 */
     .val-red { color: #ff6b6b !important; }
     .val-blue { color: #5dade2 !important; }
     .val-white { color: #ffffff !important; }
-    
-    /* 시작일 기준 수익 강조 박스 */
     .box-red { background-color: rgba(255, 107, 107, 0.15); color: #ff6b6b; padding: 4px 12px; border-radius: 6px; }
     .box-blue { background-color: rgba(93, 173, 226, 0.15); color: #5dade2; padding: 4px 12px; border-radius: 6px; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- [2. 설정 파일 로드/저장] ---
+# --- [2. 설정 파일 관리] ---
 def load_config():
-    default_config = {
-        "start_date": str(datetime.today().date()), 
-        "start_ddo": 0, "start_sso": 0, "start_mom": 0
-    }
+    default_config = {"start_date": str(datetime.today().date()), "start_ddo": 0, "start_sso": 0, "start_mom": 0}
     if os.path.exists(CONFIG_PATH):
         try:
             with open(CONFIG_PATH, 'r', encoding='utf-8') as f: 
-                saved_config = json.load(f)
+                saved = json.load(f)
                 for k in default_config.keys():
-                    if k in saved_config: default_config[k] = saved_config[k]
+                    if k in saved: default_config[k] = saved[k]
                 return default_config
         except: pass
     return default_config
@@ -68,7 +68,7 @@ def load_config():
 def save_config(config_data):
     with open(CONFIG_PATH, 'w', encoding='utf-8') as f: json.dump(config_data, f)
 
-# --- [3. 마스터 데이터 & 시가총액 로드] ---
+# --- [3. 마스터 & 가격 수집 로직] ---
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_stock_master_and_cap():
     master_df = pd.DataFrame(columns=['종목코드', '종목명', '시장구분', '검색명', '시가총액(억)'])
@@ -91,7 +91,6 @@ def get_stock_master_and_cap():
 master_df, global_cap_map = get_stock_master_and_cap()
 search_options = ["🔍 종목 검색"] + master_df['검색명'].tolist() if not master_df.empty else ["검색 데이터 없음"]
 
-# --- [4. 가격 수집 & 포트 로드] ---
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_multi_prices(tickers):
     if not tickers: return {}
@@ -139,7 +138,7 @@ def load_portfolio(path):
             except: continue
     return pd.DataFrame(columns=["종목명", "종목코드", "매수단가", "수량"])
 
-# --- [5. 개별 포트폴리오 탭 렌더링] ---
+# --- [4. 개별 포트폴리오 탭 렌더링] ---
 def render_portfolio_tab(port_name, port_key, path):
     if f'df_{port_key}' not in st.session_state:
         st.session_state[f'df_{port_key}'] = load_portfolio(path)
@@ -183,10 +182,10 @@ def render_portfolio_tab(port_name, port_key, path):
         st.rerun()
 
     with scoreboard_placeholder:
-        st.markdown(f"### 🚀 {port_name} 실시간")
+        st.markdown(f"### 🚀 {port_name} 실시간 성적표")
         df = st.session_state[f'df_{port_key}'].copy()
         if not df.empty:
-            with st.spinner("로딩..."):
+            with st.spinner("최신 가격 로딩 중..."):
                 prices = fetch_multi_prices(tuple(df['종목코드'].unique()))
                 df['시총(억)'] = df['종목코드'].map(global_cap_map).fillna(0)
                 df['현재가'] = df['종목코드'].apply(lambda x: prices.get(x, {}).get('curr', 0))
@@ -198,25 +197,31 @@ def render_portfolio_tab(port_name, port_key, path):
                 
                 c1, c2, c3, c4, c5 = st.columns(5)
                 c1.metric("총 매수", f"₩{(df['매수단가']*df['수량']).sum():,}")
-                c2.metric("총 평가", f"₩{df['평가금액'].sum():,}")
+                c2.metric("총 평가액", f"₩{df['평가금액'].sum():,}")
                 c4.metric("평가손익", f"₩{df['평가손익'].sum():,}")
                 c5.metric("수익률", f"{df['평가손익'].sum()/(df['매수단가']*df['수량']).sum()*100:.2f}%")
                 
-                st.dataframe(df.style.format({'전일비(%)':'{:.2f}%','수익률(%)':'{:.2f}%'}), use_container_width=True, hide_index=True)
+                # 💡 [핵심] 개별 탭 컬러 복구 (상승 빨강, 하락 파랑)
+                def style_port(st_df):
+                    s = pd.DataFrame('', index=st_df.index, columns=st_df.columns)
+                    for col in ['전일비(%)', '평가손익', '수익률(%)']:
+                        s[col] = st_df[col].apply(lambda x: 'color: #ff6b6b; font-weight:bold;' if x > 0 else ('color: #5dade2; font-weight:bold;' if x < 0 else ''))
+                    return s
+
+                st.dataframe(df.style.apply(style_port, axis=None).format({'전일비(%)':'{:.2f}%','수익률(%)':'{:.2f}%','시총(억)':'{:,}','매수단가':'{:,}','현재가':'{:,}','평가금액':'{:,}','평가손익':'{:,}'}), 
+                             use_container_width=True, hide_index=True,
+                             column_order=['종목코드', '종목명', '시총(억)', '수량', '매수단가', '현재가', '전일비(%)', '평가금액', '평가손익', '수익률(%)'])
 
 # =========================================================
-# 🚀 메인 화면 구성
+# 🚀 메인 대시보드
 # =========================================================
 st.markdown('<p class="main-title">💼 내 퀀트 포트폴리오 종합 대시보드</p>', unsafe_allow_html=True)
 tabs = st.tabs(["📊 종합 요약", "📁 또", "📁 쏘", "📁 맘"])
 
 with tabs[0]:
     config = load_config()
-    
-    # 💡 [업데이트] 설정을 한 줄로 깔끔하게 배치
     st.markdown("##### ⚙️ 비교 시점 및 시작 수익금 설정")
     c_dt, c_d, c_s, c_m = st.columns([1.2, 1, 1, 1])
-    
     try: dt_val = datetime.strptime(config['start_date'], '%Y-%m-%d').date()
     except: dt_val = datetime.today().date()
     
@@ -229,11 +234,10 @@ with tabs[0]:
         config.update({"start_date": str(new_date), "start_ddo": new_ddo, "start_sso": new_sso, "start_mom": new_mom})
         save_config(config); st.rerun()
 
-    st.markdown("<br>### 🏆 포트폴리오 성과 요약", unsafe_allow_html=True)
+    # 💡 [업데이트] 제목 크기를 다시 시원하게 키움
+    st.markdown('<p class="section-title">🏆 포트폴리오 성과 요약</p>', unsafe_allow_html=True)
     
-    summary_data = []
-    total_buy, total_profit, total_daily, total_since = 0, 0, 0, 0
-    
+    summary_data, total_buy, total_profit, total_daily, total_since = [], 0, 0, 0, 0
     all_codes = []
     for p in PORT_PATHS.values(): all_codes.extend(load_portfolio(p)['종목코드'].tolist())
     prices = fetch_multi_prices(tuple(set(all_codes)))
@@ -250,14 +254,13 @@ with tabs[0]:
             t_profit = t_val - t_buy
             d_diff = t_val - t_prev
             since_start = t_profit - start_val
-            
             total_buy += t_buy; total_profit += t_profit; total_daily += d_diff; total_since += since_start
             summary_data.append({"name": p_name, "daily": d_diff, "pct": (t_profit/t_buy*100), "profit": t_profit, "since": since_start})
         else:
             summary_data.append({"name": p_name, "daily": 0, "pct": 0, "profit": 0, "since": -start_val})
             total_since -= start_val
 
-    # 💡 [업데이트] 가독성이 개선된 HTML 표 출력
+    # 💡 요약 표 가독성 디자인
     html = "<table class='summary-table'><thead><tr><th>포트폴리오</th><th>오늘의 등락</th><th>총 수익률</th><th>현재 수익 금액</th><th style='color:#ffffff; background-color:#3e4452;'>시작일 기준 수익 금액</th></tr></thead><tbody>"
     
     def get_cls(v, is_box=False):
