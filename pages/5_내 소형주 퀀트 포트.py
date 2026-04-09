@@ -35,12 +35,14 @@ st.markdown("""
 
 st.markdown('<p class="main-title">💼 내 퀀트 포트폴리오 대시보드</p>', unsafe_allow_html=True)
 
-# --- [2. 마스터 데이터 & 시가총액 로드 (100% 로컬 파일 읽기)] ---
+# --- [2. 마스터 데이터 및 시가총액 로드] ---
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_stock_master_and_cap():
     master_df = pd.DataFrame(columns=['종목코드', '종목명', '시장구분', '검색명', '시가총액(억)'])
     cap_map = {}
     
+    # 💡 [핵심 해결] 인터넷 접속(fdr) 로직 완전 제거! 
+    # 무조건 방금 업데이트하신 'krx_stock_master.csv'에서만 읽어옵니다.
     if os.path.exists(MASTER_TICKER_PATH):
         for enc in ['utf-8-sig', 'cp949', 'euc-kr', 'utf-8']:
             try:
@@ -49,8 +51,9 @@ def get_stock_master_and_cap():
                     df['종목코드'] = df['종목코드'].astype(str).str.zfill(6)
                     df['검색명'] = "[" + df['종목코드'] + "] " + df['종목명']
                     
-                    # 파일에 있는 시가총액(억) 완벽 매핑
                     if '시가총액(억)' in df.columns:
+                        # 안전하게 숫자로만 변환
+                        df['시가총액(억)'] = pd.to_numeric(df['시가총액(억)'].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce').fillna(0).astype(int)
                         cap_map = df.set_index('종목코드')['시가총액(억)'].to_dict()
                     
                     master_df = df
@@ -228,7 +231,7 @@ with scoreboard_placeholder:
             display_df['매수단가'] = pd.to_numeric(display_df['매수단가'], errors='coerce').fillna(0).astype(int)
             display_df['수량'] = pd.to_numeric(display_df['수량'], errors='coerce').fillna(0).astype(int)
 
-            # 💡 [핵심] 파일에서 추출한 완벽한 시총 정보를 매핑!
+            # 💡 [성공] 마스터 파일에서만 완벽하게 매핑!
             display_df['시가총액(억)'] = display_df['종목코드'].map(global_cap_map).fillna(0).astype(int)
 
             unique_tickers = tuple(display_df['종목코드'].unique())
