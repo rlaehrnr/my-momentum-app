@@ -89,27 +89,12 @@ def get_all_urls_concurrently(ticker_data_tuples):
             urls[t_str] = (total_url, chart_url)
     return urls
 
-# 💡 안전한 데이터 가져오기 도우미 함수
-def get_safe_history(ticker, start_dt, end_dt):
-    try:
-        stock = yf.Ticker(ticker)
-        df = stock.history(start=start_dt.strftime('%Y-%m-%d'), end=end_dt.strftime('%Y-%m-%d'))
-        if not df.empty:
-            if df.index.tz is not None:
-                df.index = df.index.tz_localize(None) 
-            return df
-    except: pass
-    return pd.DataFrame()
-
-# 💡 [핵심 해결] 날짜 형식을 완벽하게 통일시키는 로직 추가
+# 💡 안전한 이동평균선 수집 함수 (이름을 바꿔서 꼬인 캐시 완벽 초기화)
 @st.cache_data(ttl=3600, show_spinner=False)
-def fetch_index_ma_data_v4(raw_date_input):
+def fetch_index_data_final(target_date_str):
     try:
-        # 입력값이 무엇이든 무조건 'YYYY-MM-DD' 형식의 문자열로 변환 후 datetime 객체로 생성
-        date_str = str(raw_date_input).split(' ')[0] # 시간 부분이 있다면 잘라냄
-        target_date = pd.to_datetime(date_str).normalize()
+        target_date = pd.to_datetime(str(target_date_str).split(' ')[0]).normalize()
     except:
-        # 실패하면 무조건 오늘 날짜 사용
         target_date = pd.to_datetime(datetime.today().date())
         
     start_date = target_date - timedelta(days=400) 
@@ -117,55 +102,61 @@ def fetch_index_ma_data_v4(raw_date_input):
     
     res = []
     
-    # 1️⃣ S&P 500 데이터 수집 (1. 지수 -> 2. SPY ETF -> 3. fdr US500)
+    # 1️⃣ S&P 500 데이터 (yfinance 우선, 실패시 fdr 백업)
     df_sp = pd.DataFrame()
-    for t in ['^GSPC', 'SPY']:
-        df_sp = get_safe_history(t, start_date, fetch_end_date)
-        if not df_sp.empty: break
-        
+    try:
+        df_sp = yf.Ticker('^GSPC').history(start=start_date.strftime('%Y-%m-%d'), end=fetch_end_date.strftime('%Y-%m-%d'))
+        if df_sp.empty: df_sp = yf.Ticker('SPY').history(period="2y")
+    except: pass
+    
     if df_sp.empty:
-        try: df_sp = fdr.DataReader('US500', start_date, fetch_end_date)
+        try: df_sp = fdr.DataReader('US500')
         except: pass
         
     if not df_sp.empty:
-        df_sp = df_sp[df_sp.index.normalize() <= target_date]
-        if not df_sp.empty:
-            curr_price = df_sp['Close'].iloc[-1]
-            res.append({
-                '지수_L': "https://m.stock.naver.com/worldstock/index/.INX/total#S&P 500", 
-                '현재가_L': f"https://m.stock.naver.com/fchart/foreign/index/.INX#{curr_price:,.2f}", 
-                'base_price': round(curr_price, 2),
-                '20일선': round(df_sp['Close'].rolling(20).mean().iloc[-1], 2),
-                '60일선': round(df_sp['Close'].rolling(60).mean().iloc[-1], 2),
-                '120일선': round(df_sp['Close'].rolling(120).mean().iloc[-1], 2),
-                '150일선': round(df_sp['Close'].rolling(150).mean().iloc[-1], 2),
-                '200일선': round(df_sp['Close'].rolling(200).mean().iloc[-1], 2)
-            })
-
-    # 2️⃣ NASDAQ 데이터 수집 (1. 지수 -> 2. QQQ ETF -> 3. fdr IXIC)
-    df_nd = pd.DataFrame()
-    for t in ['^IXIC', 'QQQ']:
-        df_nd = get_safe_history(t, start_date, fetch_end_date)
-        if not df_nd.empty: break
+        df_sp.index = pd.to_datetime(df_sp.index).tz_localize(None).normalize()
+        filtered_sp = df_sp[df_sp.index <= target_date]
+        if filtered_sp.empty: filtered_sp = df_sp # 절대 안 비게 방어!
         
+        curr = filtered_sp['Close'].iloc[-1]
+        res.append({
+            '지수_L': "https://m.stock.naver.com/worldstock/index/.INX/total#S&P 500", 
+            '현재가_L': f"https://m.stock.naver.com/fchart/foreign/index/.INX#{curr:,.2f}", 
+            'base_price': round(curr, 2),
+            '20일선': round(filtered_sp['Close'].rolling(20).mean().iloc[-1], 2),
+            '60일선': round(filtered_sp['Close'].rolling(60).mean().iloc[-1], 2),
+            '120일선': round(filtered_sp['Close'].rolling(120).mean().iloc[-1], 2),
+            '150일선': round(filtered_sp['Close'].rolling(150).mean().iloc[-1], 2),
+            '200일선': round(filtered_sp['Close'].rolling(200).mean().iloc[-1], 2)
+        })
+
+    # 2️⃣ NASDAQ 데이터 (yfinance 우선, 실패시 fdr 백업)
+    df_nd = pd.DataFrame()
+    try:
+        df_nd = yf.Ticker('^IXIC').history(start=start_date.strftime('%Y-%m-%d'), end=fetch_end_date.strftime('%Y-%m-%d'))
+        if df_nd.empty: df_nd = yf.Ticker('QQQ').history(period="2y")
+    except: pass
+    
     if df_nd.empty:
-        try: df_nd = fdr.DataReader('IXIC', start_date, fetch_end_date)
+        try: df_nd = fdr.DataReader('IXIC')
         except: pass
         
     if not df_nd.empty:
-        df_nd = df_nd[df_nd.index.normalize() <= target_date]
-        if not df_nd.empty:
-            curr_price = df_nd['Close'].iloc[-1]
-            res.append({
-                '지수_L': "https://m.stock.naver.com/worldstock/index/.IXIC/total#NASDAQ", 
-                '현재가_L': f"https://m.stock.naver.com/fchart/foreign/index/.IXIC#{curr_price:,.2f}", 
-                'base_price': round(curr_price, 2),
-                '20일선': round(df_nd['Close'].rolling(20).mean().iloc[-1], 2),
-                '60일선': round(df_nd['Close'].rolling(60).mean().iloc[-1], 2),
-                '120일선': round(df_nd['Close'].rolling(120).mean().iloc[-1], 2),
-                '150일선': round(df_nd['Close'].rolling(150).mean().iloc[-1], 2),
-                '200일선': round(df_nd['Close'].rolling(200).mean().iloc[-1], 2)
-            })
+        df_nd.index = pd.to_datetime(df_nd.index).tz_localize(None).normalize()
+        filtered_nd = df_nd[df_nd.index <= target_date]
+        if filtered_nd.empty: filtered_nd = df_nd
+        
+        curr = filtered_nd['Close'].iloc[-1]
+        res.append({
+            '지수_L': "https://m.stock.naver.com/worldstock/index/.IXIC/total#NASDAQ", 
+            '현재가_L': f"https://m.stock.naver.com/fchart/foreign/index/.IXIC#{curr:,.2f}", 
+            'base_price': round(curr, 2),
+            '20일선': round(filtered_nd['Close'].rolling(20).mean().iloc[-1], 2),
+            '60일선': round(filtered_nd['Close'].rolling(60).mean().iloc[-1], 2),
+            '120일선': round(filtered_nd['Close'].rolling(120).mean().iloc[-1], 2),
+            '150일선': round(filtered_nd['Close'].rolling(150).mean().iloc[-1], 2),
+            '200일선': round(filtered_nd['Close'].rolling(200).mean().iloc[-1], 2)
+        })
 
     return pd.DataFrame(res)
 
@@ -219,10 +210,12 @@ base_config = {
 }
 
 def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
-    # 💡 날짜 에러를 완벽 방어하는 v4 함수 호출
-    ma_df = fetch_index_ma_data_v4(target_date_str)
-    
-    # 출력용 날짜 문자열 정리 (시간 부분 제거)
+    # 필수 컬럼 방어 코드
+    if '종목코드' not in df_raw.columns:
+        st.error("🚨 데이터에 '종목코드' 열이 없어 화면을 표시할 수 없습니다.")
+        return
+
+    ma_df = fetch_index_data_final(target_date_str)
     display_date = str(target_date_str).split(' ')[0]
     
     if not ma_df.empty:
@@ -241,7 +234,7 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
                      column_config=ma_config)
     else:
         st.markdown(f"### 📊 주요 지수 이동평균선 현황 (기준일: {display_date})")
-        st.warning("⚠️ 지수 데이터를 일시적으로 불러오지 못했습니다. 잠시 후 새로고침 해주세요.")
+        st.warning("⚠️ 지수 데이터를 일시적으로 불러오지 못했습니다.")
         
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -259,59 +252,62 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
         if c in df_500.columns:
             df_500[c] = pd.to_numeric(df_500[c], errors='coerce').fillna(0.0)
 
-    top8_momentum_codes = df_500.sort_values('모멘텀스코어', ascending=False).head(8)['종목코드'].tolist()
+    if '모멘텀스코어' in df_500.columns:
+        top8_momentum_codes = df_500.sort_values('모멘텀스코어', ascending=False).head(8)['종목코드'].tolist()
+    else: top8_momentum_codes = []
 
     with st.spinner("🚀 S&P 500 전체 종목 정보를 초고속으로 동기화 중입니다... (최초 1회 약 10초 소요)"):
-        ticker_tuples = tuple((str(r['종목코드']), str(r['종목명'])) for _, r in df_500.iterrows())
+        ticker_tuples = tuple((str(r['종목코드']), str(r.get('종목명', ''))) for _, r in df_500.iterrows())
         url_map = get_all_urls_concurrently(ticker_tuples)
         
         df_500['통합티커_L'] = df_500['종목코드'].astype(str).apply(lambda x: url_map.get(x, ("", ""))[0])
         df_500['종목명_L'] = df_500['종목코드'].astype(str).apply(lambda x: url_map.get(x, ("", ""))[1])
 
-    top10_12_1 = df_500.sort_values('12-1개월(%)', ascending=False).head(10)
-    top10_6_1 = df_500.sort_values('6-1개월(%)', ascending=False).head(10)
-    top10_3_1 = df_500.sort_values('3-1개월(%)', ascending=False).head(10)
+    if all(c in df_500.columns for c in ['12-1개월(%)', '6-1개월(%)', '3-1개월(%)']):
+        top10_12_1 = df_500.sort_values('12-1개월(%)', ascending=False).head(10)
+        top10_6_1 = df_500.sort_values('6-1개월(%)', ascending=False).head(10)
+        top10_3_1 = df_500.sort_values('3-1개월(%)', ascending=False).head(10)
 
-    overlap_12_6 = top10_12_1[top10_12_1['종목코드'].isin(top10_6_1['종목코드'])].sort_values('6-1개월(%)', ascending=False).copy()
-    overlap_6_3 = top10_6_1[top10_6_1['종목코드'].isin(top10_3_1['종목코드'])].sort_values('6-1개월(%)', ascending=False).copy()
+        overlap_12_6 = top10_12_1[top10_12_1['종목코드'].isin(top10_6_1['종목코드'])].sort_values('6-1개월(%)', ascending=False).copy()
+        overlap_6_3 = top10_6_1[top10_6_1['종목코드'].isin(top10_3_1['종목코드'])].sort_values('6-1개월(%)', ascending=False).copy()
 
-    st.markdown("### 🌟 모멘텀 교집합 (TOP 10 중복 분석)")
-    c_over1, c_over2 = st.columns(2)
-    with c_over1:
-        st.markdown('<div class="overlap-header">🔥 12-1M & 6-1M 중복</div>', unsafe_allow_html=True)
-        if not overlap_12_6.empty:
-            overlap_12_6['순위'] = range(1, len(overlap_12_6) + 1)
-            st.dataframe(overlap_12_6.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, axis=1), 
-                         use_container_width=True, hide_index=True,
-                         column_order=['순위', '통합티커_L', '종목명_L', '12-1개월(%)', '6-1개월(%)'], column_config=base_config)
-        else: st.info("중복 종목 없음")
-    with c_over2:
-        st.markdown('<div class="overlap-header">⚡ 6-1M & 3-1M 중복</div>', unsafe_allow_html=True)
-        if not overlap_6_3.empty:
-            overlap_6_3['순위'] = range(1, len(overlap_6_3) + 1)
-            st.dataframe(overlap_6_3.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, axis=1), 
-                         use_container_width=True, hide_index=True,
-                         column_order=['순위', '통합티커_L', '종목명_L', '6-1개월(%)', '3-1개월(%)'], column_config=base_config)
-        else: st.info("중복 종목 없음")
+        st.markdown("### 🌟 모멘텀 교집합 (TOP 10 중복 분석)")
+        c_over1, c_over2 = st.columns(2)
+        with c_over1:
+            st.markdown('<div class="overlap-header">🔥 12-1M & 6-1M 중복</div>', unsafe_allow_html=True)
+            if not overlap_12_6.empty:
+                overlap_12_6['순위'] = range(1, len(overlap_12_6) + 1)
+                st.dataframe(overlap_12_6.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, axis=1), 
+                             use_container_width=True, hide_index=True,
+                             column_order=['순위', '통합티커_L', '종목명_L', '12-1개월(%)', '6-1개월(%)'], column_config=base_config)
+            else: st.info("중복 종목 없음")
+        with c_over2:
+            st.markdown('<div class="overlap-header">⚡ 6-1M & 3-1M 중복</div>', unsafe_allow_html=True)
+            if not overlap_6_3.empty:
+                overlap_6_3['순위'] = range(1, len(overlap_6_3) + 1)
+                st.dataframe(overlap_6_3.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, axis=1), 
+                             use_container_width=True, hide_index=True,
+                             column_order=['순위', '통합티커_L', '종목명_L', '6-1개월(%)', '3-1개월(%)'], column_config=base_config)
+            else: st.info("중복 종목 없음")
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    col1, col2, col3 = st.columns(3)
-    
-    sub_config = base_config.copy()
-    sub_config["12-1개월(%)"] = st.column_config.NumberColumn("12-1", format="%.1f%%", width="small")
-    sub_config["6-1개월(%)"] = st.column_config.NumberColumn("6-1", format="%.1f%%", width="small")
-    sub_config["3-1개월(%)"] = st.column_config.NumberColumn("3-1", format="%.1f%%", width="small")
+        st.markdown("<br>", unsafe_allow_html=True)
+        col1, col2, col3 = st.columns(3)
+        
+        sub_config = base_config.copy()
+        sub_config["12-1개월(%)"] = st.column_config.NumberColumn("12-1", format="%.1f%%", width="small")
+        sub_config["6-1개월(%)"] = st.column_config.NumberColumn("6-1", format="%.1f%%", width="small")
+        sub_config["3-1개월(%)"] = st.column_config.NumberColumn("3-1", format="%.1f%%", width="small")
 
-    for col, title, sort_col in zip([col1, col2, col3], 
-                                   ["🏆 12-1개월 상위 30", "🏆 6-1개월 상위 30", "🏆 3-1개월 상위 30"], 
-                                   ["12-1개월(%)", "6-1개월(%)", "3-1개월(%)"]):
-        with col:
-            st.markdown(f'<div class="section-header">{title}</div>', unsafe_allow_html=True)
-            df_sub = df_500.sort_values(sort_col, ascending=False).head(30).copy()
-            df_sub['순위'] = range(1, 31)
-            st.dataframe(df_sub.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, axis=1), 
-                         use_container_width=True, height=450, hide_index=True,
-                         column_order=['순위', '통합티커_L', '종목명_L', sort_col], column_config=sub_config)
+        for col, title, sort_col in zip([col1, col2, col3], 
+                                       ["🏆 12-1개월 상위 30", "🏆 6-1개월 상위 30", "🏆 3-1개월 상위 30"], 
+                                       ["12-1개월(%)", "6-1개월(%)", "3-1개월(%)"]):
+            with col:
+                st.markdown(f'<div class="section-header">{title}</div>', unsafe_allow_html=True)
+                df_sub = df_500.sort_values(sort_col, ascending=False).head(30).copy()
+                df_sub['순위'] = range(1, 31)
+                st.dataframe(df_sub.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, axis=1), 
+                             use_container_width=True, height=450, hide_index=True,
+                             column_order=['순위', '통합티커_L', '종목명_L', sort_col], column_config=sub_config)
 
     # --- 하단: 전체 ---
     st.markdown("---")
@@ -328,7 +324,7 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
                  use_container_width=True, height=600, hide_index=True,
                  column_order=full_order, column_config=base_config)
 
-# 💡 안전하게 날짜 컬럼을 찾아내는 도우미 함수
+# 💡 날짜 컬럼을 유연하게 감지하는 함수
 def get_date_column(df):
     for col in ['기준일', '기준일(데일리)', '기준일(월말)', 'Date', 'date', '날짜']:
         if col in df.columns: return col
@@ -343,7 +339,9 @@ f_daily = 'data/momentum_data_daily_sp500.csv'
 
 with t1:
     if os.path.exists(f_sp500):
-        df_m = pd.read_csv(f_sp500, dtype={'종목코드': str})
+        # 모든 데이터를 일단 문자로 읽어서 에러 방지
+        df_m = pd.read_csv(f_sp500, dtype=str)
+        # 컬럼명의 공백 완벽 제거
         df_m.columns = df_m.columns.str.replace(' ', '')
         
         date_col_m = get_date_column(df_m)
@@ -351,15 +349,16 @@ with t1:
             if '전달순위' not in df_m.columns or df_m['전달순위'].isnull().all():
                 try:
                     b_date_str = df_m[date_col_m].iloc[0]
-                    curr_dt = datetime.strptime(b_date_str, '%Y-%m-%d')
+                    curr_dt = pd.to_datetime(b_date_str)
                     prev_month_dt = curr_dt.replace(day=1) - timedelta(days=1)
                     prev_ym = prev_month_dt.strftime('%Y_%m')
                     f_prev_archive = f'archive_sp500/momentum_sp500_{prev_ym}.csv'
                     
                     if os.path.exists(f_prev_archive):
-                        df_prev = pd.read_csv(f_prev_archive, dtype={'종목코드': str})
-                        prev_map = {str(c).strip().upper(): i+1 for i, c in enumerate(df_prev['종목코드'])}
-                        df_m['전달순위'] = df_m['종목코드'].str.strip().str.upper().map(prev_map)
+                        df_prev = pd.read_csv(f_prev_archive, dtype=str)
+                        if '종목코드' in df_prev.columns:
+                            prev_map = {str(c).strip().upper(): i+1 for i, c in enumerate(df_prev['종목코드'])}
+                            df_m['전달순위'] = df_m['종목코드'].str.strip().str.upper().map(prev_map)
                 except: pass
                 
             display_momentum_dashboard(df_m, df_m[date_col_m].iloc[0], is_daily=False)
@@ -370,15 +369,19 @@ with t1:
 
 with t2:
     if os.path.exists(f_daily):
-        df_d = pd.read_csv(f_daily, dtype={'종목코드': str})
+        df_d = pd.read_csv(f_daily, dtype=str)
         df_d.columns = df_d.columns.str.replace(' ', '')
         
         date_col_d = get_date_column(df_d)
         if date_col_d:
             if os.path.exists(f_sp500):
-                df_m_ref = pd.read_csv(f_sp500, dtype={'종목코드': str})
-                rank_map = {str(c).strip().upper(): i+1 for i, c in enumerate(df_m_ref['종목코드'])}
-                df_d['전달순위'] = df_d['종목코드'].str.strip().str.upper().map(rank_map)
+                df_m_ref = pd.read_csv(f_sp500, dtype=str)
+                # 💡 [핵심 버그 수정] 참조 파일도 공백을 무조건 제거해 줍니다! (이게 데일리 탭을 멈추게 한 범인이었습니다)
+                df_m_ref.columns = df_m_ref.columns.str.replace(' ', '')
+                
+                if '종목코드' in df_m_ref.columns and '종목코드' in df_d.columns:
+                    rank_map = {str(c).strip().upper(): i+1 for i, c in enumerate(df_m_ref['종목코드'])}
+                    df_d['전달순위'] = df_d['종목코드'].str.strip().str.upper().map(rank_map)
                 
             display_momentum_dashboard(df_d, df_d[date_col_d].iloc[0], is_daily=True)
         else:
