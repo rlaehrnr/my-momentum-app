@@ -36,14 +36,14 @@ st.markdown("""
         }
     }
     
-    /* 📊 표 디자인 */
+    /* 📊 종합 요약 표 디자인 */
     .summary-table { width: 100%; border-collapse: collapse; text-align: center; font-size: 1.15rem; background-color: #1a1c24; border-radius: 12px; overflow: hidden; margin-top: 10px; }
     .summary-table th { background-color: #2d313e; padding: 15px; color: #9ca3af; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; }
     .summary-table td { padding: 16px; border-bottom: 1px solid #2d313e; color: #e5e7eb; }
     .highlight-cell { background-color: rgba(255, 255, 255, 0.03); font-size: 1.2rem; }
     .summary-total { background-color: #242834; font-size: 1.3rem; }
     
-    /* 💡 컬러 클래스 */
+    /* 숫자 색상 */
     .val-red-thin { color: #FF3333 !important; font-weight: 500; }
     .val-blue-thin { color: #3399FF !important; font-weight: 500; }
     .val-red { color: #FF3333 !important; font-weight: bold; }
@@ -51,7 +51,7 @@ st.markdown("""
     .val-white { color: #ffffff !important; font-weight: bold; }
     .val-gray { color: #9ca3af !important; font-weight: normal !important; }
     
-    /* 박스 효과 */
+    /* 시작일 기준 수익 강조 박스 */
     .box-red { background-color: rgba(255, 51, 51, 0.15); color: #FF3333; padding: 6px 14px; border-radius: 8px; border: 1px solid rgba(255, 51, 51, 0.3); font-weight: bold;}
     .box-blue { background-color: rgba(51, 153, 255, 0.15); color: #3399FF; padding: 6px 14px; border-radius: 8px; border: 1px solid rgba(51, 153, 255, 0.3); font-weight: bold;}
     </style>
@@ -263,7 +263,6 @@ def render_portfolio_tab(port_name, port_key, path, prices):
 # 🚀 메인 대시보드
 # =========================================================
 st.markdown('<p class="main-title">💼 내 퀀트 포트폴리오 종합 대시보드</p>', unsafe_allow_html=True)
-# 💡 [업데이트] 5번째 리밸런싱 탭 추가
 tabs = st.tabs(["📊 종합 요약", "📁 또", "📁 쏘", "📁 맘", "⚖️ 리밸런싱 계산기"])
 
 with tabs[0]:
@@ -351,7 +350,7 @@ with tabs[1]: render_portfolio_tab("또", "ddo", PORT_PATHS["ddo"], global_price
 with tabs[2]: render_portfolio_tab("쏘", "sso", PORT_PATHS["sso"], global_prices)
 with tabs[3]: render_portfolio_tab("맘", "mom", PORT_PATHS["mom"], global_prices)
 
-# 💡 [신규] 5번째 탭: 리밸런싱 계산기
+# 💡 [업데이트] 5번째 탭: 리밸런싱 계산기 (코드번호의 'A' 제거 및 목표금액 만원 단위 적용)
 with tabs[4]:
     st.markdown('<p class="section-title">⚖️ 포트폴리오 교체/리밸런싱 계산기</p>', unsafe_allow_html=True)
     st.info("현재 보유 중인 포트폴리오를 기준으로, 새롭게 설정할 '목표 포트폴리오(엑셀/CSV)'를 업로드하면 최적의 매수/매도 주문 수량을 자동으로 계산해 드립니다.")
@@ -359,8 +358,8 @@ with tabs[4]:
     c_sel, c_up = st.columns([1, 2])
     target_port_info = c_sel.selectbox("🔄 기준 포트폴리오 선택", options=[("또", "ddo"), ("쏘", "sso"), ("맘", "mom")], format_func=lambda x: f"📁 [{x[0]}] 포트폴리오 기준")
     
-    # 목표 포트폴리오 업로드 폼
-    up_target = c_up.file_uploader("목표 엑셀/CSV 업로드 양식 (필수 열: '종목코드', '목표금액')", type=['csv', 'xlsx'], key="up_rebal")
+    # 💡 안내문구 수정
+    up_target = c_up.file_uploader("목표 엑셀/CSV 업로드 양식 (필수 열: '코드번호', '목표금액')", type=['csv', 'xlsx'], key="up_rebal")
     
     if up_target:
         try:
@@ -368,12 +367,17 @@ with tabs[4]:
             tgt_df = pd.read_csv(up_target, encoding='utf-8-sig') if up_target.name.endswith('csv') else pd.read_excel(up_target)
             tgt_df.columns = tgt_df.columns.str.strip()
             
-            if '종목코드' not in tgt_df.columns or '목표금액' not in tgt_df.columns:
-                st.error("🚨 업로드하신 파일 첫 줄에 '종목코드'와 '목표금액'이라는 이름의 열(컬럼)이 반드시 존재해야 합니다!")
+            # 💡 '코드번호' 열이 있는지 확인
+            if '코드번호' not in tgt_df.columns or '목표금액' not in tgt_df.columns:
+                st.error("🚨 업로드하신 파일 첫 줄에 '코드번호'와 '목표금액'이라는 이름의 열(컬럼)이 반드시 존재해야 합니다!")
             else:
-                tgt_df = tgt_df.dropna(subset=['종목코드'])
-                tgt_df['종목코드'] = tgt_df['종목코드'].astype(str).str.replace(r'\.0$', '', regex=True).apply(lambda x: str(x).zfill(6) if str(x).isdigit() else str(x))
-                tgt_df['목표금액'] = pd.to_numeric(tgt_df['목표금액'].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce').fillna(0).astype(int)
+                tgt_df = tgt_df.dropna(subset=['코드번호'])
+                
+                # 💡 [핵심 변환 1] A069640 -> 069640 변환 후 '종목코드'로 통일
+                tgt_df['종목코드'] = tgt_df['코드번호'].astype(str).str.replace(r'^[A-Za-z]+', '', regex=True).str.replace(r'\.0$', '', regex=True).str.zfill(6)
+                
+                # 💡 [핵심 변환 2] 300 -> 3,000,000 변환 (* 10000 적용)
+                tgt_df['목표금액'] = pd.to_numeric(tgt_df['목표금액'].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce').fillna(0).astype(int) * 10000
                 
                 # 현재 포트폴리오 복사
                 curr_df = st.session_state[f'df_{target_port_info[1]}'].copy()
@@ -387,7 +391,7 @@ with tabs[4]:
                 name_map = master_df.set_index('종목코드')['종목명'].to_dict() if not master_df.empty else {}
                 merged['종목명'] = merged['종목코드'].map(name_map).fillna('이름없음')
                 
-                # 병합된 전체 종목 리스트의 실시간 가격 가져오기 (이미 캐싱된 데이터 활용)
+                # 병합된 전체 종목 리스트의 실시간 가격 가져오기
                 reb_tickers = tuple(merged['종목코드'].unique())
                 reb_prices = fetch_multi_prices(reb_tickers)
                 
@@ -414,14 +418,14 @@ with tabs[4]:
                 merged['주문수량'] = merged.apply(get_rebal_qty, axis=1)
                 merged['예상체결금액'] = merged['주문수량'] * merged['현재가']
                 
-                # 계산 결과 필터링 (수량도 0, 목표도 0인 의미없는 데이터 제거)
+                # 계산 결과 필터링
                 merged = merged[(merged['수량'] > 0) | (merged['목표금액'] > 0)]
                 
                 # 요약 지표 계산
                 buy_sum = merged[merged['주문'].isin(['신규매수', '추가매수'])]['예상체결금액'].sum()
                 sell_sum = merged[merged['주문'].isin(['전량매도', '부분매도'])]['예상체결금액'].sum()
                 net_cash = sell_sum - buy_sum
-                net_css = "color: #3399FF;" if net_cash >= 0 else "color: #FF3333;" # 확보면 파랑(플러스현금), 지출이면 빨강(마이너스현금)
+                net_css = "color: #3399FF;" if net_cash >= 0 else "color: #FF3333;"
                 
                 st.markdown(f"**🔴 총 매수 필요 자금:** `₩{buy_sum:,}` | **🔵 총 매도 확보 자금:** `₩{sell_sum:,}` | **💡 예상 순 현금 변동:** <span style='{net_css}'>**₩{net_cash:,}**</span>", unsafe_allow_html=True)
                 
