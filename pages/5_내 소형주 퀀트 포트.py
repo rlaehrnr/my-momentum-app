@@ -128,19 +128,41 @@ def fetch_multi_prices(tickers):
             price_map[t] = {'curr': curr, 'prev': prev}
     return price_map
 
+
+# 💡 [핵심 버그 수정] 어떤 포맷, 특수문자가 섞여 있어도 100% 찰떡같이 읽어내는 만능 세탁기
 def load_portfolio(path):
     if os.path.exists(path):
         for enc in ['utf-8-sig', 'cp949', 'euc-kr', 'utf-8']:
             try:
                 df = pd.read_csv(path, dtype={'종목코드': str}, encoding=enc)
-                # 💡 [핵심 방어 1] 파일에 '종목명' 컬럼이 없으면 강제로 만들어줍니다.
-                if '종목명' not in df.columns:
-                    df['종목명'] = ''
+                
+                # 1. 엑셀의 빈 줄이나 쓸데없는 데이터 완벽 차단
+                if '종목코드' not in df.columns:
+                    continue # 코드가 없으면 다음 방식으로 재시도
                     
-                df['종목코드'] = df['종목코드'].astype(str).str.replace(r'\.0$', '', regex=True).str.zfill(6)
-                df['매수단가'] = pd.to_numeric(df['매수단가'], errors='coerce').fillna(0).astype(int)
-                df['수량'] = pd.to_numeric(df['수량'], errors='coerce').fillna(0).astype(int)
-                return df
+                df = df.dropna(subset=['종목코드'])
+                df = df[df['종목코드'].astype(str).str.strip() != '']
+                df = df[df['종목코드'].astype(str).str.strip() != 'nan']
+                
+                df['종목코드'] = df['종목코드'].astype(str).str.replace(r'\.0$', '', regex=True).apply(lambda x: str(x).zfill(6) if str(x).isdigit() else str(x))
+                
+                # 2. 파일에 종목명이 없으면 마스터 데이터에서 이름 가져오기
+                if '종목명' not in df.columns:
+                    name_map = master_df.set_index('종목코드')['종목명'].to_dict() if not master_df.empty else {}
+                    df['종목명'] = df['종목코드'].map(name_map).fillna('이름없음')
+                
+                # 3. 매수단가와 수량에 섞인 쉼표, ₩, \ 등 모든 특수문자를 세탁
+                if '매수단가' in df.columns:
+                    df['매수단가'] = pd.to_numeric(df['매수단가'].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce').fillna(0).astype(int)
+                else:
+                    df['매수단가'] = 0
+                    
+                if '수량' in df.columns:
+                    df['수량'] = pd.to_numeric(df['수량'].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce').fillna(0).astype(int)
+                else:
+                    df['수량'] = 0
+                    
+                return df[["종목명", "종목코드", "매수단가", "수량"]]
             except Exception as e:
                 continue
     return pd.DataFrame(columns=["종목명", "종목코드", "매수단가", "수량"])
@@ -263,7 +285,6 @@ def render_portfolio_tab(port_name, port_key, path):
                     display_df = pd.merge(display_df, m_info, on='종목코드', how='left')
                 else: display_df['시장구분'] = "KOSPI"
                 
-                # 💡 [핵심 방어 2] .get()을 사용하여 종목명이 없어도 절대 에러나지 않게 보호
                 def make_links(r):
                     market_val = str(r.get('시장구분', ''))
                     m = "KOSDAQ" if "코스닥" in market_val or "KOSDAQ" in market_val.upper() else "KOSPI"
