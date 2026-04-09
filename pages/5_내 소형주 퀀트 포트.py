@@ -153,7 +153,7 @@ def load_portfolio(path):
             except: continue
     return pd.DataFrame(columns=["종목명", "종목코드", "매수단가", "수량"])
 
-# --- 전역 동기화 (세션 초기화 및 단일 가격 수집) ---
+# --- 전역 동기화 ---
 for p_key, path in [("ddo", PORT_PATHS["ddo"]), ("sso", PORT_PATHS["sso"]), ("mom", PORT_PATHS["mom"])]:
     if f'df_{p_key}' not in st.session_state:
         st.session_state[f'df_{p_key}'] = load_portfolio(path)
@@ -404,34 +404,32 @@ with tabs[4]:
                 merged['예상체결금액'] = merged['주문수량'] * merged['현재가']
                 
                 merged = merged[(merged['수량'] > 0) | (merged['목표금액'] > 0)]
-                
-                # 💡 [업데이트] 종목명 기준 오름차순(가나다순) 정렬 적용
                 merged = merged.sort_values(by='종목명', ascending=True)
                 
-                # 💡 [업데이트] 용어 수정
+                # 💡 [업데이트] 용어 수정 및 양수/음수 색상 반전
                 buy_sum = merged[merged['주문'].isin(['신규매수', '추가매수'])]['예상체결금액'].sum()
                 sell_sum = merged[merged['주문'].isin(['전량매도', '부분매도'])]['예상체결금액'].sum()
                 net_cash = sell_sum - buy_sum
-                net_css = "color: #3399FF;" if net_cash >= 0 else "color: #FF3333;"
                 
-                # 상단 헤더와 엑셀 다운로드 버튼을 나란히 배치
+                # 💡 [업데이트] 현금이 남으면 빨강, 모자라면 파랑
+                net_css = "color: #FF3333;" if net_cash >= 0 else "color: #3399FF;"
+                
                 col_header, col_btn = st.columns([3, 1])
                 
                 with col_header:
-                    st.markdown(f"**🔴 매수 자금:** `₩{buy_sum:,}` | **🔵 총 매도 확보 자금:** `₩{sell_sum:,}` | **💡 리밸런싱 후 현금 잔액:** <span style='{net_css}'>**₩{net_cash:,}**</span>", unsafe_allow_html=True)
+                    # 💡 [업데이트] 순서 변경: 매도 확보 자금 먼저
+                    st.markdown(f"**🔵 총 매도 확보 자금:** `₩{sell_sum:,}` | **🔴 총 예상 매수 자금:** `₩{buy_sum:,}` | **💡 리밸런싱 후 현금 잔액:** <span style='{net_css}'>**₩{net_cash:,}**</span>", unsafe_allow_html=True)
                 
                 display_reb = merged[['종목코드', '종목명', '현재가', '수량', '현재평가금액', '목표금액', '주문', '주문수량', '예상체결금액']]
                 
-                # 💡 [업데이트] 엑셀 다운로드 버튼 추가
+                # 💡 [업데이트] 엑셀 의존성을 100% 끊어낸 CSV 다운로드 (엑셀 호환 완벽 지원)
                 with col_btn:
-                    buffer = io.BytesIO()
-                    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                        display_reb.to_excel(writer, index=False, sheet_name='리밸런싱_결과')
+                    csv_data = display_reb.to_csv(index=False, encoding='utf-8-sig')
                     st.download_button(
-                        label="📥 엑셀로 다운로드",
-                        data=buffer.getvalue(),
-                        file_name=f"리밸런싱결과_{datetime.today().strftime('%Y%m%d')}.xlsx",
-                        mime="application/vnd.ms-excel"
+                        label="📥 결과 다운로드 (CSV)",
+                        data=csv_data,
+                        file_name=f"리밸런싱결과_{datetime.today().strftime('%Y%m%d')}.csv",
+                        mime="text/csv"
                     )
                 
                 def style_rebal(st_df):
