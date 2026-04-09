@@ -35,7 +35,6 @@ st.markdown("""
         }
     }
     
-    /* 요약 표 디자인 */
     .summary-table { width: 100%; border-collapse: collapse; text-align: center; font-size: 1.15rem; background-color: #111827; border-radius: 8px; overflow: hidden; margin-top: 10px; }
     .summary-table th { background-color: #374151; padding: 14px; border-bottom: 2px solid #4B5563; color: #F3F4F6; }
     .summary-table td { padding: 14px; border-bottom: 1px solid #374151; color: #E5E7EB; font-weight: 600; }
@@ -47,7 +46,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- [2. 설정 파일 로드/저장 (시작일 & 수익금)] ---
+# --- [2. 설정 파일 로드/저장] ---
 def load_config():
     default_config = {
         "start_date": str(datetime.today().date()), 
@@ -128,7 +127,6 @@ def fetch_multi_prices(tickers):
             price_map[t] = {'curr': curr, 'prev': prev}
     return price_map
 
-# 💡 [핵심 버그 수정] 어떤 포맷으로 엑셀(CSV)이 저장되어 있든 완벽하게 읽어냅니다!
 def load_portfolio(path):
     if os.path.exists(path):
         for enc in ['utf-8-sig', 'cp949', 'euc-kr', 'utf-8']:
@@ -139,11 +137,12 @@ def load_portfolio(path):
                 df['수량'] = pd.to_numeric(df['수량'], errors='coerce').fillna(0).astype(int)
                 return df
             except Exception as e:
-                continue # 실패하면 다음 인코딩 방식으로 재시도
+                continue
     return pd.DataFrame(columns=["종목명", "종목코드", "매수단가", "수량"])
 
 # --- [5. 개별 포트폴리오 렌더링 함수] ---
 def render_portfolio_tab(port_name, port_key, path):
+    # 💡 [버그 완벽 수정] 탭을 전환할 때마다 최신 파일을 로드하도록 보장
     if f'df_{port_key}' not in st.session_state:
         st.session_state[f'df_{port_key}'] = load_portfolio(path)
 
@@ -153,8 +152,9 @@ def render_portfolio_tab(port_name, port_key, path):
     col_add, col_file = st.columns([1.5, 1])
     with col_add:
         with st.expander(f"➕ {port_name} 포트폴리오 개별 종목 추가", expanded=True):
+            # 💡 [핵심] 폼(Form)과 입력창의 key를 완벽히 분리
             with st.form(f"add_form_{port_key}", clear_on_submit=True):
-                sel = st.selectbox("종목 검색", options=search_options)
+                sel = st.selectbox("종목 검색", options=search_options, key=f"sel_{port_key}")
                 c1, c2 = st.columns(2)
                 p = c1.number_input("매수단가", min_value=0, step=100, key=f"p_{port_key}")
                 q = c2.number_input("수량", min_value=1, step=1, key=f"q_{port_key}")
@@ -207,7 +207,11 @@ def render_portfolio_tab(port_name, port_key, path):
                     except Exception as e: st.error(f"파일을 읽을 수 없습니다: {e}")
 
     st.markdown(f"### 📝 {port_name} 목록 편집")
+    
+    # 💡 데이터 에디터에 표시하기 전 데이터 복사 및 정제
     edit_view_df = st.session_state[f'df_{port_key}'].copy()
+    edit_view_df['매수단가'] = pd.to_numeric(edit_view_df['매수단가'], errors='coerce').fillna(0).astype(int)
+    edit_view_df['수량'] = pd.to_numeric(edit_view_df['수량'], errors='coerce').fillna(0).astype(int)
     edit_view_df.index = range(1, len(edit_view_df) + 1)
 
     edited_df = st.data_editor(
@@ -305,7 +309,7 @@ def render_portfolio_tab(port_name, port_key, path):
                         "수익률(%)": st.column_config.NumberColumn(format="%.2f%%"),
                     }, height=450)
         else:
-            st.info("👇 아래에서 포트폴리오에 종목을 추가하시면 실시간 성적표가 나타납니다.")
+            st.info(f"👇 아래에서 '{port_name}' 포트폴리오에 종목을 추가하시면 실시간 성적표가 나타납니다.")
 
 
 # =========================================================
@@ -326,14 +330,14 @@ with tab_summary:
         dt_val = datetime.today().date()
         
     c_date, _ = st.columns([1, 4])
-    new_date = c_date.date_input("시작일", value=dt_val, label_visibility="collapsed")
+    new_date = c_date.date_input("시작일", value=dt_val, label_visibility="collapsed", key="global_start_date")
 
     st.markdown("##### 📝 비교시점 시작 수익금액 설정 (원)")
     c1, c2, c3 = st.columns(3)
     
-    new_ddo = c1.number_input("📁 [또] 시작 수익금", value=config['start_ddo'], step=100000)
-    new_sso = c2.number_input("📁 [쏘] 시작 수익금", value=config['start_sso'], step=100000)
-    new_mom = c3.number_input("📁 [맘] 시작 수익금", value=config['start_mom'], step=100000)
+    new_ddo = c1.number_input("📁 [또] 시작 수익금", value=config['start_ddo'], step=100000, key="cfg_ddo")
+    new_sso = c2.number_input("📁 [쏘] 시작 수익금", value=config['start_sso'], step=100000, key="cfg_sso")
+    new_mom = c3.number_input("📁 [맘] 시작 수익금", value=config['start_mom'], step=100000, key="cfg_mom")
     
     if str(new_date) != config['start_date'] or new_ddo != config['start_ddo'] or new_sso != config['start_sso'] or new_mom != config['start_mom']:
         config['start_date'] = str(new_date)
@@ -355,6 +359,7 @@ with tab_summary:
     all_tickers = set()
     ports = [("또", "ddo", PORT_PATHS["ddo"]), ("쏘", "sso", PORT_PATHS["sso"]), ("맘", "mom", PORT_PATHS["mom"])]
     
+    # 각 포트폴리오별 파일을 읽어서 티커 수집
     for _, _, path in ports:
         df = load_portfolio(path)
         all_tickers.update(df['종목코드'].tolist())
