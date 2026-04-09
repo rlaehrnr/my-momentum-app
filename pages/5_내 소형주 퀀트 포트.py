@@ -36,17 +36,20 @@ st.markdown("""
         }
     }
     
+    /* 📊 종합 요약 표 디자인 */
     .summary-table { width: 100%; border-collapse: collapse; text-align: center; font-size: 1.15rem; background-color: #1a1c24; border-radius: 12px; overflow: hidden; margin-top: 10px; }
     .summary-table th { background-color: #2d313e; padding: 15px; color: #9ca3af; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; }
     .summary-table td { padding: 16px; border-bottom: 1px solid #2d313e; color: #e5e7eb; }
     .highlight-cell { background-color: rgba(255, 255, 255, 0.03); font-size: 1.2rem; }
     .summary-total { background-color: #242834; font-size: 1.3rem; }
     
+    /* 💡 컬러 클래스 (회색은 글씨 굵기를 얇게!) */
     .val-red { color: #FF3333 !important; font-weight: bold; }
     .val-blue { color: #3399FF !important; font-weight: bold; }
     .val-white { color: #ffffff !important; font-weight: bold; }
-    .val-gray { color: #9ca3af !important; }
+    .val-gray { color: #9ca3af !important; font-weight: normal !important; }
     
+    /* 박스 효과 */
     .box-red { background-color: rgba(255, 51, 51, 0.15); color: #FF3333; padding: 6px 14px; border-radius: 8px; border: 1px solid rgba(255, 51, 51, 0.3); }
     .box-blue { background-color: rgba(51, 153, 255, 0.15); color: #3399FF; padding: 6px 14px; border-radius: 8px; border: 1px solid rgba(51, 153, 255, 0.3); }
     </style>
@@ -67,6 +70,13 @@ def load_config():
 
 def save_config(config_data):
     with open(CONFIG_PATH, 'w', encoding='utf-8') as f: json.dump(config_data, f)
+
+# 💡 문자열을 숫자로 바꿔주는 안전한 파서 (쉼표 텍스트 입력 방어용)
+def parse_krw(val_str, default_val):
+    try:
+        return int(str(val_str).replace(',', '').replace('₩', '').strip())
+    except:
+        return default_val
 
 # --- [3. 데이터 수집 로직] ---
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -224,8 +234,14 @@ def render_portfolio_tab(port_name, port_key, path):
                     s = pd.DataFrame('', index=st_df.index, columns=st_df.columns)
                     for col in ['전일대비(%)', '평가손익', '수익률(%)']:
                         s[col] = st_df[col].apply(lambda x: 'color: #FF3333; font-weight:bold;' if x > 0 else ('color: #3399FF; font-weight:bold;' if x < 0 else ''))
+                    
+                    # 💡 [업데이트] 시총 150억 이하 및 동전주(1000원 미만) 주황색 세련된 강조
+                    highlight_css = 'background-color: rgba(255, 167, 38, 0.1); color: #FFA726; border: 1px solid #FFA726; font-weight:bold; border-radius: 4px;'
                     if '시총(억)' in st_df.columns:
-                        s['시총(억)'] = st_df['시총(억)'].apply(lambda x: 'background-color: rgba(255, 167, 38, 0.1); color: #FFA726; border: 1px solid #FFA726; font-weight:bold; border-radius: 4px;' if 0 < x <= 150 else '')
+                        s['시총(억)'] = st_df['시총(억)'].apply(lambda x: highlight_css if 0 < x <= 150 else '')
+                    if '현재가' in st_df.columns:
+                        s['현재가'] = st_df['현재가'].apply(lambda x: highlight_css if 0 < x < 1000 else '')
+                        
                     return s
 
                 st.dataframe(df.style.apply(style_port_final, axis=None).format({'전일대비(%)':'{:.2f}%','수익률(%)':'{:.2f}%','시총(억)':'{:,}','매수단가':'{:,}','현재가':'{:,}','평가금액':'{:,}','평가손익':'{:,}'}), 
@@ -250,10 +266,15 @@ with tabs[0]:
     except: dt_val = datetime.today().date()
     
     new_date = c_dt.date_input("📅 시작일", value=dt_val)
-    # 💡 [해결] format을 "%d"로 수정하여 에러를 방지합니다.
-    new_ddo = c_d.number_input("💰 [또] 시작금", value=config['start_ddo'], step=100000, format="%d")
-    new_sso = c_s.number_input("💰 [쏘] 시작금", value=config['start_sso'], step=100000, format="%d")
-    new_mom = c_m.number_input("💰 [맘] 시작금", value=config['start_mom'], step=100000, format="%d")
+    
+    # 💡 [업데이트] 쉼표 완벽 지원 텍스트 입력창 트릭 적용
+    str_ddo = c_d.text_input("💰 [또] 시작금", value=f"{config['start_ddo']:,}")
+    str_sso = c_s.text_input("💰 [쏘] 시작금", value=f"{config['start_sso']:,}")
+    str_mom = c_m.text_input("💰 [맘] 시작금", value=f"{config['start_mom']:,}")
+    
+    new_ddo = parse_krw(str_ddo, config['start_ddo'])
+    new_sso = parse_krw(str_sso, config['start_sso'])
+    new_mom = parse_krw(str_mom, config['start_mom'])
     
     if str(new_date) != config['start_date'] or new_ddo != config['start_ddo'] or new_sso != config['start_sso'] or new_mom != config['start_mom']:
         config.update({"start_date": str(new_date), "start_ddo": new_ddo, "start_sso": new_sso, "start_mom": new_mom})
@@ -261,7 +282,7 @@ with tabs[0]:
 
     st.markdown('<p class="section-title">🏆 포트폴리오 성과 요약</p>', unsafe_allow_html=True)
     
-    summary_data, total_buy, total_profit, total_daily, total_since = [], 0, 0, 0, 0
+    summary_data, total_buy, total_profit, total_daily, total_since, total_prev_all = [], 0, 0, 0, 0, 0
     all_codes = []
     for p in PORT_PATHS.values(): all_codes.extend(load_portfolio(p)['종목코드'].tolist())
     prices = fetch_multi_prices(tuple(set(all_codes)))
@@ -277,15 +298,18 @@ with tabs[0]:
             t_prev = (df['prev'] * df['수량']).sum()
             t_profit = t_val - t_buy
             d_diff = t_val - t_prev
+            d_pct = (d_diff / t_prev * 100) if t_prev > 0 else 0
             since_start = t_profit - start_val
-            total_buy += t_buy; total_profit += t_profit; total_daily += d_diff; total_since += since_start
-            summary_data.append({"name": p_name, "daily": d_diff, "pct": (t_profit/t_buy*100), "profit": t_profit, "since": since_start})
+            
+            total_buy += t_buy; total_profit += t_profit; total_daily += d_diff; total_since += since_start; total_prev_all += t_prev
+            summary_data.append({"name": p_name, "daily": d_diff, "daily_pct": d_pct, "pct": (t_profit/t_buy*100), "profit": t_profit, "since": since_start})
         else:
-            summary_data.append({"name": p_name, "daily": 0, "pct": 0, "profit": 0, "since": -start_val})
+            summary_data.append({"name": p_name, "daily": 0, "daily_pct": 0, "pct": 0, "profit": 0, "since": -start_val})
             total_since -= start_val
 
+    # 💡 [업데이트] 표 컬럼 6개로 확장 및 얇은 회색(val-gray) 적용
     total_since_color = "#FF3333" if total_since >= 0 else "#3399FF"
-    html = f"<table class='summary-table'><thead><tr><th>포트폴리오</th><th>오늘의 등락</th><th>총 수익률</th><th>현재 수익 금액</th><th style='color:#ffffff; background-color:#3e4452;'>시작일 기준 수익 금액</th></tr></thead><tbody>"
+    html = f"<table class='summary-table'><thead><tr><th>포트폴리오</th><th>오늘의 등락</th><th>오늘의 등락률</th><th>총 수익률</th><th>현재 수익 금액</th><th style='color:#ffffff; background-color:#3e4452;'>시작일 기준 수익 금액</th></tr></thead><tbody>"
     
     def get_cls(v, is_box=False):
         cls = "val-red" if v > 0 else ("val-blue" if v < 0 else "val-gray")
@@ -295,13 +319,17 @@ with tabs[0]:
     for r in summary_data:
         box_cls = get_cls(r['since'], True)
         html += f"<tr><td>{r['name']}</td>"
-        html += f"<td class='{get_cls(r['daily'])}'>₩{int(r['daily']):,}</td>"
+        # 💡 등락과 등락률은 무조건 val-gray(얇은 회색) 처리
+        html += f"<td class='val-gray'>₩{int(r['daily']):,}</td>"
+        html += f"<td class='val-gray'>{r['daily_pct']:.2f}%</td>"
         html += f"<td class='{get_cls(r['pct'])}'>{r['pct']:.2f}%</td>"
         html += f"<td class='{get_cls(r['profit'])}'>₩{int(r['profit']):,}</td>"
         html += f"<td class='highlight-cell'><span class='{box_cls}'>₩{int(r['since']):,}</span></td></tr>"
 
+    total_daily_pct_all = (total_daily / total_prev_all * 100) if total_prev_all > 0 else 0
     html += f"<tr class='summary-total' style='border-top: 2px solid {total_since_color};'><td><b>합계</b></td>"
-    html += f"<td class='{get_cls(total_daily)}'><b>₩{int(total_daily):,}</b></td>"
+    html += f"<td class='val-gray'>₩{int(total_daily):,}</td>"
+    html += f"<td class='val-gray'>{total_daily_pct_all:.2f}%</td>"
     html += f"<td class='val-white'><b>{total_profit/total_buy*100 if total_buy>0 else 0:.2f}%</b></td>"
     html += f"<td class='{get_cls(total_profit)}'><b>₩{int(total_profit):,}</b></td>"
     html += f"<td class='highlight-cell'><span style='font-size:1.4rem;' class='{get_cls(total_since, True)}'>₩{int(total_since):,}</span></td></tr>"
