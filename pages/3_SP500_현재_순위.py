@@ -89,21 +89,29 @@ def get_all_urls_concurrently(ticker_data_tuples):
             urls[t_str] = (total_url, chart_url)
     return urls
 
+# 💡 [핵심 해결 로직] fdr 대신 yfinance를 사용하여 미래 날짜(오늘+2일) 에러를 원천 차단합니다.
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_index_ma_status(target_date_str):
-    indices = {'S&P 500': 'US500', 'NASDAQ': 'IXIC'}
-    target_date = pd.to_datetime(target_date_str)
+    # 야후 파이낸스 지수 티커로 변경
+    indices = {'S&P 500': '^GSPC', 'NASDAQ': '^IXIC'}
+    target_date = pd.to_datetime(target_date_str).normalize()
     start_date = target_date - timedelta(days=400) 
     
-    # 💡 [핵심 해결] 라이브러리가 마지막 날짜를 빼먹는 것을 방지하기 위해 이틀(+2일) 넉넉히 가져옵니다.
     fetch_end_date = target_date + timedelta(days=2)
     
     res = []
     for name, code in indices.items():
         try:
-            df = fdr.DataReader(code, start_date, fetch_end_date)
+            # yfinance를 사용하여 안정적으로 데이터 가져오기
+            stock = yf.Ticker(code)
+            df = stock.history(start=start_date.strftime('%Y-%m-%d'), end=fetch_end_date.strftime('%Y-%m-%d'))
             
-            # 💡 넉넉히 가져온 데이터 중에서, 우리가 정확히 원하는 '기준일'까지만 필터링해서 자릅니다.
+            if df.empty: continue
+            
+            # yfinance의 시간대(timezone) 정보를 제거하여 비교 에러 방지
+            df.index = df.index.tz_localize(None)
+            
+            # 정확히 '기준일'까지만 필터링해서 자릅니다.
             df = df[df.index <= target_date]
             
             if df.empty: continue
@@ -126,7 +134,8 @@ def get_index_ma_status(target_date_str):
                 '200일선': round(df['Close'].rolling(200).mean().iloc[-1], 2)
             }
             res.append(ma_values)
-        except: pass
+        except Exception as e:
+            pass
     return pd.DataFrame(res)
 
 def style_index_ma(df):
@@ -216,7 +225,7 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
         if c in df_500.columns:
             df_500[c] = pd.to_numeric(df_500[c], errors='coerce').fillna(0.0)
 
-    # 💡 [핵심] 전체 종목 중에서 모멘텀스코어 상위 8개 종목코드 추출
+    # 전체 종목 중에서 모멘텀스코어 상위 8개 종목코드 추출
     top8_momentum_codes = df_500.sort_values('모멘텀스코어', ascending=False).head(8)['종목코드'].tolist()
 
     with st.spinner("🚀 S&P 500 전체 종목 정보를 초고속으로 동기화 중입니다... (최초 1회 약 10초 소요)"):
@@ -239,7 +248,6 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
         st.markdown('<div class="overlap-header">🔥 12-1M & 6-1M 중복</div>', unsafe_allow_html=True)
         if not overlap_12_6.empty:
             overlap_12_6['순위'] = range(1, len(overlap_12_6) + 1)
-            # 💡 교집합 표에도 Top 8 종목 초록색 하이라이트 적용
             st.dataframe(overlap_12_6.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, axis=1), 
                          use_container_width=True, hide_index=True,
                          column_order=['순위', '통합티커_L', '종목명_L', '12-1개월(%)', '6-1개월(%)'], column_config=base_config)
@@ -248,7 +256,6 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
         st.markdown('<div class="overlap-header">⚡ 6-1M & 3-1M 중복</div>', unsafe_allow_html=True)
         if not overlap_6_3.empty:
             overlap_6_3['순위'] = range(1, len(overlap_6_3) + 1)
-            # 💡 교집합 표에도 Top 8 종목 초록색 하이라이트 적용
             st.dataframe(overlap_6_3.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, axis=1), 
                          use_container_width=True, hide_index=True,
                          column_order=['순위', '통합티커_L', '종목명_L', '6-1개월(%)', '3-1개월(%)'], column_config=base_config)
@@ -269,7 +276,6 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
             st.markdown(f'<div class="section-header">{title}</div>', unsafe_allow_html=True)
             df_sub = df_500.sort_values(sort_col, ascending=False).head(30).copy()
             df_sub['순위'] = range(1, 31)
-            # 💡 30위 표에도 Top 8 종목 초록색 하이라이트 일괄 적용
             st.dataframe(df_sub.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, axis=1), 
                          use_container_width=True, height=450, hide_index=True,
                          column_order=['순위', '통합티커_L', '종목명_L', sort_col], column_config=sub_config)
@@ -285,7 +291,6 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
     if is_daily: full_order.insert(4, '전일거래량')
     full_order = [col for col in full_order if col in df_500_all.columns or col in ['순위', '통합티커_L', '종목명_L']]
     
-    # 💡 전체 표에도 Top 8 종목 초록색 하이라이트 일괄 적용
     st.dataframe(df_500_all.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, axis=1), 
                  use_container_width=True, height=600, hide_index=True,
                  column_order=full_order, column_config=base_config)
