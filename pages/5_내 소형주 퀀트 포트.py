@@ -7,7 +7,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # --- [1. 설정 및 경로] ---
-st.set_page_config(page_title="내 포트폴리오", layout="wide")
+st.set_page_config(page_title="내 퀀트 포트폴리오", layout="wide")
 PORTFOLIO_PATH = 'data/my_portfolio.csv'
 MASTER_TICKER_PATH = 'data/krx_stock_master.csv'
 
@@ -19,13 +19,24 @@ st.markdown("""
     .block-container { padding-top: 3rem !important; }
     .main-title { font-size: 1.8rem !important; font-weight: bold; margin-bottom: 1rem; }
     .stMetric { background-color: rgba(130, 130, 130, 0.1); padding: 15px; border-radius: 10px; }
+    
+    @media (max-width: 768px) {
+        div[data-testid="stHorizontalBlock"] {
+            flex-wrap: wrap !important;
+        }
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+            min-width: 45% !important; 
+            flex: 1 1 45% !important;
+            margin-bottom: 10px !important;
+        }
+    }
     </style>
 """, unsafe_allow_html=True)
 
 st.markdown('<p class="main-title">💼 내 퀀트 포트폴리오 대시보드</p>', unsafe_allow_html=True)
 
-# --- [2. 마스터 데이터 로드] ---
-@st.cache_data(ttl=86400)
+# --- [2. 마스터 데이터 & 시가총액 데이터 로드] ---
+@st.cache_data(ttl=86400, show_spinner=False)
 def get_stock_master():
     if os.path.exists(MASTER_TICKER_PATH):
         for enc in ['utf-8-sig', 'cp949', 'euc-kr', 'utf-8']:
@@ -52,6 +63,18 @@ def get_stock_master():
         return pd.DataFrame(res).drop_duplicates(subset=['종목코드'])
         
     return pd.DataFrame(columns=['종목코드', '종목명', '시장구분', '검색명'])
+
+# 💡 [핵심 최적화] 로딩 지연 방지를 위해 하루 한 번만 KRX 전체 시가총액을 가져옵니다.
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_krx_market_cap():
+    try:
+        df = fdr.StockListing('KRX')
+        df['Code'] = df['Code'].astype(str).str.zfill(6)
+        # 단위를 '억원'으로 변환
+        cap_map = (df.set_index('Code')['Marcap'] / 100000000).fillna(0).astype(int).to_dict()
+        return cap_map
+    except:
+        return {}
 
 master_df = get_stock_master()
 search_options = ["🔍 검색해서 추가 (삼성, 카카오 등)"] + master_df['검색명'].tolist() if not master_df.empty else ["검색 데이터가 없습니다."]
@@ -93,7 +116,6 @@ def fetch_multi_prices(tickers):
         if prev_val == 0: prev_val = curr_val
         return t, curr_val, prev_val
 
-    # 💡 동시 작업자를 30명으로 늘려 압도적으로 빠르게 수집
     with ThreadPoolExecutor(max_workers=30) as executor:
         future_to_t = {executor.submit(get_price, t): t for t in tickers}
         for future in as_completed(future_to_t):
@@ -223,12 +245,15 @@ with scoreboard_placeholder:
     valid_portfolio = st.session_state.temp_df.dropna(subset=['종목코드']).copy()
 
     if not valid_portfolio.empty:
-        # 하단 화면은 이미 떠 있는 상태에서, 요기만 로딩이 돌아갑니다!
         with st.spinner("📡 최신 주가를 수집 중입니다... (아래 화면은 조작 가능합니다)"):
             display_df = valid_portfolio.copy()
             display_df['종목코드'] = display_df['종목코드'].astype(str).str.replace(r'\.0$', '', regex=True).apply(lambda x: str(x).zfill(6) if str(x).isdigit() else str(x))
             display_df['매수단가'] = pd.to_numeric(display_df['매수단가'], errors='coerce').fillna(0).astype(int)
             display_df['수량'] = pd.to_numeric(display_df['수량'], errors='coerce').fillna(0).astype(int)
+
+            # 💡 [핵심] 시가총액 정보 즉시 매핑
+            cap_dict = get_krx_market_cap()
+            display_df['시가총액(억)'] = display_df['종목코드'].map(cap_dict).fillna(0).astype(int)
 
             unique_tickers = tuple(display_df['종목코드'].unique())
             price_dict = fetch_multi_prices(unique_tickers)
@@ -292,10 +317,12 @@ with scoreboard_placeholder:
             st.dataframe(
                 display_df.style.apply(style_fn, axis=None),
                 use_container_width=True, hide_index=False,
-                column_order=['티커_L', '종목명_L', '수량', '매수단가', '현재가', '전일대비(%)', '평가금액', '평가손익', '수익률(%)'],
+                # 💡 종목명_L 옆에 '시가총액(억)' 컬럼 추가
+                column_order=['티커_L', '종목명_L', '시가총액(억)', '수량', '매수단가', '현재가', '전일대비(%)', '평가금액', '평가손익', '수익률(%)'],
                 column_config={
                     "티커_L": st.column_config.LinkColumn("티커", display_text=r"#(.+)"),
                     "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"),
+                    "시가총액(억)": st.column_config.NumberColumn("시총(억)", format="%,d"), # 💡 시총 포맷 추가
                     "매수단가": st.column_config.NumberColumn(format="%,d"),
                     "현재가": st.column_config.NumberColumn(format="%,d"),
                     "전일대비(%)": st.column_config.NumberColumn("전일비(%)", format="%.2f%%"),
