@@ -146,8 +146,8 @@ ma_config = {
     "base_price": None
 }
 
-# 💡 다양한 색상으로 표를 칠할 수 있는 다용도 하이라이트 함수
-def highlight_target_codes(row, target_codes, bg_color="#FFF9C4", text_color="#1F2937"):
+# 💡 선택된 종목들(모멘텀 Top 8)만 하이라이트하는 함수
+def highlight_target_codes(row, target_codes, bg_color="#E8F5E9", text_color="#2E7D32"):
     styles = [''] * len(row)
     if row.get('종목코드') in target_codes:
         if '종목명_L' in row.index:
@@ -175,9 +175,8 @@ base_config = {
 def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
     ma_df = get_index_ma_status(target_date_str)
     
-    # 💡 [업데이트 1] 200일선 기준 투자 상태 판별 및 배지 출력
+    # 200일선 기준 투자 상태 판별 및 배지 출력
     if not ma_df.empty:
-        # S&P 500 데이터 추출 (첫 번째 행)
         sp500_row = ma_df.iloc[0]
         sp500_curr = sp500_row['base_price']
         sp500_200ma = sp500_row['200일선']
@@ -210,6 +209,9 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
         if c in df_500.columns:
             df_500[c] = pd.to_numeric(df_500[c], errors='coerce').fillna(0.0)
 
+    # 💡 [핵심] 전체 종목 중에서 모멘텀스코어 상위 8개 종목코드 추출
+    top8_momentum_codes = df_500.sort_values('모멘텀스코어', ascending=False).head(8)['종목코드'].tolist()
+
     with st.spinner("🚀 S&P 500 전체 종목 정보를 초고속으로 동기화 중입니다... (최초 1회 약 10초 소요)"):
         ticker_tuples = tuple((str(r['종목코드']), str(r['종목명'])) for _, r in df_500.iterrows())
         url_map = get_all_urls_concurrently(ticker_tuples)
@@ -223,7 +225,6 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
 
     overlap_12_6 = top10_12_1[top10_12_1['종목코드'].isin(top10_6_1['종목코드'])].sort_values('6-1개월(%)', ascending=False).copy()
     overlap_6_3 = top10_6_1[top10_6_1['종목코드'].isin(top10_3_1['종목코드'])].sort_values('6-1개월(%)', ascending=False).copy()
-    common_tickers = set(overlap_12_6['종목코드']).intersection(set(overlap_6_3['종목코드']))
 
     st.markdown("### 🌟 모멘텀 교집합 (TOP 10 중복 분석)")
     c_over1, c_over2 = st.columns(2)
@@ -231,7 +232,8 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
         st.markdown('<div class="overlap-header">🔥 12-1M & 6-1M 중복</div>', unsafe_allow_html=True)
         if not overlap_12_6.empty:
             overlap_12_6['순위'] = range(1, len(overlap_12_6) + 1)
-            st.dataframe(overlap_12_6.style.apply(highlight_target_codes, target_codes=common_tickers, axis=1), 
+            # 💡 교집합 표에도 Top 8 종목 초록색 하이라이트 적용
+            st.dataframe(overlap_12_6.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, axis=1), 
                          use_container_width=True, hide_index=True,
                          column_order=['순위', '통합티커_L', '종목명_L', '12-1개월(%)', '6-1개월(%)'], column_config=base_config)
         else: st.info("중복 종목 없음")
@@ -239,7 +241,8 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
         st.markdown('<div class="overlap-header">⚡ 6-1M & 3-1M 중복</div>', unsafe_allow_html=True)
         if not overlap_6_3.empty:
             overlap_6_3['순위'] = range(1, len(overlap_6_3) + 1)
-            st.dataframe(overlap_6_3.style.apply(highlight_target_codes, target_codes=common_tickers, axis=1), 
+            # 💡 교집합 표에도 Top 8 종목 초록색 하이라이트 적용
+            st.dataframe(overlap_6_3.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, axis=1), 
                          use_container_width=True, hide_index=True,
                          column_order=['순위', '통합티커_L', '종목명_L', '6-1개월(%)', '3-1개월(%)'], column_config=base_config)
         else: st.info("중복 종목 없음")
@@ -259,7 +262,8 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
             st.markdown(f'<div class="section-header">{title}</div>', unsafe_allow_html=True)
             df_sub = df_500.sort_values(sort_col, ascending=False).head(30).copy()
             df_sub['순위'] = range(1, 31)
-            st.dataframe(df_sub.style.apply(highlight_target_codes, target_codes=common_tickers, axis=1), 
+            # 💡 30위 표에도 Top 8 종목 초록색 하이라이트 일괄 적용
+            st.dataframe(df_sub.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, axis=1), 
                          use_container_width=True, height=450, hide_index=True,
                          column_order=['순위', '통합티커_L', '종목명_L', sort_col], column_config=sub_config)
 
@@ -270,15 +274,12 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
     df_500_all = df_500.copy()
     df_500_all['순위'] = range(1, len(df_500_all) + 1)
     
-    # 💡 [업데이트 2] 모멘텀 스코어 상위 8위 추출 및 하이라이트 (초록색 배경)
-    top8_momentum_codes = df_500_all.sort_values('모멘텀스코어', ascending=False).head(8)['종목코드'].tolist()
-    
     full_order = ['순위', '통합티커_L', '종목명_L', '현재가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '3-1개월(%)', '6-1개월(%)', '12-1개월(%)', '모멘텀스코어', '전달순위']
     if is_daily: full_order.insert(4, '전일거래량')
     full_order = [col for col in full_order if col in df_500_all.columns or col in ['순위', '통합티커_L', '종목명_L']]
     
-    # 전체 표에는 상위 8위 종목을 눈에 띄는 초록색으로 칠합니다
-    st.dataframe(df_500_all.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, bg_color="#E8F5E9", text_color="#2E7D32", axis=1), 
+    # 💡 전체 표에도 Top 8 종목 초록색 하이라이트 일괄 적용
+    st.dataframe(df_500_all.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, axis=1), 
                  use_container_width=True, height=600, hide_index=True,
                  column_order=full_order, column_config=base_config)
 
