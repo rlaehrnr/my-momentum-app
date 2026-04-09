@@ -25,8 +25,8 @@ st.markdown("""
     <style>
     .block-container { padding-top: 2.5rem !important; }
     .main-title { font-size: 1.8rem !important; font-weight: bold; margin-bottom: 1.5rem; }
-    .section-title { font-size: 1.6rem !important; font-weight: bold; margin-top: 20px; margin-bottom: 15px; }
-    .stMetric { background-color: rgba(130, 130, 130, 0.1); padding: 15px; border-radius: 10px; }
+    .section-title { font-size: 1.6rem !important; font-weight: bold; margin-top: 25px; margin-bottom: 15px; color: #E5E7EB; }
+    .stMetric { background-color: rgba(130, 130, 130, 0.1); padding: 15px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); }
     .stTabs [data-baseweb="tab"] { font-size: 18px; font-weight: bold; }
     
     @media (max-width: 768px) {
@@ -36,18 +36,22 @@ st.markdown("""
         }
     }
     
-    /* 📊 종합 요약 표 디자인 (이전 스타일 유지) */
+    /* 📊 종합 요약 표 디자인 */
     .summary-table { width: 100%; border-collapse: collapse; text-align: center; font-size: 1.15rem; background-color: #1a1c24; border-radius: 12px; overflow: hidden; margin-top: 10px; }
     .summary-table th { background-color: #2d313e; padding: 15px; color: #9ca3af; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; }
     .summary-table td { padding: 16px; border-bottom: 1px solid #2d313e; color: #e5e7eb; }
     .highlight-cell { background-color: rgba(255, 255, 255, 0.03); font-size: 1.2rem; }
-    .summary-total { background-color: #242834; font-size: 1.3rem; border-top: 2px solid #4b5563; }
+    .summary-total { background-color: #242834; font-size: 1.3rem; }
     
-    .val-red { color: #ff6b6b !important; }
-    .val-blue { color: #5dade2 !important; }
-    .val-white { color: #ffffff !important; }
-    .box-red { background-color: rgba(255, 107, 107, 0.15); color: #ff6b6b; padding: 4px 12px; border-radius: 6px; }
-    .box-blue { background-color: rgba(93, 173, 226, 0.15); color: #5dade2; padding: 4px 12px; border-radius: 6px; }
+    /* 숫자 색상 (더 선명하게) */
+    .val-red { color: #FF3333 !important; font-weight: bold; }
+    .val-blue { color: #3399FF !important; font-weight: bold; }
+    .val-white { color: #ffffff !important; font-weight: bold; }
+    .val-gray { color: #9ca3af !important; }
+    
+    /* 시작일 기준 수익 강조 박스 */
+    .box-red { background-color: rgba(255, 51, 51, 0.15); color: #FF3333; padding: 6px 14px; border-radius: 8px; border: 1px solid rgba(255, 51, 51, 0.3); }
+    .box-blue { background-color: rgba(51, 153, 255, 0.15); color: #3399FF; padding: 6px 14px; border-radius: 8px; border: 1px solid rgba(51, 153, 255, 0.3); }
     </style>
 """, unsafe_allow_html=True)
 
@@ -67,7 +71,7 @@ def load_config():
 def save_config(config_data):
     with open(CONFIG_PATH, 'w', encoding='utf-8') as f: json.dump(config_data, f)
 
-# --- [3. 마스터 & 가격 수집] ---
+# --- [3. 데이터 수집 로직] ---
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_stock_master_and_cap():
     master_df = pd.DataFrame(columns=['종목코드', '종목명', '시장구분', '시가총액(억)'])
@@ -87,7 +91,6 @@ def get_stock_master_and_cap():
     return master_df, cap_map
 
 master_df, global_cap_map = get_stock_master_and_cap()
-# 검색명 생성
 if not master_df.empty:
     master_df['검색명'] = "[" + master_df['종목코드'] + "] " + master_df.get('종목명', master_df['종목코드'])
 search_options = ["🔍 종목 검색"] + master_df['검색명'].tolist() if not master_df.empty else ["검색 데이터 없음"]
@@ -192,12 +195,11 @@ def render_portfolio_tab(port_name, port_key, path):
                 df['시총(억)'] = df['종목코드'].map(global_cap_map).fillna(0)
                 df['현재가'] = df['종목코드'].apply(lambda x: prices.get(x, {}).get('curr', 0))
                 df['전일종가'] = df['종목코드'].apply(lambda x: prices.get(x, {}).get('prev', 0))
-                df['전일비(%)'] = ((df['현재가'] - df['전일종가']) / df['전일종가'] * 100).fillna(0)
+                df['전일대비(%)'] = ((df['현재가'] - df['전일종가']) / df['전일종가'] * 100).fillna(0)
                 df['평가금액'] = df['현재가'] * df['수량']
                 df['평가손익'] = (df['현재가'] - df['매수단가']) * df['수량']
                 df['수익률(%)'] = (df['평가손익'] / (df['매수단가'] * df['수량']) * 100).fillna(0)
                 
-                # 상단 성적표 (복구 및 이모지 추가)
                 t_buy = (df['매수단가']*df['수량']).sum()
                 t_val = df['평가금액'].sum()
                 t_profit = df['평가손익'].sum()
@@ -205,15 +207,14 @@ def render_portfolio_tab(port_name, port_key, path):
                 d_diff = t_val - t_prev_val
                 d_pct = (d_diff / t_prev_val * 100) if t_prev_val > 0 else 0
                 
+                # 💡 [복구] 상단 박스 이모지 포함 5형제
                 c1, c2, c3, c4, c5 = st.columns(5)
-                # 💡 [업데이트] 상단 박스 이모지 복구
                 c1.metric("💰 총 매수", f"{int(t_buy):,}원")
                 c2.metric("📈 총 평가액", f"{int(t_val):,}원")
                 c3.metric("🌟 오늘 변동액", f"{int(d_diff):,}원", delta=f"{d_pct:.2f}%")
                 c4.metric("💸 총 평가손익", f"{int(t_profit):,}원", delta=f"{int(t_profit):,}원")
                 c5.metric("📊 총 수익률", f"{t_profit/t_buy*100:.2f}%", delta=f"{t_profit/t_buy*100:.2f}%")
                 
-                # 링크 및 스타일링 준비
                 def make_links(r):
                     market_val = str(r.get('시장구분', ''))
                     m = "KOSDAQ" if "코스닥" in market_val or "KOSDAQ" in market_val.upper() else "KOSPI"
@@ -225,15 +226,15 @@ def render_portfolio_tab(port_name, port_key, path):
 
                 def style_port_final(st_df):
                     s = pd.DataFrame('', index=st_df.index, columns=st_df.columns)
-                    # [진한 빨강/파랑 이전 스타일]
-                    for col in ['전일비(%)', '평가손익', '수익률(%)']:
-                        s[col] = st_df[col].apply(lambda x: 'color: #FF0000; font-weight:bold;' if x > 0 else ('color: #007BFF; font-weight:bold;' if x < 0 else ''))
-                    # 💡 [업데이트] 시총 150억 이하 노란색 대신 세련된 주황색 테두리로 강조
+                    # 진한 빨강/파랑
+                    for col in ['전일대비(%)', '평가손익', '수익률(%)']:
+                        s[col] = st_df[col].apply(lambda x: 'color: #FF3333; font-weight:bold;' if x > 0 else ('color: #3399FF; font-weight:bold;' if x < 0 else ''))
+                    # 💡 [업데이트] 세련된 소형주 주황색 강조
                     if '시총(억)' in st_df.columns:
-                        s['시총(억)'] = st_df['시총(억)'].apply(lambda x: 'color: white; border-left: 5px solid #FFA726; border-right: 5px solid #FFA726; border-radius: 5px; font-weight:bold;' if 0 < x <= 150 else '')
+                        s['시총(억)'] = st_df['시총(억)'].apply(lambda x: 'background-color: rgba(255, 167, 38, 0.1); color: #FFA726; border: 1px solid #FFA726; font-weight:bold; border-radius: 4px;' if 0 < x <= 150 else '')
                     return s
 
-                st.dataframe(df.style.apply(style_port_final, axis=None).format({'전일비(%)':'{:.2f}%','수익률(%)':'{:.2f}%','시총(억)':'{:,}','매수단가':'{:,}','현재가':'{:,}','평가금액':'{:,}','평가손익':'{:,}'}), 
+                st.dataframe(df.style.apply(style_port_final, axis=None).format({'전일대비(%)':'{:.2f}%','수익률(%)':'{:.2f}%','시총(억)':'{:,}','매수단가':'{:,}','현재가':'{:,}','평가금액':'{:,}','평가손익':'{:,}'}), 
                              use_container_width=True, hide_index=True,
                              column_order=['티커_L', '종목명_L', '시총(억)', '수량', '매수단가', '현재가', '전일대비(%)', '평가금액', '평가손익', '수익률(%)'],
                              column_config={
@@ -255,7 +256,7 @@ with tabs[0]:
     except: dt_val = datetime.today().date()
     
     new_date = c_dt.date_input("📅 시작일", value=dt_val)
-    # 💡 [업데이트] 시작금 입력칸에 천 단위 쉼표 추가 (2,870,000처럼 표시)
+    # 💡 시작금 입력칸 쉼표 적용
     new_ddo = c_d.number_input("💰 [또] 시작금", value=config['start_ddo'], step=100000, format="%,d")
     new_sso = c_s.number_input("💰 [쏘] 시작금", value=config['start_sso'], step=100000, format="%,d")
     new_mom = c_m.number_input("💰 [맘] 시작금", value=config['start_mom'], step=100000, format="%,d")
@@ -264,7 +265,7 @@ with tabs[0]:
         config.update({"start_date": str(new_date), "start_ddo": new_ddo, "start_sso": new_sso, "start_mom": new_mom})
         save_config(config); st.rerun()
 
-    st.markdown('<p class="section-title" style="font-size:1.6rem;">🏆 포트폴리오 성과 요약</p>', unsafe_allow_html=True)
+    st.markdown('<p class="section-title">🏆 포트폴리오 성과 요약</p>', unsafe_allow_html=True)
     
     summary_data, total_buy, total_profit, total_daily, total_since = [], 0, 0, 0, 0
     all_codes = []
@@ -289,8 +290,9 @@ with tabs[0]:
             summary_data.append({"name": p_name, "daily": 0, "pct": 0, "profit": 0, "since": -start_val})
             total_since -= start_val
 
-    # 요약 표 출력 (이전 세련된 디자인 유지)
-    html = "<table class='summary-table'><thead><tr><th>포트폴리오</th><th>오늘의 등락</th><th>총 수익률</th><th>현재 수익 금액</th><th style='color:#ffffff; background-color:#3e4452;'>시작일 기준 수익 금액</th></tr></thead><tbody>"
+    # 요약 표 출력 (테두리 색상 로직 적용)
+    total_since_color = "#FF3333" if total_since >= 0 else "#3399FF"
+    html = f"<table class='summary-table'><thead><tr><th>포트폴리오</th><th>오늘의 등락</th><th>총 수익률</th><th>현재 수익 금액</th><th style='color:#ffffff; background-color:#3e4452;'>시작일 기준 수익 금액</th></tr></thead><tbody>"
     
     def get_cls(v, is_box=False):
         cls = "val-red" if v > 0 else ("val-blue" if v < 0 else "val-gray")
@@ -305,11 +307,11 @@ with tabs[0]:
         html += f"<td class='{get_cls(r['profit'])}'>₩{int(r['profit']):,}</td>"
         html += f"<td class='highlight-cell'><span class='{box_cls}'>₩{int(r['since']):,}</span></td></tr>"
 
-    html += f"<tr class='summary-total'><td><b>합계</b></td>"
+    html += f"<tr class='summary-total' style='border-top: 2px solid {total_since_color};'><td><b>합계</b></td>"
     html += f"<td class='{get_cls(total_daily)}'><b>₩{int(total_daily):,}</b></td>"
     html += f"<td class='val-white'><b>{total_profit/total_buy*100 if total_buy>0 else 0:.2f}%</b></td>"
     html += f"<td class='{get_cls(total_profit)}'><b>₩{int(total_profit):,}</b></td>"
-    html += f"<td class='highlight-cell' style='border-top:2px solid #5dade2 !important;'><span style='font-size:1.4rem;' class='{get_cls(total_since, True)}'>₩{int(total_since):,}</span></td></tr>"
+    html += f"<td class='highlight-cell'><span style='font-size:1.4rem;' class='{get_cls(total_since, True)}'>₩{int(total_since):,}</span></td></tr>"
     html += "</tbody></table>"
     st.markdown(html, unsafe_allow_html=True)
 
