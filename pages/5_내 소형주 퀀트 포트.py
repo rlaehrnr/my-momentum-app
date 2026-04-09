@@ -36,7 +36,7 @@ st.markdown("""
         }
     }
     
-    /* 📊 종합 요약 표 디자인 */
+    /* 📊 표 디자인 */
     .summary-table { width: 100%; border-collapse: collapse; text-align: center; font-size: 1.15rem; background-color: #1a1c24; border-radius: 12px; overflow: hidden; margin-top: 10px; }
     .summary-table th { background-color: #2d313e; padding: 15px; color: #9ca3af; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; }
     .summary-table td { padding: 16px; border-bottom: 1px solid #2d313e; color: #e5e7eb; }
@@ -51,13 +51,13 @@ st.markdown("""
     .val-white { color: #ffffff !important; font-weight: bold; }
     .val-gray { color: #9ca3af !important; font-weight: normal !important; }
     
-    /* 박스 효과 (시작일 수익 강조용) */
+    /* 박스 효과 */
     .box-red { background-color: rgba(255, 51, 51, 0.15); color: #FF3333; padding: 6px 14px; border-radius: 8px; border: 1px solid rgba(255, 51, 51, 0.3); font-weight: bold;}
     .box-blue { background-color: rgba(51, 153, 255, 0.15); color: #3399FF; padding: 6px 14px; border-radius: 8px; border: 1px solid rgba(51, 153, 255, 0.3); font-weight: bold;}
     </style>
 """, unsafe_allow_html=True)
 
-# --- [2. 설정 관리 & 파서] ---
+# --- [2. 설정 관리] ---
 def load_config():
     default_config = {"start_date": str(datetime.today().date()), "start_ddo": 0, "start_sso": 0, "start_mom": 0}
     if os.path.exists(CONFIG_PATH):
@@ -152,18 +152,14 @@ def load_portfolio(path):
             except: continue
     return pd.DataFrame(columns=["종목명", "종목코드", "매수단가", "수량"])
 
-# =========================================================
-# 🚀 전역 동기화: 세션 초기화 및 단일 가격 수집 (핵심 수정)
-# =========================================================
+# --- 전역 동기화 (세션 초기화 및 단일 가격 수집) ---
 for p_key, path in [("ddo", PORT_PATHS["ddo"]), ("sso", PORT_PATHS["sso"]), ("mom", PORT_PATHS["mom"])]:
     if f'df_{p_key}' not in st.session_state:
         st.session_state[f'df_{p_key}'] = load_portfolio(path)
 
-# 모든 탭의 종목을 한 곳에 모아서 딱 1번만 검색합니다. (오차 발생 원천 차단)
 all_tickers = set()
 for p_key in ["ddo", "sso", "mom"]:
     all_tickers.update(st.session_state[f'df_{p_key}']['종목코드'].tolist())
-# 정렬(sorted)을 통해 캐시(Cache) 적중률을 100%로 보장합니다.
 global_prices = fetch_multi_prices(tuple(sorted(all_tickers)))
 
 # --- [4. 개별 포트폴리오 탭 렌더링] ---
@@ -212,7 +208,6 @@ def render_portfolio_tab(port_name, port_key, path, prices):
         df = st.session_state[f'df_{port_key}'].copy()
         if not df.empty:
             df['시총(억)'] = df['종목코드'].map(global_cap_map).fillna(0)
-            # 일괄로 가져온 global_prices를 똑같이 사용합니다.
             df['현재가'] = df['종목코드'].apply(lambda x: prices.get(x, {}).get('curr', 0))
             df['전일종가'] = df['종목코드'].apply(lambda x: prices.get(x, {}).get('prev', 0))
             df['전일대비(%)'] = ((df['현재가'] - df['전일종가']) / df['전일종가'] * 100).fillna(0)
@@ -248,7 +243,6 @@ def render_portfolio_tab(port_name, port_key, path, prices):
                 for col in ['전일대비(%)', '평가손익', '수익률(%)']:
                     s[col] = st_df[col].apply(lambda x: 'color: #FF3333; font-weight:bold;' if x > 0 else ('color: #3399FF; font-weight:bold;' if x < 0 else ''))
                 
-                # 소형주 및 동전주 강조 (세련된 주황색)
                 highlight_css = 'background-color: rgba(255, 167, 38, 0.1); color: #FFA726; border: 1px solid #FFA726; font-weight:bold; border-radius: 4px;'
                 if '시총(억)' in st_df.columns:
                     s['시총(억)'] = st_df['시총(억)'].apply(lambda x: highlight_css if 0 < x <= 150 else '')
@@ -269,7 +263,8 @@ def render_portfolio_tab(port_name, port_key, path, prices):
 # 🚀 메인 대시보드
 # =========================================================
 st.markdown('<p class="main-title">💼 내 퀀트 포트폴리오 종합 대시보드</p>', unsafe_allow_html=True)
-tabs = st.tabs(["📊 종합 요약", "📁 또", "📁 쏘", "📁 맘"])
+# 💡 [업데이트] 5번째 리밸런싱 탭 추가
+tabs = st.tabs(["📊 종합 요약", "📁 또", "📁 쏘", "📁 맘", "⚖️ 리밸런싱 계산기"])
 
 with tabs[0]:
     config = load_config()
@@ -323,7 +318,6 @@ with tabs[0]:
     total_since_color = "#FF3333" if total_since >= 0 else "#3399FF"
     html = f"<table class='summary-table'><thead><tr><th>포트폴리오</th><th>오늘의 등락</th><th>오늘의 등락률</th><th>총 수익률</th><th>현재 수익 금액</th><th style='color:#ffffff; background-color:#3e4452;'>시작일 기준 수익 금액</th></tr></thead><tbody>"
     
-    # 💡 굵기가 얇으면서 색상은 있는 클래스
     def get_thin_cls(v):
         if v > 0: return "val-red-thin"
         elif v < 0: return "val-blue-thin"
@@ -356,3 +350,108 @@ with tabs[0]:
 with tabs[1]: render_portfolio_tab("또", "ddo", PORT_PATHS["ddo"], global_prices)
 with tabs[2]: render_portfolio_tab("쏘", "sso", PORT_PATHS["sso"], global_prices)
 with tabs[3]: render_portfolio_tab("맘", "mom", PORT_PATHS["mom"], global_prices)
+
+# 💡 [신규] 5번째 탭: 리밸런싱 계산기
+with tabs[4]:
+    st.markdown('<p class="section-title">⚖️ 포트폴리오 교체/리밸런싱 계산기</p>', unsafe_allow_html=True)
+    st.info("현재 보유 중인 포트폴리오를 기준으로, 새롭게 설정할 '목표 포트폴리오(엑셀/CSV)'를 업로드하면 최적의 매수/매도 주문 수량을 자동으로 계산해 드립니다.")
+    
+    c_sel, c_up = st.columns([1, 2])
+    target_port_info = c_sel.selectbox("🔄 기준 포트폴리오 선택", options=[("또", "ddo"), ("쏘", "sso"), ("맘", "mom")], format_func=lambda x: f"📁 [{x[0]}] 포트폴리오 기준")
+    
+    # 목표 포트폴리오 업로드 폼
+    up_target = c_up.file_uploader("목표 엑셀/CSV 업로드 양식 (필수 열: '종목코드', '목표금액')", type=['csv', 'xlsx'], key="up_rebal")
+    
+    if up_target:
+        try:
+            up_target.seek(0)
+            tgt_df = pd.read_csv(up_target, encoding='utf-8-sig') if up_target.name.endswith('csv') else pd.read_excel(up_target)
+            tgt_df.columns = tgt_df.columns.str.strip()
+            
+            if '종목코드' not in tgt_df.columns or '목표금액' not in tgt_df.columns:
+                st.error("🚨 업로드하신 파일 첫 줄에 '종목코드'와 '목표금액'이라는 이름의 열(컬럼)이 반드시 존재해야 합니다!")
+            else:
+                tgt_df = tgt_df.dropna(subset=['종목코드'])
+                tgt_df['종목코드'] = tgt_df['종목코드'].astype(str).str.replace(r'\.0$', '', regex=True).apply(lambda x: str(x).zfill(6) if str(x).isdigit() else str(x))
+                tgt_df['목표금액'] = pd.to_numeric(tgt_df['목표금액'].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce').fillna(0).astype(int)
+                
+                # 현재 포트폴리오 복사
+                curr_df = st.session_state[f'df_{target_port_info[1]}'].copy()
+                
+                # 현재 보유현황과 목표 현황 병합 (Outer Join)
+                merged = pd.merge(curr_df[['종목코드', '수량']], tgt_df[['종목코드', '목표금액']], on='종목코드', how='outer')
+                merged['수량'] = merged['수량'].fillna(0).astype(int)
+                merged['목표금액'] = merged['목표금액'].fillna(0).astype(int)
+                
+                # 종목명 매핑
+                name_map = master_df.set_index('종목코드')['종목명'].to_dict() if not master_df.empty else {}
+                merged['종목명'] = merged['종목코드'].map(name_map).fillna('이름없음')
+                
+                # 병합된 전체 종목 리스트의 실시간 가격 가져오기 (이미 캐싱된 데이터 활용)
+                reb_tickers = tuple(merged['종목코드'].unique())
+                reb_prices = fetch_multi_prices(reb_tickers)
+                
+                merged['현재가'] = merged['종목코드'].apply(lambda x: reb_prices.get(x, {}).get('curr', 0))
+                merged['현재평가금액'] = merged['수량'] * merged['현재가']
+                merged['차액'] = merged['목표금액'] - merged['현재평가금액']
+                
+                # 행동(Action) 정의 로직
+                def get_rebal_action(row):
+                    if row['목표금액'] == 0 and row['수량'] > 0: return "전량매도"
+                    if row['수량'] == 0 and row['목표금액'] > 0: return "신규매수"
+                    if row['차액'] > 0: return "추가매수"
+                    if row['차액'] < 0: return "부분매도"
+                    return "유지"
+                    
+                merged['주문'] = merged.apply(get_rebal_action, axis=1)
+                
+                # 매수/매도 수량 계산 (소수점 버림)
+                def get_rebal_qty(row):
+                    if row['현재가'] == 0: return 0
+                    if row['주문'] == "전량매도": return row['수량']
+                    return int(abs(row['차액']) // row['현재가'])
+                    
+                merged['주문수량'] = merged.apply(get_rebal_qty, axis=1)
+                merged['예상체결금액'] = merged['주문수량'] * merged['현재가']
+                
+                # 계산 결과 필터링 (수량도 0, 목표도 0인 의미없는 데이터 제거)
+                merged = merged[(merged['수량'] > 0) | (merged['목표금액'] > 0)]
+                
+                # 요약 지표 계산
+                buy_sum = merged[merged['주문'].isin(['신규매수', '추가매수'])]['예상체결금액'].sum()
+                sell_sum = merged[merged['주문'].isin(['전량매도', '부분매도'])]['예상체결금액'].sum()
+                net_cash = sell_sum - buy_sum
+                net_css = "color: #3399FF;" if net_cash >= 0 else "color: #FF3333;" # 확보면 파랑(플러스현금), 지출이면 빨강(마이너스현금)
+                
+                st.markdown(f"**🔴 총 매수 필요 자금:** `₩{buy_sum:,}` | **🔵 총 매도 확보 자금:** `₩{sell_sum:,}` | **💡 예상 순 현금 변동:** <span style='{net_css}'>**₩{net_cash:,}**</span>", unsafe_allow_html=True)
+                
+                # 결과 테이블 스타일링
+                def style_rebal(st_df):
+                    s = pd.DataFrame('', index=st_df.index, columns=st_df.columns)
+                    for i, row in st_df.iterrows():
+                        if row['주문'] in ["신규매수", "추가매수"]:
+                            s.loc[i, '주문'] = 'color: #FF3333; font-weight: bold; background-color: rgba(255,51,51,0.1);'
+                            s.loc[i, '주문수량'] = 'color: #FF3333; font-weight: bold;'
+                        elif row['주문'] in ["전량매도", "부분매도"]:
+                            s.loc[i, '주문'] = 'color: #3399FF; font-weight: bold; background-color: rgba(51,153,255,0.1);'
+                            s.loc[i, '주문수량'] = 'color: #3399FF; font-weight: bold;'
+                        else:
+                            s.loc[i, '주문'] = 'color: #9ca3af;'
+                    return s
+                    
+                display_reb = merged[['종목코드', '종목명', '현재가', '수량', '현재평가금액', '목표금액', '주문', '주문수량', '예상체결금액']]
+                display_reb = display_reb.sort_values(by=['주문', '종목코드'], ascending=[False, True])
+                
+                st.dataframe(
+                    display_reb.style.apply(style_rebal, axis=None).format({
+                        '현재가': '{:,}',
+                        '수량': '{:,}',
+                        '현재평가금액': '{:,}',
+                        '목표금액': '{:,}',
+                        '주문수량': '{:,}',
+                        '예상체결금액': '{:,}'
+                    }),
+                    use_container_width=True, hide_index=True
+                )
+        except Exception as e:
+            st.error(f"리밸런싱 계산 중 오류가 발생했습니다. 파일 형식을 다시 확인해 주세요. (에러내용: {e})")
