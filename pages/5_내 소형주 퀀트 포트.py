@@ -6,6 +6,7 @@ import yfinance as yf
 import os
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import io
 
 # --- [1. 설정 및 경로] ---
 st.set_page_config(page_title="내 퀀트 포트폴리오", layout="wide")
@@ -346,11 +347,6 @@ with tabs[0]:
     html += "</tbody></table>"
     st.markdown(html, unsafe_allow_html=True)
 
-with tabs[1]: render_portfolio_tab("또", "ddo", PORT_PATHS["ddo"], global_prices)
-with tabs[2]: render_portfolio_tab("쏘", "sso", PORT_PATHS["sso"], global_prices)
-with tabs[3]: render_portfolio_tab("맘", "mom", PORT_PATHS["mom"], global_prices)
-
-# 💡 [업데이트] 5번째 탭: 리밸런싱 계산기 (코드번호의 'A' 제거 및 목표금액 만원 단위 적용)
 with tabs[4]:
     st.markdown('<p class="section-title">⚖️ 포트폴리오 교체/리밸런싱 계산기</p>', unsafe_allow_html=True)
     st.info("현재 보유 중인 포트폴리오를 기준으로, 새롭게 설정할 '목표 포트폴리오(엑셀/CSV)'를 업로드하면 최적의 매수/매도 주문 수량을 자동으로 계산해 드립니다.")
@@ -358,7 +354,6 @@ with tabs[4]:
     c_sel, c_up = st.columns([1, 2])
     target_port_info = c_sel.selectbox("🔄 기준 포트폴리오 선택", options=[("또", "ddo"), ("쏘", "sso"), ("맘", "mom")], format_func=lambda x: f"📁 [{x[0]}] 포트폴리오 기준")
     
-    # 💡 안내문구 수정
     up_target = c_up.file_uploader("목표 엑셀/CSV 업로드 양식 (필수 열: '코드번호', '목표금액')", type=['csv', 'xlsx'], key="up_rebal")
     
     if up_target:
@@ -367,31 +362,23 @@ with tabs[4]:
             tgt_df = pd.read_csv(up_target, encoding='utf-8-sig') if up_target.name.endswith('csv') else pd.read_excel(up_target)
             tgt_df.columns = tgt_df.columns.str.strip()
             
-            # 💡 '코드번호' 열이 있는지 확인
             if '코드번호' not in tgt_df.columns or '목표금액' not in tgt_df.columns:
                 st.error("🚨 업로드하신 파일 첫 줄에 '코드번호'와 '목표금액'이라는 이름의 열(컬럼)이 반드시 존재해야 합니다!")
             else:
                 tgt_df = tgt_df.dropna(subset=['코드번호'])
                 
-                # 💡 [핵심 변환 1] A069640 -> 069640 변환 후 '종목코드'로 통일
                 tgt_df['종목코드'] = tgt_df['코드번호'].astype(str).str.replace(r'^[A-Za-z]+', '', regex=True).str.replace(r'\.0$', '', regex=True).str.zfill(6)
-                
-                # 💡 [핵심 변환 2] 300 -> 3,000,000 변환 (* 10000 적용)
                 tgt_df['목표금액'] = pd.to_numeric(tgt_df['목표금액'].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce').fillna(0).astype(int) * 10000
                 
-                # 현재 포트폴리오 복사
                 curr_df = st.session_state[f'df_{target_port_info[1]}'].copy()
                 
-                # 현재 보유현황과 목표 현황 병합 (Outer Join)
                 merged = pd.merge(curr_df[['종목코드', '수량']], tgt_df[['종목코드', '목표금액']], on='종목코드', how='outer')
                 merged['수량'] = merged['수량'].fillna(0).astype(int)
                 merged['목표금액'] = merged['목표금액'].fillna(0).astype(int)
                 
-                # 종목명 매핑
                 name_map = master_df.set_index('종목코드')['종목명'].to_dict() if not master_df.empty else {}
                 merged['종목명'] = merged['종목코드'].map(name_map).fillna('이름없음')
                 
-                # 병합된 전체 종목 리스트의 실시간 가격 가져오기
                 reb_tickers = tuple(merged['종목코드'].unique())
                 reb_prices = fetch_multi_prices(reb_tickers)
                 
@@ -399,7 +386,6 @@ with tabs[4]:
                 merged['현재평가금액'] = merged['수량'] * merged['현재가']
                 merged['차액'] = merged['목표금액'] - merged['현재평가금액']
                 
-                # 행동(Action) 정의 로직
                 def get_rebal_action(row):
                     if row['목표금액'] == 0 and row['수량'] > 0: return "전량매도"
                     if row['수량'] == 0 and row['목표금액'] > 0: return "신규매수"
@@ -409,7 +395,6 @@ with tabs[4]:
                     
                 merged['주문'] = merged.apply(get_rebal_action, axis=1)
                 
-                # 매수/매도 수량 계산 (소수점 버림)
                 def get_rebal_qty(row):
                     if row['현재가'] == 0: return 0
                     if row['주문'] == "전량매도": return row['수량']
@@ -418,18 +403,37 @@ with tabs[4]:
                 merged['주문수량'] = merged.apply(get_rebal_qty, axis=1)
                 merged['예상체결금액'] = merged['주문수량'] * merged['현재가']
                 
-                # 계산 결과 필터링
                 merged = merged[(merged['수량'] > 0) | (merged['목표금액'] > 0)]
                 
-                # 요약 지표 계산
+                # 💡 [업데이트] 종목명 기준 오름차순(가나다순) 정렬 적용
+                merged = merged.sort_values(by='종목명', ascending=True)
+                
+                # 💡 [업데이트] 용어 수정
                 buy_sum = merged[merged['주문'].isin(['신규매수', '추가매수'])]['예상체결금액'].sum()
                 sell_sum = merged[merged['주문'].isin(['전량매도', '부분매도'])]['예상체결금액'].sum()
                 net_cash = sell_sum - buy_sum
                 net_css = "color: #3399FF;" if net_cash >= 0 else "color: #FF3333;"
                 
-                st.markdown(f"**🔴 총 매수 필요 자금:** `₩{buy_sum:,}` | **🔵 총 매도 확보 자금:** `₩{sell_sum:,}` | **💡 예상 순 현금 변동:** <span style='{net_css}'>**₩{net_cash:,}**</span>", unsafe_allow_html=True)
+                # 상단 헤더와 엑셀 다운로드 버튼을 나란히 배치
+                col_header, col_btn = st.columns([3, 1])
                 
-                # 결과 테이블 스타일링
+                with col_header:
+                    st.markdown(f"**🔴 매수 자금:** `₩{buy_sum:,}` | **🔵 총 매도 확보 자금:** `₩{sell_sum:,}` | **💡 리밸런싱 후 현금 잔액:** <span style='{net_css}'>**₩{net_cash:,}**</span>", unsafe_allow_html=True)
+                
+                display_reb = merged[['종목코드', '종목명', '현재가', '수량', '현재평가금액', '목표금액', '주문', '주문수량', '예상체결금액']]
+                
+                # 💡 [업데이트] 엑셀 다운로드 버튼 추가
+                with col_btn:
+                    buffer = io.BytesIO()
+                    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                        display_reb.to_excel(writer, index=False, sheet_name='리밸런싱_결과')
+                    st.download_button(
+                        label="📥 엑셀로 다운로드",
+                        data=buffer.getvalue(),
+                        file_name=f"리밸런싱결과_{datetime.today().strftime('%Y%m%d')}.xlsx",
+                        mime="application/vnd.ms-excel"
+                    )
+                
                 def style_rebal(st_df):
                     s = pd.DataFrame('', index=st_df.index, columns=st_df.columns)
                     for i, row in st_df.iterrows():
@@ -443,9 +447,6 @@ with tabs[4]:
                             s.loc[i, '주문'] = 'color: #9ca3af;'
                     return s
                     
-                display_reb = merged[['종목코드', '종목명', '현재가', '수량', '현재평가금액', '목표금액', '주문', '주문수량', '예상체결금액']]
-                display_reb = display_reb.sort_values(by=['주문', '종목코드'], ascending=[False, True])
-                
                 st.dataframe(
                     display_reb.style.apply(style_rebal, axis=None).format({
                         '현재가': '{:,}',
