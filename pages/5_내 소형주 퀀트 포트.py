@@ -41,23 +41,29 @@ def get_stock_master_and_cap():
     master_df = pd.DataFrame(columns=['종목코드', '종목명', '시장구분', '검색명', '시가총액(억)'])
     cap_map = {}
     
-    # 💡 [핵심 해결] krx_stock_master.csv 파일이 없다면 실시간으로 1번만 fdr에서 받아서 저장(캐싱)해 둡니다.
-    # 이렇게 하면 소형주, 코스닥 종목 전부 다 포함됩니다!
     try:
+        # 1. 한국거래소 전체 종목(소형주 포함) 최신 데이터 받아오기
         krx_df = fdr.StockListing('KRX')
-        krx_df['Code'] = krx_df['Code'].astype(str).str.zfill(6)
         
-        # fdr 마스터 데이터를 기반으로 기본 정보 및 시총 딕셔너리 생성
-        krx_df['검색명'] = "[" + krx_df['Code'] + "] " + krx_df['Name']
-        krx_df['시가총액(억)'] = (pd.to_numeric(krx_df['Marcap'], errors='coerce').fillna(0) / 100000000).astype(int)
+        # 💡 [핵심 버그 수정] 라이브러리 버전에 따라 컬럼명이 Code 또는 Symbol로 다릅니다. 둘 다 완벽 대응!
+        ticker_col = 'Symbol' if 'Symbol' in krx_df.columns else 'Code'
         
-        master_df = krx_df[['Code', 'Name', 'Market', '검색명', '시가총액(억)']].rename(
-            columns={'Code': '종목코드', 'Name': '종목명', 'Market': '시장구분'}
+        krx_df[ticker_col] = krx_df[ticker_col].astype(str).str.zfill(6)
+        krx_df['검색명'] = "[" + krx_df[ticker_col] + "] " + krx_df['Name']
+        
+        # 시가총액(Marcap) 단위 변환 (원 -> 억)
+        if 'Marcap' in krx_df.columns:
+            krx_df['시가총액(억)'] = (pd.to_numeric(krx_df['Marcap'], errors='coerce').fillna(0) / 100000000).astype(int)
+        else:
+            krx_df['시가총액(억)'] = 0
+            
+        master_df = krx_df[[ticker_col, 'Name', 'Market', '검색명', '시가총액(억)']].rename(
+            columns={ticker_col: '종목코드', 'Name': '종목명', 'Market': '시장구분'}
         )
         cap_map = master_df.set_index('종목코드')['시가총액(억)'].to_dict()
         
     except Exception as e:
-        # 혹시 fdr 다운로드가 실패할 경우 로컬 파일에서 시도
+        # 혹시 한국거래소 접속 자체가 실패할 경우를 대비한 최후의 로컬 파일 백업
         if os.path.exists(MASTER_TICKER_PATH):
             for enc in ['utf-8-sig', 'cp949', 'euc-kr', 'utf-8']:
                 try:
@@ -66,7 +72,6 @@ def get_stock_master_and_cap():
                         df['종목코드'] = df['종목코드'].astype(str).str.zfill(6)
                         df['검색명'] = "[" + df['종목코드'] + "] " + df['종목명']
                         
-                        # 파일에 시가총액이 있다면 매핑
                         if '시가총액(억)' in df.columns:
                             cap_map = df.set_index('종목코드')['시가총액(억)'].to_dict()
                         master_df = df
@@ -244,7 +249,7 @@ with scoreboard_placeholder:
             display_df['매수단가'] = pd.to_numeric(display_df['매수단가'], errors='coerce').fillna(0).astype(int)
             display_df['수량'] = pd.to_numeric(display_df['수량'], errors='coerce').fillna(0).astype(int)
 
-            # 💡 [해결 완료] 전체 시장의 시가총액 정보가 담긴 global_cap_map 사용
+            # 💡 수정된 무적의 global_cap_map을 사용해 시가총액 완벽 매핑
             display_df['시가총액(억)'] = display_df['종목코드'].map(global_cap_map).fillna(0).astype(int)
 
             unique_tickers = tuple(display_df['종목코드'].unique())
