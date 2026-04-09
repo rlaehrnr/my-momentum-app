@@ -4,10 +4,10 @@ import FinanceDataReader as fdr
 from datetime import datetime, timedelta
 import os
 import yfinance as yf
-from concurrent.futures import ThreadPoolExecutor, as_completed # 💡 1. 초고속 병렬 처리 모듈 추가
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # 1. 페이지 설정
-st.set_page_config(page_title="미국 모멘텀 순위", layout="wide")
+st.set_page_config(page_title="미국 대형주 모멘텀 순위", layout="wide")
 
 # CSS: 가독성 및 디자인 최적화
 st.markdown("""
@@ -39,10 +39,13 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 💡 [핵심 최적화] 개별 주소 생성 (독립 함수로 분리)
-def fetch_single_url(ticker, name, display_ticker):
+# 💡 시장 자동 판별 및 정확한 네이버 링크 생성
+def fetch_single_url(ticker, name):
     ticker_str = str(ticker).strip()
     exceptions = {'CIEN': '.K', 'COHR': '.K', 'EQNR': '.K','DELL': '.K'}
+    
+    suffix = ''
+    exchange_display = "NYSE" 
     
     if ticker_str in exceptions:
         suffix = exceptions[ticker_str]
@@ -50,53 +53,56 @@ def fetch_single_url(ticker, name, display_ticker):
         try:
             yf_ticker = ticker_str.replace('.', '-')
             stock = yf.Ticker(yf_ticker)
-            # 여기가 원래 엄청나게 느렸던 주범입니다!
             exchange = stock.info.get('exchange', '')
             
-            mapping = {
-                'NMS': '.O', 'NGM': '.O', 'NCM': '.O',
-                'NYQ': '', 'ASE': '.A', 'BATS': '.K', 'PCX': '.P',
-            }
-            
-            if exchange in mapping:
-                suffix = mapping[exchange]
+            if exchange in ['NMS', 'NGM', 'NCM', 'NASDAQ']:
+                suffix = '.O'
+                exchange_display = "NASDAQ"
+            elif exchange in ['NYQ', 'NYSE']:
+                suffix = ''
+                exchange_display = "NYSE"
+            elif exchange == 'ASE':
+                suffix = '.A'
+                exchange_display = "AMEX"
+            elif exchange == 'BATS':
+                suffix = '.K'
+                exchange_display = "BATS"
             else:
                 suffix = '.O' if len(ticker_str) >= 4 else ''
+                exchange_display = "NASDAQ" if len(ticker_str) >= 4 else "NYSE"
         except:
-            # 야후에서 일시적 에러가 나도 티커 길이에 따라 똑똑하게 유추 (뻗지 않음)
             suffix = '.O' if len(ticker_str) >= 4 else ''
+            exchange_display = "NASDAQ" if len(ticker_str) >= 4 else "NYSE"
 
+    display_ticker = f"{exchange_display}:{ticker_str}"
     total_url = f"https://m.stock.naver.com/worldstock/stock/{ticker_str}{suffix}/total#{display_ticker}"
     chart_url = f"https://m.stock.naver.com/fchart/foreign/stock/{ticker_str}{suffix}#{name}"
+    
     return ticker_str, total_url, chart_url
 
-# 💡 [핵심 최적화] 300개의 링크를 15명의 직원이 동시에 생성합니다 (속도 15배 향상)
 @st.cache_data(ttl=604800, show_spinner=False)
 def get_all_urls_concurrently(ticker_data_tuples):
     urls = {}
-    with ThreadPoolExecutor(max_workers=15) as executor:
-        futures = [executor.submit(fetch_single_url, t, n, d) for t, n, d in ticker_data_tuples]
+    with ThreadPoolExecutor(max_workers=50) as executor:
+        futures = [executor.submit(fetch_single_url, t, n) for t, n in ticker_data_tuples]
         for future in as_completed(futures):
             t_str, total_url, chart_url = future.result()
             urls[t_str] = (total_url, chart_url)
     return urls
 
-# 지수 데이터 수집 및 이동평균선 현황 (거슬리는 로딩바 숨김)
+# ⭐ [업데이트 1] 지수 데이터 수집 및 이틀 치 넉넉히 가져와서 필터링 (날짜 오류 해결)
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_index_ma_status(target_date_str):
     indices = {'S&P 500': 'US500', 'NASDAQ': 'IXIC'}
     target_date = pd.to_datetime(target_date_str)
     start_date = target_date - timedelta(days=400) 
     
-    # 💡 [핵심 해결] 라이브러리가 마지막 날짜를 빼먹는 것을 방지하기 위해 이틀(+2일) 넉넉히 가져옵니다.
     fetch_end_date = target_date + timedelta(days=2)
     
     res = []
     for name, code in indices.items():
         try:
             df = fdr.DataReader(code, start_date, fetch_end_date)
-            
-            # 💡 넉넉히 가져온 데이터 중에서, 우리가 정확히 원하는 '기준일'까지만 필터링해서 자릅니다.
             df = df[df.index <= target_date]
             
             if df.empty: continue
@@ -146,12 +152,13 @@ ma_config = {
     "base_price": None 
 }
 
-def highlight_name_only(row, common_tickers):
+# ⭐ [업데이트 3] 모멘텀 탑 8 종목들만 초록색으로 강조하는 하이라이트 함수 (노란색 제외)
+def highlight_target_codes(row, target_codes, bg_color="#E8F5E9", text_color="#2E7D32"):
     styles = [''] * len(row)
-    if row.get('종목코드') in common_tickers:
+    if row.get('종목코드') in target_codes:
         if '종목명_L' in row.index:
             name_idx = row.index.get_loc('종목명_L')
-            styles[name_idx] = 'background-color: #FFF9C4; color: #1F2937; font-weight: bold; border-radius: 4px;'
+            styles[name_idx] = f'background-color: {bg_color}; color: {text_color}; font-weight: bold; border-radius: 4px;'
     return styles
 
 base_config = {
@@ -172,12 +179,26 @@ base_config = {
 }
 
 def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
-    st.markdown(f"### 📊 주요 지수 이동평균선 현황 (기준일: {target_date_str})")
     ma_df = get_index_ma_status(target_date_str)
+    
+    # ⭐ [업데이트 2] 지수 200일선 기반 투자 진행/중지 상태 출력
     if not ma_df.empty:
+        sp500_row = ma_df.iloc[0]
+        sp500_curr = sp500_row['base_price']
+        sp500_200ma = sp500_row['200일선']
+        
+        if sp500_curr >= sp500_200ma:
+            status_html = f'<span style="background-color: #E8F5E9; color: #2E7D32; padding: 4px 10px; border-radius: 6px; font-size: 1.1rem; margin-left: 15px; vertical-align: middle;">✅ 투자 진행 (현재가 > 200일선)</span>'
+        else:
+            status_html = f'<span style="background-color: #FFEBEE; color: #C62828; padding: 4px 10px; border-radius: 6px; font-size: 1.1rem; margin-left: 15px; vertical-align: middle;">🛑 투자 중지 (현재가 < 200일선)</span>'
+            
+        st.markdown(f"### 📊 주요 지수 이동평균선 현황 (기준일: {target_date_str}){status_html}", unsafe_allow_html=True)
         st.dataframe(style_index_ma(ma_df), use_container_width=True, hide_index=True, 
                      column_order=["지수_L", "현재가_L", "20일선", "60일선", "120일선", "150일선", "200일선"],
                      column_config=ma_config)
+    else:
+        st.markdown(f"### 📊 주요 지수 이동평균선 현황 (기준일: {target_date_str})")
+        
     st.markdown("<br>", unsafe_allow_html=True)
 
     df_300 = df_raw.head(300).copy()
@@ -205,9 +226,11 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
         if c in df_300.columns:
             df_300[c] = pd.to_numeric(df_300[c], errors='coerce').fillna(0.0)
 
-    # 💡 [핵심] 순서대로 하나씩 하던 굼벵이 방식을 버리고 한꺼번에 병렬 처리!
+    # ⭐ 모멘텀 스코어 상위 8개 종목코드 추출
+    top8_momentum_codes = df_300.sort_values('모멘텀스코어', ascending=False).head(8)['종목코드'].tolist()
+
     with st.spinner("🚀 데이터를 초고속으로 정리 중입니다..."):
-        ticker_tuples = tuple((str(r['종목코드']), str(r['종목명']), f"{r.get('시장', '')}:{r['종목코드']}") for _, r in df_300.iterrows())
+        ticker_tuples = tuple((str(r['종목코드']), str(r['종목명'])) for _, r in df_300.iterrows())
         url_map = get_all_urls_concurrently(ticker_tuples)
         
         df_300['통합티커_L'] = df_300['종목코드'].astype(str).apply(lambda x: url_map.get(x, ("", ""))[0])
@@ -223,7 +246,6 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
 
         overlap_12_6 = top10_12_1[top10_12_1['종목코드'].isin(top10_6_1['종목코드'])].sort_values('6-1개월(%)', ascending=False).copy()
         overlap_6_3 = top10_6_1[top10_6_1['종목코드'].isin(top10_3_1['종목코드'])].sort_values('6-1개월(%)', ascending=False).copy()
-        common_tickers = set(overlap_12_6['종목코드']).intersection(set(overlap_6_3['종목코드']))
 
         # --- 상단: 교집합 ---
         st.markdown("### 🌟 모멘텀 교집합 (TOP 10 중복 분석)")
@@ -232,7 +254,8 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
             st.markdown('<div class="overlap-header">🔥 12-1M & 6-1M 중복</div>', unsafe_allow_html=True)
             if not overlap_12_6.empty:
                 overlap_12_6['순위'] = range(1, len(overlap_12_6) + 1)
-                st.dataframe(overlap_12_6.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
+                # 교집합 표에도 Top 8 초록색 하이라이트 적용
+                st.dataframe(overlap_12_6.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, axis=1), 
                              use_container_width=True, hide_index=True,
                              column_order=['순위', '통합티커_L', '종목명_L', '12-1개월(%)', '6-1개월(%)'], column_config=base_config)
             else: st.info("중복 종목 없음")
@@ -240,13 +263,13 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
             st.markdown('<div class="overlap-header">⚡ 6-1M & 3-1M 중복</div>', unsafe_allow_html=True)
             if not overlap_6_3.empty:
                 overlap_6_3['순위'] = range(1, len(overlap_6_3) + 1)
-                st.dataframe(overlap_6_3.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
+                # 교집합 표에도 Top 8 초록색 하이라이트 적용
+                st.dataframe(overlap_6_3.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, axis=1), 
                              use_container_width=True, hide_index=True,
                              column_order=['순위', '통합티커_L', '종목명_L', '6-1개월(%)', '3-1개월(%)'], column_config=base_config)
             else: st.info("중복 종목 없음")
     else:
         st.error("데이터에 '12-1개월(%)' 등의 필수 컬럼이 없습니다. update_monthly.py를 다시 실행해 주세요.")
-        common_tickers = set()
 
     # --- 중단: 상위 30위 ---
     st.markdown("<br>", unsafe_allow_html=True)
@@ -263,24 +286,27 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
             if sort_col in df_300.columns:
                 df_sub = df_300.sort_values(sort_col, ascending=False).head(30).copy()
                 df_sub['순위'] = range(1, 31)
-                st.dataframe(df_sub.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
+                # 30위 표에도 Top 8 초록색 하이라이트 적용
+                st.dataframe(df_sub.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, axis=1), 
                              use_container_width=True, height=450, hide_index=True,
                              column_order=['순위', '통합티커_L', '종목명_L', sort_col], column_config=sub_config)
 
     # --- 하단: 전체 ---
     st.markdown("---")
-    st.markdown(f'### 📊 미국 시총상위 300종목 전체 (기준: {target_date_str})')
+    st.markdown(f'### 📊 미국 대형주 시총상위 300종목 전체 (기준: {target_date_str})')
     df_300_all = df_300.copy()
     df_300_all['순위'] = range(1, len(df_300_all) + 1)
     full_order = ['순위', '통합티커_L', '종목명_L', '현재가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '3-1개월(%)', '6-1개월(%)', '12-1개월(%)', '모멘텀스코어', '전달순위']
     if is_daily: full_order.insert(4, '전일거래량')
     full_order = [col for col in full_order if col in df_300_all.columns or col in ['순위', '통합티커_L', '종목명_L']]
-    st.dataframe(df_300_all.style.apply(highlight_name_only, common_tickers=common_tickers, axis=1), 
+    
+    # 전체 표에도 Top 8 초록색 하이라이트 적용
+    st.dataframe(df_300_all.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, axis=1), 
                  use_container_width=True, height=600, hide_index=True,
                  column_order=full_order, column_config=base_config)
 
 # 실행부
-st.title("🇺🇸 미국 시총상위 모멘텀")
+st.title("🇺🇸 미국 대형주 모멘텀 순위")
 t1, t2 = st.tabs(["📅 전월 말일 기준", "🕒 오늘(데일리) 기준"])
 
 f_us, f_daily = 'data/momentum_data_us.csv', 'data/momentum_data_daily_us.csv'
