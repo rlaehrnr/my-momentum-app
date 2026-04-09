@@ -35,70 +35,47 @@ st.markdown("""
 
 st.markdown('<p class="main-title">💼 내 퀀트 포트폴리오 대시보드</p>', unsafe_allow_html=True)
 
-# --- [2. 마스터 데이터 & 시가총액 데이터 로드] ---
+# --- [2. 마스터 데이터 및 시가총액 로드] ---
 @st.cache_data(ttl=86400, show_spinner=False)
-def get_stock_master():
-    if os.path.exists(MASTER_TICKER_PATH):
-        for enc in ['utf-8-sig', 'cp949', 'euc-kr', 'utf-8']:
-            try:
-                df = pd.read_csv(MASTER_TICKER_PATH, dtype={'종목코드': str}, encoding=enc)
-                if '종목코드' in df.columns and '종목명' in df.columns:
-                    df['종목코드'] = df['종목코드'].astype(str).str.zfill(6)
-                    df['검색명'] = "[" + df['종목코드'] + "] " + df['종목명']
-                    return df
-            except:
-                continue
-                
-    res = []
-    for f in ['data/momentum_data.csv', 'data/momentum_data_daily.csv']:
-        if os.path.exists(f):
-            try:
-                tmp = pd.read_csv(f, dtype={'종목코드': str})
-                for _, row in tmp.iterrows():
-                    code = str(row['종목코드']).zfill(6)
-                    name = row.get('종목명', code)
-                    res.append({'종목코드': code, '종목명': name, '검색명': f"[{code}] {name}"})
-            except: pass
-    if res:
-        return pd.DataFrame(res).drop_duplicates(subset=['종목코드'])
-        
-    return pd.DataFrame(columns=['종목코드', '종목명', '시장구분', '검색명'])
-
-# 💡 [핵심 해결] 외부 접속 없이, 매일 업데이트 되는 로컬 CSV 파일에서 시총을 가져옵니다. (100% 안전)
-@st.cache_data(ttl=86400, show_spinner=False)
-def get_local_market_cap():
+def get_stock_master_and_cap():
+    master_df = pd.DataFrame(columns=['종목코드', '종목명', '시장구분', '검색명', '시가총액(억)'])
     cap_map = {}
     
-    # 1순위: 데일리 파일, 2순위: 월간 파일
-    for f in ['data/momentum_data_daily.csv', 'data/momentum_data.csv']:
-        if os.path.exists(f):
-            try:
-                df = pd.read_csv(f, dtype={'종목코드': str})
-                if '시가총액' in df.columns:
-                    df['종목코드'] = df['종목코드'].astype(str).str.replace(r'\.0$', '', regex=True).str.zfill(6)
-                    df['시가총액'] = pd.to_numeric(df['시가총액'], errors='coerce').fillna(0)
-                    
-                    for _, row in df.iterrows():
-                        code = row['종목코드']
-                        cap = row['시가총액']
-                        # 만약 데이터가 원 단위(100억 이상)라면 억 단위로 변환
-                        if cap > 10**10: 
-                            cap = cap / 100000000
-                        cap_map[code] = int(cap)
-                    
-                    if cap_map: return cap_map # 성공 시 즉시 반환
-            except: pass
-            
-    # 만일 파일이 둘 다 없을 때 최후의 보루로만 fdr 사용
+    # 💡 [핵심 해결] krx_stock_master.csv 파일이 없다면 실시간으로 1번만 fdr에서 받아서 저장(캐싱)해 둡니다.
+    # 이렇게 하면 소형주, 코스닥 종목 전부 다 포함됩니다!
     try:
-        df = fdr.StockListing('KRX')
-        df['Code'] = df['Code'].astype(str).str.zfill(6)
-        cap_map = (df.set_index('Code')['Marcap'] / 100000000).fillna(0).astype(int).to_dict()
-    except: pass
+        krx_df = fdr.StockListing('KRX')
+        krx_df['Code'] = krx_df['Code'].astype(str).str.zfill(6)
         
-    return cap_map
+        # fdr 마스터 데이터를 기반으로 기본 정보 및 시총 딕셔너리 생성
+        krx_df['검색명'] = "[" + krx_df['Code'] + "] " + krx_df['Name']
+        krx_df['시가총액(억)'] = (pd.to_numeric(krx_df['Marcap'], errors='coerce').fillna(0) / 100000000).astype(int)
+        
+        master_df = krx_df[['Code', 'Name', 'Market', '검색명', '시가총액(억)']].rename(
+            columns={'Code': '종목코드', 'Name': '종목명', 'Market': '시장구분'}
+        )
+        cap_map = master_df.set_index('종목코드')['시가총액(억)'].to_dict()
+        
+    except Exception as e:
+        # 혹시 fdr 다운로드가 실패할 경우 로컬 파일에서 시도
+        if os.path.exists(MASTER_TICKER_PATH):
+            for enc in ['utf-8-sig', 'cp949', 'euc-kr', 'utf-8']:
+                try:
+                    df = pd.read_csv(MASTER_TICKER_PATH, dtype={'종목코드': str}, encoding=enc)
+                    if '종목코드' in df.columns and '종목명' in df.columns:
+                        df['종목코드'] = df['종목코드'].astype(str).str.zfill(6)
+                        df['검색명'] = "[" + df['종목코드'] + "] " + df['종목명']
+                        
+                        # 파일에 시가총액이 있다면 매핑
+                        if '시가총액(억)' in df.columns:
+                            cap_map = df.set_index('종목코드')['시가총액(억)'].to_dict()
+                        master_df = df
+                        break
+                except: continue
 
-master_df = get_stock_master()
+    return master_df, cap_map
+
+master_df, global_cap_map = get_stock_master_and_cap()
 search_options = ["🔍 검색해서 추가 (삼성, 카카오 등)"] + master_df['검색명'].tolist() if not master_df.empty else ["검색 데이터가 없습니다."]
 
 # --- [3. 초고속 실시간 가격 수집 함수] ---
@@ -161,16 +138,10 @@ def load_portfolio():
 if 'temp_df' not in st.session_state:
     st.session_state.temp_df = load_portfolio()
 
-# =========================================================
-# 🚀 레이아웃 마법 1: 상단 성적표용 '빈 공간'만 먼저 만들어 두기
-# =========================================================
 scoreboard_placeholder = st.container()
 
 st.markdown("---")
 
-# =========================================================
-# ⚙️ 레이아웃 마법 2: 가벼운 하단 UI(입력창/표)를 즉시 화면에 그리기
-# =========================================================
 col_add, col_file = st.columns([1.5, 1])
 
 with col_add:
@@ -273,9 +244,8 @@ with scoreboard_placeholder:
             display_df['매수단가'] = pd.to_numeric(display_df['매수단가'], errors='coerce').fillna(0).astype(int)
             display_df['수량'] = pd.to_numeric(display_df['수량'], errors='coerce').fillna(0).astype(int)
 
-            # 💡 [해결 완료] 로컬 파일에서 안전하고 빠르게 시가총액 정보 가져오기
-            cap_dict = get_local_market_cap()
-            display_df['시가총액(억)'] = display_df['종목코드'].map(cap_dict).fillna(0).astype(int)
+            # 💡 [해결 완료] 전체 시장의 시가총액 정보가 담긴 global_cap_map 사용
+            display_df['시가총액(억)'] = display_df['종목코드'].map(global_cap_map).fillna(0).astype(int)
 
             unique_tickers = tuple(display_df['종목코드'].unique())
             price_dict = fetch_multi_prices(unique_tickers)
