@@ -406,30 +406,29 @@ with tabs[4]:
                 merged = merged[(merged['수량'] > 0) | (merged['목표금액'] > 0)]
                 merged = merged.sort_values(by='종목명', ascending=True)
                 
-                # 💡 [업데이트] 용어 수정 및 양수/음수 색상 반전
                 buy_sum = merged[merged['주문'].isin(['신규매수', '추가매수'])]['예상체결금액'].sum()
                 sell_sum = merged[merged['주문'].isin(['전량매도', '부분매도'])]['예상체결금액'].sum()
                 net_cash = sell_sum - buy_sum
                 
-                # 💡 [업데이트] 현금이 남으면 빨강, 모자라면 파랑
-                net_css = "color: #FF3333;" if net_cash >= 0 else "color: #3399FF;"
+                # 💡 [업데이트] 현금 잔액 CSS (여백 확대, 폰트 크기 업, 배경색 적용)
+                net_css = "color: #FF3333; font-size: 1.25rem; padding: 2px 10px; margin-left: 5px; background-color: rgba(255, 51, 51, 0.15); border-radius: 6px;" if net_cash >= 0 else "color: #3399FF; font-size: 1.25rem; padding: 2px 10px; margin-left: 5px; background-color: rgba(51, 153, 255, 0.15); border-radius: 6px;"
                 
-                col_header, col_btn = st.columns([3, 1])
+                # 💡 [업데이트] 다운로드 버튼 위치 우측 끝 정렬 (5:1 비율)
+                col_header, col_btn = st.columns([5, 1])
                 
                 with col_header:
-                    # 💡 [업데이트] 순서 변경: 매도 확보 자금 먼저
-                    st.markdown(f"**🔵 총 매도 확보 자금:** `₩{sell_sum:,}` | **🔴 총 예상 매수 자금:** `₩{buy_sum:,}` | **💡 리밸런싱 후 현금 잔액:** <span style='{net_css}'>**₩{net_cash:,}**</span>", unsafe_allow_html=True)
+                    st.markdown(f"**🔵 총 매도 확보 자금:** `₩{sell_sum:,}` &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp; **🔴 총 예상 매수 자금:** `₩{buy_sum:,}` &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp; **💡 리밸런싱 후 현금 잔액:** <span style='{net_css}'>**₩{net_cash:,}**</span>", unsafe_allow_html=True)
                 
                 display_reb = merged[['종목코드', '종목명', '현재가', '수량', '현재평가금액', '목표금액', '주문', '주문수량', '예상체결금액']]
                 
-                # 💡 [업데이트] 엑셀 의존성을 100% 끊어낸 CSV 다운로드 (엑셀 호환 완벽 지원)
                 with col_btn:
                     csv_data = display_reb.to_csv(index=False, encoding='utf-8-sig')
                     st.download_button(
                         label="📥 결과 다운로드 (CSV)",
                         data=csv_data,
                         file_name=f"리밸런싱결과_{datetime.today().strftime('%Y%m%d')}.csv",
-                        mime="text/csv"
+                        mime="text/csv",
+                        use_container_width=True
                     )
                 
                 def style_rebal(st_df):
