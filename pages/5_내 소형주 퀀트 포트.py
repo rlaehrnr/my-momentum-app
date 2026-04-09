@@ -49,7 +49,6 @@ st.markdown("""
 
 # --- [2. 설정 파일 로드/저장 (시작일 & 수익금)] ---
 def load_config():
-    # 💡 시작일 데이터(start_date) 추가
     default_config = {
         "start_date": str(datetime.today().date()), 
         "start_ddo": 0, "start_sso": 0, "start_mom": 0
@@ -129,15 +128,18 @@ def fetch_multi_prices(tickers):
             price_map[t] = {'curr': curr, 'prev': prev}
     return price_map
 
+# 💡 [핵심 버그 수정] 어떤 포맷으로 엑셀(CSV)이 저장되어 있든 완벽하게 읽어냅니다!
 def load_portfolio(path):
     if os.path.exists(path):
-        try:
-            df = pd.read_csv(path, dtype={'종목코드': str})
-            df['종목코드'] = df['종목코드'].astype(str).str.replace(r'\.0$', '', regex=True).str.zfill(6)
-            df['매수단가'] = pd.to_numeric(df['매수단가'], errors='coerce').fillna(0).astype(int)
-            df['수량'] = pd.to_numeric(df['수량'], errors='coerce').fillna(0).astype(int)
-            return df
-        except: pass
+        for enc in ['utf-8-sig', 'cp949', 'euc-kr', 'utf-8']:
+            try:
+                df = pd.read_csv(path, dtype={'종목코드': str}, encoding=enc)
+                df['종목코드'] = df['종목코드'].astype(str).str.replace(r'\.0$', '', regex=True).str.zfill(6)
+                df['매수단가'] = pd.to_numeric(df['매수단가'], errors='coerce').fillna(0).astype(int)
+                df['수량'] = pd.to_numeric(df['수량'], errors='coerce').fillna(0).astype(int)
+                return df
+            except Exception as e:
+                continue # 실패하면 다음 인코딩 방식으로 재시도
     return pd.DataFrame(columns=["종목명", "종목코드", "매수단가", "수량"])
 
 # --- [5. 개별 포트폴리오 렌더링 함수] ---
@@ -333,7 +335,6 @@ with tab_summary:
     new_sso = c2.number_input("📁 [쏘] 시작 수익금", value=config['start_sso'], step=100000)
     new_mom = c3.number_input("📁 [맘] 시작 수익금", value=config['start_mom'], step=100000)
     
-    # 설정이 하나라도 바뀌면 저장 후 리로드
     if str(new_date) != config['start_date'] or new_ddo != config['start_ddo'] or new_sso != config['start_sso'] or new_mom != config['start_mom']:
         config['start_date'] = str(new_date)
         config['start_ddo'] = new_ddo
@@ -347,9 +348,9 @@ with tab_summary:
 
     summary_data = []
     total_buy_all = 0
-    total_profit_all = 0       # 순수 현재 평가손익 합계
+    total_profit_all = 0       
     total_daily_diff_all = 0
-    total_since_start_all = 0  # (현재 수익 - 시작 수익) 합계
+    total_since_start_all = 0  
 
     all_tickers = set()
     ports = [("또", "ddo", PORT_PATHS["ddo"]), ("쏘", "sso", PORT_PATHS["sso"]), ("맘", "mom", PORT_PATHS["mom"])]
@@ -376,10 +377,9 @@ with tab_summary:
             t_prev_val = df['전일평가금액'].sum()
             
             d_diff = t_val - t_prev_val
-            t_profit = df['평가손익'].sum() # 순수 현재 수익금액
+            t_profit = df['평가손익'].sum()
             t_pct = (t_profit / t_buy * 100) if t_buy > 0 else 0
             
-            # 💡 [업데이트] 시작일 기준 실질적인 차이 계산 (현재 수익 - 시작 수익금)
             since_start_profit = t_profit - start_val
             
             total_buy_all += t_buy
@@ -395,7 +395,6 @@ with tab_summary:
                 "시작일 기준 수익 금액": since_start_profit
             })
         else:
-            # 포트폴리오가 비어있을 때
             summary_data.append({
                 "포트폴리오": p_name, "오늘의 등락": 0, "총 수익률": 0.0, 
                 "현재 수익 금액": 0, "시작일 기준 수익 금액": -start_val
@@ -404,7 +403,6 @@ with tab_summary:
 
     final_pct = (total_profit_all / total_buy_all * 100) if total_buy_all > 0 else 0.0
 
-    # 💡 HTML 표 렌더링 (컬럼 5개로 확장)
     html_str = "<table class='summary-table'><thead><tr><th>포트폴리오</th><th>오늘의 등락</th><th>총 수익률</th><th>현재 수익 금액</th><th>시작일 기준 수익 금액</th></tr></thead><tbody>"
     
     def get_color_class(val):
