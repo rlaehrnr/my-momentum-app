@@ -36,20 +36,17 @@ st.markdown("""
         }
     }
     
-    /* 📊 종합 요약 표 디자인 */
     .summary-table { width: 100%; border-collapse: collapse; text-align: center; font-size: 1.15rem; background-color: #1a1c24; border-radius: 12px; overflow: hidden; margin-top: 10px; }
     .summary-table th { background-color: #2d313e; padding: 15px; color: #9ca3af; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; }
     .summary-table td { padding: 16px; border-bottom: 1px solid #2d313e; color: #e5e7eb; }
     .highlight-cell { background-color: rgba(255, 255, 255, 0.03); font-size: 1.2rem; }
     .summary-total { background-color: #242834; font-size: 1.3rem; }
     
-    /* 숫자 색상 (더 선명하게) */
     .val-red { color: #FF3333 !important; font-weight: bold; }
     .val-blue { color: #3399FF !important; font-weight: bold; }
     .val-white { color: #ffffff !important; font-weight: bold; }
     .val-gray { color: #9ca3af !important; }
     
-    /* 시작일 기준 수익 강조 박스 */
     .box-red { background-color: rgba(255, 51, 51, 0.15); color: #FF3333; padding: 6px 14px; border-radius: 8px; border: 1px solid rgba(255, 51, 51, 0.3); }
     .box-blue { background-color: rgba(51, 153, 255, 0.15); color: #3399FF; padding: 6px 14px; border-radius: 8px; border: 1px solid rgba(51, 153, 255, 0.3); }
     </style>
@@ -207,7 +204,6 @@ def render_portfolio_tab(port_name, port_key, path):
                 d_diff = t_val - t_prev_val
                 d_pct = (d_diff / t_prev_val * 100) if t_prev_val > 0 else 0
                 
-                # 💡 [복구] 상단 박스 이모지 포함 5형제
                 c1, c2, c3, c4, c5 = st.columns(5)
                 c1.metric("💰 총 매수", f"{int(t_buy):,}원")
                 c2.metric("📈 총 평가액", f"{int(t_val):,}원")
@@ -226,10 +222,8 @@ def render_portfolio_tab(port_name, port_key, path):
 
                 def style_port_final(st_df):
                     s = pd.DataFrame('', index=st_df.index, columns=st_df.columns)
-                    # 진한 빨강/파랑
                     for col in ['전일대비(%)', '평가손익', '수익률(%)']:
                         s[col] = st_df[col].apply(lambda x: 'color: #FF3333; font-weight:bold;' if x > 0 else ('color: #3399FF; font-weight:bold;' if x < 0 else ''))
-                    # 💡 [업데이트] 세련된 소형주 주황색 강조
                     if '시총(억)' in st_df.columns:
                         s['시총(억)'] = st_df['시총(억)'].apply(lambda x: 'background-color: rgba(255, 167, 38, 0.1); color: #FFA726; border: 1px solid #FFA726; font-weight:bold; border-radius: 4px;' if 0 < x <= 150 else '')
                     return s
@@ -256,10 +250,10 @@ with tabs[0]:
     except: dt_val = datetime.today().date()
     
     new_date = c_dt.date_input("📅 시작일", value=dt_val)
-    # 💡 시작금 입력칸 쉼표 적용
-    new_ddo = c_d.number_input("💰 [또] 시작금", value=config['start_ddo'], step=100000, format="%,d")
-    new_sso = c_s.number_input("💰 [쏘] 시작금", value=config['start_sso'], step=100000, format="%,d")
-    new_mom = c_m.number_input("💰 [맘] 시작금", value=config['start_mom'], step=100000, format="%,d")
+    # 💡 [해결] format을 "%d"로 수정하여 에러를 방지합니다.
+    new_ddo = c_d.number_input("💰 [또] 시작금", value=config['start_ddo'], step=100000, format="%d")
+    new_sso = c_s.number_input("💰 [쏘] 시작금", value=config['start_sso'], step=100000, format="%d")
+    new_mom = c_m.number_input("💰 [맘] 시작금", value=config['start_mom'], step=100000, format="%d")
     
     if str(new_date) != config['start_date'] or new_ddo != config['start_ddo'] or new_sso != config['start_sso'] or new_mom != config['start_mom']:
         config.update({"start_date": str(new_date), "start_ddo": new_ddo, "start_sso": new_sso, "start_mom": new_mom})
@@ -290,7 +284,6 @@ with tabs[0]:
             summary_data.append({"name": p_name, "daily": 0, "pct": 0, "profit": 0, "since": -start_val})
             total_since -= start_val
 
-    # 요약 표 출력 (테두리 색상 로직 적용)
     total_since_color = "#FF3333" if total_since >= 0 else "#3399FF"
     html = f"<table class='summary-table'><thead><tr><th>포트폴리오</th><th>오늘의 등락</th><th>총 수익률</th><th>현재 수익 금액</th><th style='color:#ffffff; background-color:#3e4452;'>시작일 기준 수익 금액</th></tr></thead><tbody>"
     
