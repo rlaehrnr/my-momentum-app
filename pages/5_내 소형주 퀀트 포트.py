@@ -197,7 +197,7 @@ def render_portfolio_tab(port_name, port_key, path):
                 df['평가손익'] = (df['현재가'] - df['매수단가']) * df['수량']
                 df['수익률(%)'] = (df['평가손익'] / (df['매수단가'] * df['수량']) * 100).fillna(0)
                 
-                # 상단 성적표 (복구)
+                # 상단 성적표 (복구 및 이모지 추가)
                 t_buy = (df['매수단가']*df['수량']).sum()
                 t_val = df['평가금액'].sum()
                 t_profit = df['평가손익'].sum()
@@ -206,11 +206,12 @@ def render_portfolio_tab(port_name, port_key, path):
                 d_pct = (d_diff / t_prev_val * 100) if t_prev_val > 0 else 0
                 
                 c1, c2, c3, c4, c5 = st.columns(5)
-                c1.metric("총 매수", f"{int(t_buy):,}원")
-                c2.metric("총 평가액", f"{int(t_val):,}원")
-                c3.metric("오늘 변동액", f"{int(d_diff):,}원", delta=f"{d_pct:.2f}%")
-                c4.metric("총 평가손익", f"{int(t_profit):,}원", delta=f"{int(t_profit):,}원")
-                c5.metric("총 수익률", f"{t_profit/t_buy*100:.2f}%", delta=f"{t_profit/t_buy*100:.2f}%")
+                # 💡 [업데이트] 상단 박스 이모지 복구
+                c1.metric("💰 총 매수", f"{int(t_buy):,}원")
+                c2.metric("📈 총 평가액", f"{int(t_val):,}원")
+                c3.metric("🌟 오늘 변동액", f"{int(d_diff):,}원", delta=f"{d_pct:.2f}%")
+                c4.metric("💸 총 평가손익", f"{int(t_profit):,}원", delta=f"{int(t_profit):,}원")
+                c5.metric("📊 총 수익률", f"{t_profit/t_buy*100:.2f}%", delta=f"{t_profit/t_buy*100:.2f}%")
                 
                 # 링크 및 스타일링 준비
                 def make_links(r):
@@ -224,17 +225,17 @@ def render_portfolio_tab(port_name, port_key, path):
 
                 def style_port_final(st_df):
                     s = pd.DataFrame('', index=st_df.index, columns=st_df.columns)
-                    # 💡 [진한 빨강/파랑 복구]
+                    # [진한 빨강/파랑 이전 스타일]
                     for col in ['전일비(%)', '평가손익', '수익률(%)']:
                         s[col] = st_df[col].apply(lambda x: 'color: #FF0000; font-weight:bold;' if x > 0 else ('color: #007BFF; font-weight:bold;' if x < 0 else ''))
-                    # 💡 [시총 150억 이하 노란색 강조]
+                    # 💡 [업데이트] 시총 150억 이하 노란색 대신 세련된 주황색 테두리로 강조
                     if '시총(억)' in st_df.columns:
-                        s['시총(억)'] = st_df['시총(억)'].apply(lambda x: 'background-color: #FFFF00; color: #000000; font-weight:bold;' if 0 < x <= 150 else '')
+                        s['시총(억)'] = st_df['시총(억)'].apply(lambda x: 'color: white; border-left: 5px solid #FFA726; border-right: 5px solid #FFA726; border-radius: 5px; font-weight:bold;' if 0 < x <= 150 else '')
                     return s
 
                 st.dataframe(df.style.apply(style_port_final, axis=None).format({'전일비(%)':'{:.2f}%','수익률(%)':'{:.2f}%','시총(억)':'{:,}','매수단가':'{:,}','현재가':'{:,}','평가금액':'{:,}','평가손익':'{:,}'}), 
                              use_container_width=True, hide_index=True,
-                             column_order=['티커_L', '종목명_L', '시총(억)', '수량', '매수단가', '현재가', '전일비(%)', '평가금액', '평가손익', '수익률(%)'],
+                             column_order=['티커_L', '종목명_L', '시총(억)', '수량', '매수단가', '현재가', '전일대비(%)', '평가금액', '평가손익', '수익률(%)'],
                              column_config={
                                  "티커_L": st.column_config.LinkColumn("코드", display_text=r"#(.+)"),
                                  "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)")
@@ -254,9 +255,10 @@ with tabs[0]:
     except: dt_val = datetime.today().date()
     
     new_date = c_dt.date_input("📅 시작일", value=dt_val)
-    new_ddo = c_d.number_input("💰 [또] 시작금", value=config['start_ddo'], step=100000)
-    new_sso = c_s.number_input("💰 [쏘] 시작금", value=config['start_sso'], step=100000)
-    new_mom = c_m.number_input("💰 [맘] 시작금", value=config['start_mom'], step=100000)
+    # 💡 [업데이트] 시작금 입력칸에 천 단위 쉼표 추가 (2,870,000처럼 표시)
+    new_ddo = c_d.number_input("💰 [또] 시작금", value=config['start_ddo'], step=100000, format="%,d")
+    new_sso = c_s.number_input("💰 [쏘] 시작금", value=config['start_sso'], step=100000, format="%,d")
+    new_mom = c_m.number_input("💰 [맘] 시작금", value=config['start_mom'], step=100000, format="%,d")
     
     if str(new_date) != config['start_date'] or new_ddo != config['start_ddo'] or new_sso != config['start_sso'] or new_mom != config['start_mom']:
         config.update({"start_date": str(new_date), "start_ddo": new_ddo, "start_sso": new_sso, "start_mom": new_mom})
