@@ -211,10 +211,12 @@ def render_portfolio_tab(port_name, port_key, path, prices):
             df['시총(억)'] = df['종목코드'].map(global_cap_map).fillna(0)
             df['현재가'] = df['종목코드'].apply(lambda x: prices.get(x, {}).get('curr', 0))
             df['전일종가'] = df['종목코드'].apply(lambda x: prices.get(x, {}).get('prev', 0))
-            df['전일대비(%)'] = ((df['현재가'] - df['전일종가']) / df['전일종가'] * 100).fillna(0)
+            
+            # 💡 [핵심 버그 수정] 무한대(Infinity) 에러를 방지하는 0 나누기 안전장치!
+            df['전일대비(%)'] = df.apply(lambda r: ((r['현재가'] - r['전일종가']) / r['전일종가'] * 100) if r['전일종가'] > 0 else 0, axis=1)
             df['평가금액'] = df['현재가'] * df['수량']
             df['평가손익'] = (df['현재가'] - df['매수단가']) * df['수량']
-            df['수익률(%)'] = (df['평가손익'] / (df['매수단가'] * df['수량']) * 100).fillna(0)
+            df['수익률(%)'] = df.apply(lambda r: (r['평가손익'] / (r['매수단가'] * r['수량']) * 100) if (r['매수단가'] * r['수량']) > 0 else 0, axis=1)
             
             t_buy = (df['매수단가']*df['수량']).sum()
             t_val = df['평가금액'].sum()
@@ -228,7 +230,7 @@ def render_portfolio_tab(port_name, port_key, path, prices):
             c2.metric("📈 총 평가액", f"{int(t_val):,}원")
             c3.metric("🌟 오늘 변동액", f"{int(d_diff):,}원", delta=f"{d_pct:.2f}%")
             c4.metric("💸 총 평가손익", f"{int(t_profit):,}원", delta=f"{int(t_profit):,}원")
-            c5.metric("📊 총 수익률", f"{t_profit/t_buy*100:.2f}%", delta=f"{t_profit/t_buy*100:.2f}%")
+            c5.metric("📊 총 수익률", f"{(t_profit/t_buy*100) if t_buy > 0 else 0:.2f}%", delta=f"{(t_profit/t_buy*100) if t_buy > 0 else 0:.2f}%")
             
             def make_links(r):
                 market_val = str(r.get('시장구분', ''))
@@ -264,7 +266,8 @@ def render_portfolio_tab(port_name, port_key, path, prices):
 # 🚀 메인 대시보드
 # =========================================================
 st.markdown('<p class="main-title">💼 내 퀀트 포트폴리오 종합 대시보드</p>', unsafe_allow_html=True)
-tabs = st.tabs(["📊 종합 요약", "📁 또", "📁 쏘", "📁 맘", "⚖️ 리밸런싱 계산기"])
+# 💡 [업데이트] 싱그럽고 예쁜 식물 이모지로 탭 이름 변경
+tabs = st.tabs(["📊 종합 요약", "🌱 또", "🌿 쏘", "🍀 맘", "⚖️ 리밸런싱 계산기"])
 
 with tabs[0]:
     config = load_config()
@@ -347,12 +350,16 @@ with tabs[0]:
     html += "</tbody></table>"
     st.markdown(html, unsafe_allow_html=True)
 
+with tabs[1]: render_portfolio_tab("또", "ddo", PORT_PATHS["ddo"], global_prices)
+with tabs[2]: render_portfolio_tab("쏘", "sso", PORT_PATHS["sso"], global_prices)
+with tabs[3]: render_portfolio_tab("맘", "mom", PORT_PATHS["mom"], global_prices)
+
 with tabs[4]:
     st.markdown('<p class="section-title">⚖️ 포트폴리오 교체/리밸런싱 계산기</p>', unsafe_allow_html=True)
     st.info("현재 보유 중인 포트폴리오를 기준으로, 새롭게 설정할 '목표 포트폴리오(엑셀/CSV)'를 업로드하면 최적의 매수/매도 주문 수량을 자동으로 계산해 드립니다.")
     
     c_sel, c_up = st.columns([1, 2])
-    target_port_info = c_sel.selectbox("🔄 기준 포트폴리오 선택", options=[("또", "ddo"), ("쏘", "sso"), ("맘", "mom")], format_func=lambda x: f"📁 [{x[0]}] 포트폴리오 기준")
+    target_port_info = c_sel.selectbox("🔄 기준 포트폴리오 선택", options=[("또", "ddo"), ("쏘", "sso"), ("맘", "mom")], format_func=lambda x: f"[{x[0]}] 포트폴리오 기준")
     
     up_target = c_up.file_uploader("목표 엑셀/CSV 업로드 양식 (필수 열: '코드번호', '목표금액')", type=['csv', 'xlsx'], key="up_rebal")
     
@@ -410,10 +417,8 @@ with tabs[4]:
                 sell_sum = merged[merged['주문'].isin(['전량매도', '부분매도'])]['예상체결금액'].sum()
                 net_cash = sell_sum - buy_sum
                 
-                # 💡 [업데이트] 현금 잔액 CSS (여백 확대, 폰트 크기 업, 배경색 적용)
                 net_css = "color: #FF3333; font-size: 1.25rem; padding: 2px 10px; margin-left: 5px; background-color: rgba(255, 51, 51, 0.15); border-radius: 6px;" if net_cash >= 0 else "color: #3399FF; font-size: 1.25rem; padding: 2px 10px; margin-left: 5px; background-color: rgba(51, 153, 255, 0.15); border-radius: 6px;"
                 
-                # 💡 [업데이트] 다운로드 버튼 위치 우측 끝 정렬 (5:1 비율)
                 col_header, col_btn = st.columns([5, 1])
                 
                 with col_header:
