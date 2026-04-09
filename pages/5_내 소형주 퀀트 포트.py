@@ -54,7 +54,6 @@ def load_config():
         try:
             with open(CONFIG_PATH, 'r', encoding='utf-8') as f: 
                 saved_config = json.load(f)
-                # 과거에 쓰던 'start_profit'이 있다면 무시하고 기본값과 병합
                 for k in default_config.keys():
                     if k in saved_config: default_config[k] = saved_config[k]
                 return default_config
@@ -172,7 +171,6 @@ def render_portfolio_tab(port_name, port_key, path):
                             try: 
                                 up_df = pd.read_csv(up_file, encoding='utf-8-sig')
                             except: 
-                                # 💡 [버그 완벽 해결] 첫 번째 실패 후 파일 포인터를 0으로 되돌립니다!
                                 up_file.seek(0)
                                 try: up_df = pd.read_csv(up_file, encoding='cp949')
                                 except: 
@@ -319,7 +317,6 @@ with tab_summary:
     st.markdown("##### 📝 비교시점 시작 수익금액 설정 (원)")
     c1, c2, c3 = st.columns(3)
     
-    # 💡 [업데이트] 3개의 포트폴리오별로 입력칸을 각각 분리했습니다.
     new_ddo = c1.number_input("📁 [또] 시작 수익금", value=config['start_ddo'], step=100000)
     new_sso = c2.number_input("📁 [쏘] 시작 수익금", value=config['start_sso'], step=100000)
     new_mom = c3.number_input("📁 [맘] 시작 수익금", value=config['start_mom'], step=100000)
@@ -331,7 +328,9 @@ with tab_summary:
         save_config(config)
         st.rerun()
 
-    st.markdown("<br>### 🏆 포트폴리오 총합계", unsafe_allow_html=True)
+    # 💡 [업데이트] <br> 태그 분리하여 마크다운 헤더가 정상적으로 노출되도록 수정
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("### 🏆 포트폴리오 총합계")
 
     summary_data = []
     total_buy_all = 0
@@ -370,7 +369,6 @@ with tab_summary:
             total_profit_all += t_profit
             total_daily_diff_all += d_diff
             
-            # 💡 [업데이트] 각 포트폴리오의 '현재 수익 금액'에 설정해둔 시작 수익금을 더해줍니다.
             final_port_profit = t_profit + start_val
             
             summary_data.append({
@@ -398,17 +396,18 @@ with tab_summary:
         c_prof = get_color_class(row['현재 수익 금액'])
         
         html_str += f"<tr><td>{row['포트폴리오']}</td>"
-        html_str += f"<td class='{c_diff}'>\{int(row['오늘의 등락']):,}</td>"
+        # 💡 [업데이트] 역슬래시를 한국 원화(₩) 기호로 변경
+        html_str += f"<td class='{c_diff}'>₩{int(row['오늘의 등락']):,}</td>"
         html_str += f"<td class='{c_pct}'>{row['총 수익률']:.2f}%</td>"
-        html_str += f"<td class='{c_prof}'>\{int(row['현재 수익 금액']):,}</td></tr>"
+        html_str += f"<td class='{c_prof}'>₩{int(row['현재 수익 금액']):,}</td></tr>"
 
     c_tot_diff = get_color_class(total_daily_diff_all)
     c_tot_prof = get_color_class(final_profit)
     
     html_str += f"<tr class='summary-total'><td>합계</td>"
-    html_str += f"<td class='{c_tot_diff}'>\{int(total_daily_diff_all):,}</td>"
+    html_str += f"<td class='{c_tot_diff}'>₩{int(total_daily_diff_all):,}</td>"
     html_str += f"<td></td>"
-    html_str += f"<td class='{c_tot_prof}'>\{int(final_profit):,}</td></tr>"
+    html_str += f"<td class='{c_tot_prof}'>₩{int(final_profit):,}</td></tr>"
     html_str += "</tbody></table>"
 
     st.markdown(html_str, unsafe_allow_html=True)
