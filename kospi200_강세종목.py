@@ -3,15 +3,27 @@ import pandas as pd
 import FinanceDataReader as fdr
 from datetime import datetime, timedelta
 import os
-import yfinance as yf
 
 # --- [1. 설정 및 스타일] ---
 st.set_page_config(page_title="KOSPI 200 강세 종목", layout="wide")
+
+# 💡 [모바일 최적화 CSS 추가] PC는 1줄, 모바일(768px 이하)은 2칸씩 바둑판 배열로 자동 변환!
 st.markdown("""
     <style>
     .block-container { padding-top: 2rem !important; }
     .main-title { font-size: 1.6rem !important; font-weight: bold; margin-bottom: 1rem; }
     .stTabs [data-baseweb="tab"] { font-size: 18px; font-weight: bold; }
+    
+    @media (max-width: 768px) {
+        div[data-testid="stHorizontalBlock"] {
+            flex-wrap: wrap !important;
+        }
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+            min-width: 45% !important; 
+            flex: 1 1 45% !important;
+            margin-bottom: 10px !important;
+        }
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -118,7 +130,8 @@ main_cfg = {
     "6개월(%)": st.column_config.NumberColumn(format="%.1f"), 
     "12개월(%)": st.column_config.NumberColumn(format="%.1f"),
     "모멘텀스코어": st.column_config.NumberColumn("스코어", format="%.2f"),
-    "전달순위": st.column_config.NumberColumn("전달 순위", format="%d위")
+    "전달순위": st.column_config.NumberColumn("전달 순위", format="%d위"),
+    "전일거래량": st.column_config.NumberColumn("거래량", format="%,d") # 💡 설정 추가
 }
 
 # 💡 월간/데일리에서 공통으로 호출할 '화면 그리기 함수'
@@ -186,6 +199,7 @@ def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
         invest_status, box_color, text_color = "✅ 투자 진행", "#E8F5E9", "#2E7D32"
         status_desc = "상승장 & 4개월선 위"
 
+    # 💡 모바일 CSS가 적용되어 스마트폰에서는 2x3 바둑판, PC에서는 1줄로 나옵니다.
     st.markdown("<br>", unsafe_allow_html=True)
     col1, col2, col3, col4, col5, col6 = st.columns([0.9, 0.9, 1.0, 1.0, 1.4, 1.6])
     with col1: st.metric(label="📈 KOSPI 1M", value=f"{kospi_1m}%")
@@ -223,7 +237,18 @@ def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
 
     st.markdown("---")
     st.subheader("🏆 KOSPI 200 시가총액 전체 순위")
-    st.dataframe(df_k200.style.apply(apply_k200_styling, idx_df=idx_k, axis=1), use_container_width=True, height=600, column_order=['통합티커_L', '종목명_L', '시가총액', '기준가', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)'], column_config=k_cfg)
+    
+    # 💡 [업데이트 1] 데일리 탭일 때만 전체 표에 '전일거래량' 삽입!
+    full_table_cols = ['통합티커_L', '종목명_L', '시가총액', '기준가']
+    if is_daily and '전일거래량' in df_k200.columns:
+        df_k200['전일거래량'] = pd.to_numeric(df_k200['전일거래량'], errors='coerce').fillna(0)
+        full_table_cols.append('전일거래량')
+    full_table_cols.extend(['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)'])
+    
+    st.dataframe(df_k200.style.apply(apply_k200_styling, idx_df=idx_k, axis=1), 
+                 use_container_width=True, height=600, 
+                 column_order=full_table_cols, 
+                 column_config=k_cfg)
 
 
 # =========================================================
