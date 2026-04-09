@@ -64,17 +64,39 @@ def get_stock_master():
         
     return pd.DataFrame(columns=['종목코드', '종목명', '시장구분', '검색명'])
 
-# 💡 [핵심 최적화] 로딩 지연 방지를 위해 하루 한 번만 KRX 전체 시가총액을 가져옵니다.
+# 💡 [핵심 해결] 외부 접속 없이, 매일 업데이트 되는 로컬 CSV 파일에서 시총을 가져옵니다. (100% 안전)
 @st.cache_data(ttl=86400, show_spinner=False)
-def get_krx_market_cap():
+def get_local_market_cap():
+    cap_map = {}
+    
+    # 1순위: 데일리 파일, 2순위: 월간 파일
+    for f in ['data/momentum_data_daily.csv', 'data/momentum_data.csv']:
+        if os.path.exists(f):
+            try:
+                df = pd.read_csv(f, dtype={'종목코드': str})
+                if '시가총액' in df.columns:
+                    df['종목코드'] = df['종목코드'].astype(str).str.replace(r'\.0$', '', regex=True).str.zfill(6)
+                    df['시가총액'] = pd.to_numeric(df['시가총액'], errors='coerce').fillna(0)
+                    
+                    for _, row in df.iterrows():
+                        code = row['종목코드']
+                        cap = row['시가총액']
+                        # 만약 데이터가 원 단위(100억 이상)라면 억 단위로 변환
+                        if cap > 10**10: 
+                            cap = cap / 100000000
+                        cap_map[code] = int(cap)
+                    
+                    if cap_map: return cap_map # 성공 시 즉시 반환
+            except: pass
+            
+    # 만일 파일이 둘 다 없을 때 최후의 보루로만 fdr 사용
     try:
         df = fdr.StockListing('KRX')
         df['Code'] = df['Code'].astype(str).str.zfill(6)
-        # 단위를 '억원'으로 변환
         cap_map = (df.set_index('Code')['Marcap'] / 100000000).fillna(0).astype(int).to_dict()
-        return cap_map
-    except:
-        return {}
+    except: pass
+        
+    return cap_map
 
 master_df = get_stock_master()
 search_options = ["🔍 검색해서 추가 (삼성, 카카오 등)"] + master_df['검색명'].tolist() if not master_df.empty else ["검색 데이터가 없습니다."]
@@ -251,8 +273,8 @@ with scoreboard_placeholder:
             display_df['매수단가'] = pd.to_numeric(display_df['매수단가'], errors='coerce').fillna(0).astype(int)
             display_df['수량'] = pd.to_numeric(display_df['수량'], errors='coerce').fillna(0).astype(int)
 
-            # 💡 [핵심] 시가총액 정보 즉시 매핑
-            cap_dict = get_krx_market_cap()
+            # 💡 [해결 완료] 로컬 파일에서 안전하고 빠르게 시가총액 정보 가져오기
+            cap_dict = get_local_market_cap()
             display_df['시가총액(억)'] = display_df['종목코드'].map(cap_dict).fillna(0).astype(int)
 
             unique_tickers = tuple(display_df['종목코드'].unique())
@@ -317,12 +339,11 @@ with scoreboard_placeholder:
             st.dataframe(
                 display_df.style.apply(style_fn, axis=None),
                 use_container_width=True, hide_index=False,
-                # 💡 종목명_L 옆에 '시가총액(억)' 컬럼 추가
                 column_order=['티커_L', '종목명_L', '시가총액(억)', '수량', '매수단가', '현재가', '전일대비(%)', '평가금액', '평가손익', '수익률(%)'],
                 column_config={
                     "티커_L": st.column_config.LinkColumn("티커", display_text=r"#(.+)"),
                     "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"),
-                    "시가총액(억)": st.column_config.NumberColumn("시총(억)", format="%,d"), # 💡 시총 포맷 추가
+                    "시가총액(억)": st.column_config.NumberColumn("시총(억)", format="%,d"),
                     "매수단가": st.column_config.NumberColumn(format="%,d"),
                     "현재가": st.column_config.NumberColumn(format="%,d"),
                     "전일대비(%)": st.column_config.NumberColumn("전일비(%)", format="%.2f%%"),
