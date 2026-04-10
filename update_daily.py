@@ -95,7 +95,16 @@ def process_stock(row, mkt_name, market_type, today, prev_rank_map):
             return (curr_price - past['Close'].iloc[-1]) / past['Close'].iloc[-1] * 100
         
         r1, r3, r6, r12 = get_ret(1), get_ret(3), get_ret(6), get_ret(12)
-        score = round((r1 * 0.2) + (r3 * 0.8), 1)
+        
+        # 💡 시장별로 모멘텀 스코어 수식 다르게 적용
+        if market_type == 'KR':
+            # 한국 수식: 1개월 20% + 3개월 80%
+            score = round((r1 * 0.2) + (r3 * 0.8), 1)
+        elif market_type in ['US', 'SP500']:
+            # 미국 수식: 1개월 -80% + 3개월 20% + 6개월 70% + 12개월 90%
+            score = round((r1 * -0.8) + (r3 * 0.2) + (r6 * 0.7) + (r12 * 0.9), 1)
+        else:
+            score = 0.0
         
         display_mkt = row.get('Exchange', 'NYSE') if market_type == 'SP500' else mkt_name
         
