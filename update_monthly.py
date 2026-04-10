@@ -64,7 +64,7 @@ def process_stock_monthly(row, mkt_name, market_type, ref_date, next_month_end, 
         r6_1 = round(((1 + r6/100) / denom - 1) * 100, 2)
         r12_1 = round(((1 + r12/100) / denom - 1) * 100, 2)
         
-        score = round((r1 * -0.5) + (r3 * 0.8) + (r6 * 0.5) + (r12 * 0.2), 1)
+        score = round((r1 * 0.2) + (r3 * 0.8), 1)
         df_next = df[(df.index > ref_date) & (df.index <= next_month_end)]
         next_ret = round(((df_next['Close'].iloc[-1] / curr_price) - 1) * 100, 2) if not df_next.empty else 0.0
 
