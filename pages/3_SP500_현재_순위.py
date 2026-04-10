@@ -89,7 +89,6 @@ def get_all_urls_concurrently(ticker_data_tuples):
             urls[t_str] = (total_url, chart_url)
     return urls
 
-# 💡 [업데이트] 실제로 불러온 데이터의 "진짜 날짜"를 추적하는 기능 추가
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_index_data_bulletproof(target_date_str):
     try:
@@ -123,12 +122,11 @@ def fetch_index_data_bulletproof(target_date_str):
                     filtered_df = df 
                     
                 curr = filtered_df['Close'].iloc[-1]
-                # 💡 [핵심] 필터링된 데이터의 마지막 날짜를 추출
                 actual_date = filtered_df.index[-1].strftime('%Y-%m-%d')
                 url_idx = ".INX" if name == 'S&P 500' else ".IXIC"
                 
                 res.append({
-                    '실제기준일': actual_date, # <--- 실제 날짜 저장
+                    '실제기준일': actual_date,
                     '지수_L': f"https://m.stock.naver.com/worldstock/index/{url_idx}/total#{name}", 
                     '현재가_L': f"https://m.stock.naver.com/fchart/foreign/index/{url_idx}#{curr:,.2f}", 
                     'base_price': round(curr, 2),
@@ -162,15 +160,33 @@ ma_config = {
     "150일선": st.column_config.NumberColumn("150일선", format="%,.2f"),
     "200일선": st.column_config.NumberColumn("200일선", format="%,.2f"),
     "base_price": None,
-    "실제기준일": None # 화면 표에서는 숨김 처리
+    "실제기준일": None
 }
 
-def highlight_target_codes(row, target_codes, bg_color="#E8F5E9", text_color="#2E7D32"):
+# 💡 [업데이트] super_overlap_codes(초강력 교집합)를 받아서 글씨색을 붉은색으로 덧씌우는 로직 추가!
+def highlight_target_codes(row, target_codes, super_overlap_codes=None, bg_color="#E8F5E9", text_color="#2E7D32", super_text_color="#D50000"):
     styles = [''] * len(row)
-    if row.get('종목코드') in target_codes:
-        if '종목명_L' in row.index:
-            name_idx = row.index.get_loc('종목명_L')
-            styles[name_idx] = f'background-color: {bg_color}; color: {text_color}; font-weight: bold; border-radius: 4px;'
+    code = row.get('종목코드')
+    
+    if '종목명_L' in row.index:
+        name_idx = row.index.get_loc('종목명_L')
+        
+        is_top10 = code in target_codes
+        is_super = super_overlap_codes and (code in super_overlap_codes)
+        
+        if is_top10 or is_super:
+            style_str = "font-weight: bold; border-radius: 4px;"
+            # 스코어 Top 10이면 배경색 지정
+            if is_top10:
+                style_str += f" background-color: {bg_color};"
+            # 교집합 Top 5에 둘 다 들면 붉은색 글씨 덮어쓰기, 아니면 기본 초록색 글씨
+            if is_super:
+                style_str += f" color: {super_text_color} !important;" 
+            elif is_top10:
+                style_str += f" color: {text_color};"
+                
+            styles[name_idx] = style_str
+            
     return styles
 
 base_config = {
@@ -193,7 +209,6 @@ base_config = {
 def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
     ma_df = fetch_index_data_bulletproof(target_date_str)
     
-    # 💡 [업데이트] 데이터가 있으면 "진짜 날짜"를, 없으면 요청했던 날짜를 사용
     actual_display_date = ma_df.iloc[0]['실제기준일'] if not ma_df.empty else str(target_date_str).split(' ')[0]
     
     if not ma_df.empty:
@@ -208,7 +223,6 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
         else:
             status_html = ""
             
-        # 💡 진짜 날짜 출력!
         st.markdown(f"### 📊 주요 지수 이동평균선 현황 (기준일: {actual_display_date}){status_html}", unsafe_allow_html=True)
         st.dataframe(style_index_ma(ma_df), use_container_width=True, hide_index=True, 
                      column_order=["지수_L", "현재가_L", "20일선", "60일선", "120일선", "150일선", "200일선"],
@@ -233,10 +247,11 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
         if c in df_500.columns:
             df_500[c] = pd.to_numeric(df_500[c], errors='coerce').fillna(0.0)
 
+    # 💡 [업데이트 1] 모멘텀 스코어 Top 10으로 범위 확장
     if '모멘텀스코어' in df_500.columns:
-        top8_momentum_codes = df_500.sort_values('모멘텀스코어', ascending=False).head(8)['종목코드'].tolist()
+        top10_momentum_codes = df_500.sort_values('모멘텀스코어', ascending=False).head(10)['종목코드'].tolist()
     else:
-        top8_momentum_codes = []
+        top10_momentum_codes = []
 
     with st.spinner("🚀 S&P 500 전체 종목 정보를 동기화 중입니다..."):
         ticker_tuples = tuple((str(r['종목코드']), str(r.get('종목명', ''))) for _, r in df_500.iterrows())
@@ -245,6 +260,8 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
         df_500['통합티커_L'] = df_500['종목코드'].astype(str).apply(lambda x: url_map.get(x, ("", ""))[0])
         df_500['종목명_L'] = df_500['종목코드'].astype(str).apply(lambda x: url_map.get(x, ("", ""))[1])
 
+    super_overlap_codes = []
+    
     if all(c in df_500.columns for c in ['12-1개월(%)', '6-1개월(%)', '3-1개월(%)']):
         top10_12_1 = df_500.sort_values('12-1개월(%)', ascending=False).head(10)
         top10_6_1 = df_500.sort_values('6-1개월(%)', ascending=False).head(10)
@@ -253,13 +270,18 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
         overlap_12_6 = top10_12_1[top10_12_1['종목코드'].isin(top10_6_1['종목코드'])].sort_values('6-1개월(%)', ascending=False).copy()
         overlap_6_3 = top10_6_1[top10_6_1['종목코드'].isin(top10_3_1['종목코드'])].sort_values('6-1개월(%)', ascending=False).copy()
 
+        # 💡 [업데이트 2] 양쪽 교집합 테이블의 Top 5에 모두 속하는 진정한 중복 종목 추출
+        top5_12_6 = overlap_12_6.head(5)['종목코드'].tolist()
+        top5_6_3 = overlap_6_3.head(5)['종목코드'].tolist()
+        super_overlap_codes = list(set(top5_12_6) & set(top5_6_3))
+
         st.markdown("### 🌟 모멘텀 교집합 (TOP 10 중복 분석)")
         c_over1, c_over2 = st.columns(2)
         with c_over1:
             st.markdown('<div class="overlap-header">🔥 12-1M & 6-1M 중복</div>', unsafe_allow_html=True)
             if not overlap_12_6.empty:
                 overlap_12_6['순위'] = range(1, len(overlap_12_6) + 1)
-                st.dataframe(overlap_12_6.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, axis=1), 
+                st.dataframe(overlap_12_6.style.apply(highlight_target_codes, target_codes=top10_momentum_codes, super_overlap_codes=super_overlap_codes, axis=1), 
                              use_container_width=True, hide_index=True,
                              column_order=['순위', '통합티커_L', '종목명_L', '12-1개월(%)', '6-1개월(%)'], column_config=base_config)
             else: st.info("중복 종목 없음")
@@ -267,7 +289,7 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
             st.markdown('<div class="overlap-header">⚡ 6-1M & 3-1M 중복</div>', unsafe_allow_html=True)
             if not overlap_6_3.empty:
                 overlap_6_3['순위'] = range(1, len(overlap_6_3) + 1)
-                st.dataframe(overlap_6_3.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, axis=1), 
+                st.dataframe(overlap_6_3.style.apply(highlight_target_codes, target_codes=top10_momentum_codes, super_overlap_codes=super_overlap_codes, axis=1), 
                              use_container_width=True, hide_index=True,
                              column_order=['순위', '통합티커_L', '종목명_L', '6-1개월(%)', '3-1개월(%)'], column_config=base_config)
             else: st.info("중복 종목 없음")
@@ -287,13 +309,12 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
                 st.markdown(f'<div class="section-header">{title}</div>', unsafe_allow_html=True)
                 df_sub = df_500.sort_values(sort_col, ascending=False).head(30).copy()
                 df_sub['순위'] = range(1, 31)
-                st.dataframe(df_sub.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, axis=1), 
+                st.dataframe(df_sub.style.apply(highlight_target_codes, target_codes=top10_momentum_codes, super_overlap_codes=super_overlap_codes, axis=1), 
                              use_container_width=True, height=450, hide_index=True,
                              column_order=['순위', '통합티커_L', '종목명_L', sort_col], column_config=sub_config)
 
     # --- 하단: 전체 ---
     st.markdown("---")
-    # 💡 하단 제목도 진짜 날짜로 통일!
     st.markdown(f'### 📊 S&P 500 전체 종목 (기준: {actual_display_date})')
     
     df_500_all = df_500.copy()
@@ -303,7 +324,7 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
     if is_daily: full_order.insert(4, '전일거래량')
     full_order = [col for col in full_order if col in df_500_all.columns or col in ['순위', '통합티커_L', '종목명_L']]
     
-    st.dataframe(df_500_all.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, axis=1), 
+    st.dataframe(df_500_all.style.apply(highlight_target_codes, target_codes=top10_momentum_codes, super_overlap_codes=super_overlap_codes, axis=1), 
                  use_container_width=True, height=600, hide_index=True,
                  column_order=full_order, column_config=base_config)
 
