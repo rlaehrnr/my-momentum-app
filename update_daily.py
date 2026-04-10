@@ -95,7 +95,7 @@ def process_stock(row, mkt_name, market_type, today, prev_rank_map):
             return (curr_price - past['Close'].iloc[-1]) / past['Close'].iloc[-1] * 100
         
         r1, r3, r6, r12 = get_ret(1), get_ret(3), get_ret(6), get_ret(12)
-        score = round((r1 * -0.5) + (r3 * 0.8) + (r6 * 0.5) + (r12 * 0.2), 1)
+        score = round((r1 * 0.2) + (r3 * 0.8), 1)
         
         display_mkt = row.get('Exchange', 'NYSE') if market_type == 'SP500' else mkt_name
         
