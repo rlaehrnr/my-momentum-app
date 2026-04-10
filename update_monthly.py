@@ -64,7 +64,14 @@ def process_stock_monthly(row, mkt_name, market_type, ref_date, next_month_end, 
         r6_1 = round(((1 + r6/100) / denom - 1) * 100, 2)
         r12_1 = round(((1 + r12/100) / denom - 1) * 100, 2)
         
-        score = round((r1 * 0.2) + (r3 * 0.8), 1)
+        if market_type == 'KR':
+            # 한국 수식: 1개월 20% + 3개월 80%
+            score = round((r1 * 0.2) + (r3 * 0.8), 1)
+        elif market_type in ['US', 'SP500']:
+            # 미국 수식: 1개월 -80% + 3개월 20% + 6개월 70% + 12개월 90%
+            score = round((r1 * -0.8) + (r3 * 0.2) + (r6 * 0.7) + (r12 * 0.9), 1)
+        else:
+            score = 0.0
         df_next = df[(df.index > ref_date) & (df.index <= next_month_end)]
         next_ret = round(((df_next['Close'].iloc[-1] / curr_price) - 1) * 100, 2) if not df_next.empty else 0.0
 
