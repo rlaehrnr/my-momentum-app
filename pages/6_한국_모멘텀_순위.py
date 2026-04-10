@@ -34,16 +34,17 @@ def apply_k200_styling(row, idx_df, highlight_codes=None, overlap_codes=None):
         elif highlight_codes and code in highlight_codes:
             styles[name_idx] = 'background-color: #E8F5E9; color: #2E7D32; font-weight: bold;'
             
-    # 💡 [순위변화 스타일 추가] 상승은 붉은색, 하락은 파란색, 신규는 주황색
+    # 💡 [핵심] 순위변화 색상을 '글자'가 아닌 '숫자' 기준으로 판단합니다.
     if '순위변화' in row.index:
         change_idx = row.index.get_loc('순위변화')
-        val = str(row['순위변화'])
-        if '↑' in val:
-            styles[change_idx] = 'color: #FF3333; font-weight: bold;'
-        elif '↓' in val:
-            styles[change_idx] = 'color: #3399FF; font-weight: bold;'
-        elif val == 'NEW':
-            styles[change_idx] = 'color: #FFA726; font-weight: bold;'
+        val = row['순위변화']
+        
+        if pd.isna(val):
+            styles[change_idx] = 'color: #FFA726; font-weight: bold;' # NEW (주황색)
+        elif val > 0:
+            styles[change_idx] = 'color: #FF3333; font-weight: bold;' # 상승 (붉은색)
+        elif val < 0:
+            styles[change_idx] = 'color: #3399FF; font-weight: bold;' # 하락 (파란색)
             
     return styles
 
@@ -122,20 +123,8 @@ with tab_daily:
         df_d.index = range(1, len(df_d) + 1)
         b_date_d = df_d['기준일'].iloc[0]
         
-        # 💡 [순위변화 계산 로직 추가]
-        def get_rank_change(row):
-            if pd.isna(row['전달순위']):
-                return "NEW"
-            # 전달순위 - 현재순위(index)
-            diff = row['전달순위'] - row.name 
-            if diff > 0:
-                return f"{int(diff)}위↑"
-            elif diff < 0:
-                return f"{int(abs(diff))}위↓"
-            else:
-                return "-"
-
-        df_d['순위변화'] = df_d.apply(get_rank_change, axis=1)
+        # 💡 [핵심] 순위변화를 "진짜 숫자"로 계산하여 내부에 저장합니다. (정렬용)
+        df_d['순위변화'] = df_d['전달순위'] - df_d.index
         
         st.markdown(f'<p class="main-title">🕒 데일리 모멘텀 (기준: {b_date_d})</p>', unsafe_allow_html=True)
         
@@ -150,13 +139,26 @@ with tab_daily:
         df_d['통합티커_L'] = df_d.apply(lambda r: f"https://finance.naver.com/item/main.naver?code={str(r['종목코드']).zfill(6)}#{r['시장']}:{str(r['종목코드']).zfill(6)}", axis=1)
         df_d['종목명_L'] = df_d.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{str(r['종목코드']).zfill(6)}#{r['종목명']}", axis=1)
         
+        # 💡 화면에 보여줄 때만 숫자를 예쁜 기호로 변환하는 포장지 함수
+        def format_rank_change(val):
+            if pd.isna(val):
+                return "NEW"
+            elif val > 0:
+                return f"{int(val)}위↑"
+            elif val < 0:
+                return f"{int(abs(val))}위↓"
+            else:
+                return "-"
+
         daily_cfg = main_cfg.copy()
         daily_cfg["기준가"] = st.column_config.NumberColumn("현재가", format="%,d") 
         daily_cfg["전일거래량"] = st.column_config.NumberColumn("전일거래량", format="%,d")
-        # 💡 [컬럼 설정 추가]
-        daily_cfg["순위변화"] = st.column_config.TextColumn("순위 변화")
+        daily_cfg["순위변화"] = st.column_config.Column("순위 변화") 
         
-        st.dataframe(df_d.style.apply(apply_k200_styling, idx_df=idx_now, axis=1), 
+        # DataFrame에 스타일과 포장지(format)를 동시에 적용
+        styled_df_d = df_d.style.apply(apply_k200_styling, idx_df=idx_now, axis=1).format({'순위변화': format_rank_change})
+        
+        st.dataframe(styled_df_d, 
                      use_container_width=True, 
                      height=600, 
                      column_order=['통합티커_L', '종목명_L', '기준가', '전일거래량', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '모멘텀스코어', '전달순위', '순위변화'], 
