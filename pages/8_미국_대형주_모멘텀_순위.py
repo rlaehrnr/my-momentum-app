@@ -90,7 +90,7 @@ def get_all_urls_concurrently(ticker_data_tuples):
             urls[t_str] = (total_url, chart_url)
     return urls
 
-# ⭐ [업데이트 1] 지수 데이터 수집 및 이틀 치 넉넉히 가져와서 필터링 (날짜 오류 해결)
+# ⭐ 지수 데이터 수집 및 이틀 치 넉넉히 가져와서 필터링 (날짜 오류 해결)
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_index_ma_status(target_date_str):
     indices = {'S&P 500': 'US500', 'NASDAQ': 'IXIC'}
@@ -152,13 +152,31 @@ ma_config = {
     "base_price": None 
 }
 
-# ⭐ [업데이트 3] 모멘텀 탑 8 종목들만 초록색으로 강조하는 하이라이트 함수 (노란색 제외)
-def highlight_target_codes(row, target_codes, bg_color="#E8F5E9", text_color="#2E7D32"):
+# ⭐ [업데이트] S&P 500과 동일하게 Top 10 + 찐 모멘텀(붉은 글씨) 하이라이트 함수 적용
+def highlight_target_codes(row, target_codes, super_overlap_codes=None, bg_color="#E8F5E9", text_color="#2E7D32", super_text_color="#D50000"):
     styles = [''] * len(row)
-    if row.get('종목코드') in target_codes:
-        if '종목명_L' in row.index:
-            name_idx = row.index.get_loc('종목명_L')
-            styles[name_idx] = f'background-color: {bg_color}; color: {text_color}; font-weight: bold; border-radius: 4px;'
+    code = row.get('종목코드')
+    
+    if '종목명_L' in row.index:
+        name_idx = row.index.get_loc('종목명_L')
+        
+        is_top10 = code in target_codes
+        is_super = super_overlap_codes and (code in super_overlap_codes)
+        
+        if is_top10 or is_super:
+            style_str = "font-weight: bold; border-radius: 4px;"
+            # 스코어 Top 10이면 배경색 지정
+            if is_top10:
+                style_str += f" background-color: {bg_color};"
+            
+            # 교집합 Top 5에 둘 다 들면 붉은색 글씨, 아니면 기본 초록색 글씨 적용
+            if is_super:
+                style_str += f" color: {super_text_color};" 
+            elif is_top10:
+                style_str += f" color: {text_color};"
+                
+            styles[name_idx] = style_str
+            
     return styles
 
 base_config = {
@@ -181,7 +199,7 @@ base_config = {
 def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
     ma_df = get_index_ma_status(target_date_str)
     
-    # ⭐ [업데이트 2] 지수 200일선 기반 투자 진행/중지 상태 출력
+    # 지수 200일선 기반 투자 진행/중지 상태 출력
     if not ma_df.empty:
         sp500_row = ma_df.iloc[0]
         sp500_curr = sp500_row['base_price']
@@ -226,8 +244,11 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
         if c in df_300.columns:
             df_300[c] = pd.to_numeric(df_300[c], errors='coerce').fillna(0.0)
 
-    # ⭐ 모멘텀 스코어 상위 8개 종목코드 추출
-    top8_momentum_codes = df_300.sort_values('모멘텀스코어', ascending=False).head(8)['종목코드'].tolist()
+    # ⭐ [업데이트] 모멘텀 스코어 상위 10개 추출로 변경
+    if '모멘텀스코어' in df_300.columns:
+        top10_momentum_codes = df_300.sort_values('모멘텀스코어', ascending=False).head(10)['종목코드'].tolist()
+    else:
+        top10_momentum_codes = []
 
     with st.spinner("🚀 데이터를 초고속으로 정리 중입니다..."):
         ticker_tuples = tuple((str(r['종목코드']), str(r['종목명'])) for _, r in df_300.iterrows())
@@ -239,6 +260,8 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
     sort_cols = ['12-1개월(%)', '6-1개월(%)', '3-1개월(%)']
     available_sort_cols = [c for c in sort_cols if c in df_300.columns]
     
+    super_overlap_codes = []
+
     if len(available_sort_cols) == 3:
         top10_12_1 = df_300.sort_values('12-1개월(%)', ascending=False).head(10)
         top10_6_1 = df_300.sort_values('6-1개월(%)', ascending=False).head(10)
@@ -247,6 +270,11 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
         overlap_12_6 = top10_12_1[top10_12_1['종목코드'].isin(top10_6_1['종목코드'])].sort_values('6-1개월(%)', ascending=False).copy()
         overlap_6_3 = top10_6_1[top10_6_1['종목코드'].isin(top10_3_1['종목코드'])].sort_values('6-1개월(%)', ascending=False).copy()
 
+        # ⭐ [업데이트] 찐 모멘텀 (교집합 Top 5 중복) 추출
+        top5_12_6 = overlap_12_6.head(5)['종목코드'].tolist()
+        top5_6_3 = overlap_6_3.head(5)['종목코드'].tolist()
+        super_overlap_codes = list(set(top5_12_6) & set(top5_6_3))
+
         # --- 상단: 교집합 ---
         st.markdown("### 🌟 모멘텀 교집합 (TOP 10 중복 분석)")
         c_over1, c_over2 = st.columns(2)
@@ -254,8 +282,8 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
             st.markdown('<div class="overlap-header">🔥 12-1M & 6-1M 중복</div>', unsafe_allow_html=True)
             if not overlap_12_6.empty:
                 overlap_12_6['순위'] = range(1, len(overlap_12_6) + 1)
-                # 교집합 표에도 Top 8 초록색 하이라이트 적용
-                st.dataframe(overlap_12_6.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, axis=1), 
+                # 💡 교집합 표에 Top 10 + Super Overlap(붉은 글씨) 색상 적용
+                st.dataframe(overlap_12_6.style.apply(highlight_target_codes, target_codes=top10_momentum_codes, super_overlap_codes=super_overlap_codes, axis=1), 
                              use_container_width=True, hide_index=True,
                              column_order=['순위', '통합티커_L', '종목명_L', '12-1개월(%)', '6-1개월(%)'], column_config=base_config)
             else: st.info("중복 종목 없음")
@@ -263,8 +291,8 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
             st.markdown('<div class="overlap-header">⚡ 6-1M & 3-1M 중복</div>', unsafe_allow_html=True)
             if not overlap_6_3.empty:
                 overlap_6_3['순위'] = range(1, len(overlap_6_3) + 1)
-                # 교집합 표에도 Top 8 초록색 하이라이트 적용
-                st.dataframe(overlap_6_3.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, axis=1), 
+                # 💡 교집합 표에 Top 10 + Super Overlap(붉은 글씨) 색상 적용
+                st.dataframe(overlap_6_3.style.apply(highlight_target_codes, target_codes=top10_momentum_codes, super_overlap_codes=super_overlap_codes, axis=1), 
                              use_container_width=True, hide_index=True,
                              column_order=['순위', '통합티커_L', '종목명_L', '6-1개월(%)', '3-1개월(%)'], column_config=base_config)
             else: st.info("중복 종목 없음")
@@ -286,8 +314,8 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
             if sort_col in df_300.columns:
                 df_sub = df_300.sort_values(sort_col, ascending=False).head(30).copy()
                 df_sub['순위'] = range(1, 31)
-                # 30위 표에도 Top 8 초록색 하이라이트 적용
-                st.dataframe(df_sub.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, axis=1), 
+                # 💡 30위 표에 Top 10 + Super Overlap 색상 적용
+                st.dataframe(df_sub.style.apply(highlight_target_codes, target_codes=top10_momentum_codes, super_overlap_codes=super_overlap_codes, axis=1), 
                              use_container_width=True, height=450, hide_index=True,
                              column_order=['순위', '통합티커_L', '종목명_L', sort_col], column_config=sub_config)
 
@@ -300,8 +328,8 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
     if is_daily: full_order.insert(4, '전일거래량')
     full_order = [col for col in full_order if col in df_300_all.columns or col in ['순위', '통합티커_L', '종목명_L']]
     
-    # 전체 표에도 Top 8 초록색 하이라이트 적용
-    st.dataframe(df_300_all.style.apply(highlight_target_codes, target_codes=top8_momentum_codes, axis=1), 
+    # 💡 전체 표에 Top 10 + Super Overlap 색상 적용
+    st.dataframe(df_300_all.style.apply(highlight_target_codes, target_codes=top10_momentum_codes, super_overlap_codes=super_overlap_codes, axis=1), 
                  use_container_width=True, height=600, hide_index=True,
                  column_order=full_order, column_config=base_config)
 
