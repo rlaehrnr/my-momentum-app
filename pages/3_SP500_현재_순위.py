@@ -163,7 +163,7 @@ ma_config = {
     "실제기준일": None
 }
 
-# 💡 [업데이트] super_overlap_codes(초강력 교집합)를 받아서 글씨색을 붉은색으로 덧씌우는 로직 추가!
+# 💡 [오류 수정] !important 태그를 제거하여 Streamlit 테이블 CSS 렌더링 에러를 방지했습니다.
 def highlight_target_codes(row, target_codes, super_overlap_codes=None, bg_color="#E8F5E9", text_color="#2E7D32", super_text_color="#D50000"):
     styles = [''] * len(row)
     code = row.get('종목코드')
@@ -179,9 +179,10 @@ def highlight_target_codes(row, target_codes, super_overlap_codes=None, bg_color
             # 스코어 Top 10이면 배경색 지정
             if is_top10:
                 style_str += f" background-color: {bg_color};"
-            # 교집합 Top 5에 둘 다 들면 붉은색 글씨 덮어쓰기, 아니면 기본 초록색 글씨
+            
+            # 교집합 Top 5에 둘 다 들면 붉은색 글씨, 아니면 기본 초록색 글씨 적용
             if is_super:
-                style_str += f" color: {super_text_color} !important;" 
+                style_str += f" color: {super_text_color};" 
             elif is_top10:
                 style_str += f" color: {text_color};"
                 
@@ -247,7 +248,6 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
         if c in df_500.columns:
             df_500[c] = pd.to_numeric(df_500[c], errors='coerce').fillna(0.0)
 
-    # 💡 [업데이트 1] 모멘텀 스코어 Top 10으로 범위 확장
     if '모멘텀스코어' in df_500.columns:
         top10_momentum_codes = df_500.sort_values('모멘텀스코어', ascending=False).head(10)['종목코드'].tolist()
     else:
@@ -270,7 +270,6 @@ def display_momentum_dashboard(df_raw, target_date_str, is_daily=False):
         overlap_12_6 = top10_12_1[top10_12_1['종목코드'].isin(top10_6_1['종목코드'])].sort_values('6-1개월(%)', ascending=False).copy()
         overlap_6_3 = top10_6_1[top10_6_1['종목코드'].isin(top10_3_1['종목코드'])].sort_values('6-1개월(%)', ascending=False).copy()
 
-        # 💡 [업데이트 2] 양쪽 교집합 테이블의 Top 5에 모두 속하는 진정한 중복 종목 추출
         top5_12_6 = overlap_12_6.head(5)['종목코드'].tolist()
         top5_6_3 = overlap_6_3.head(5)['종목코드'].tolist()
         super_overlap_codes = list(set(top5_12_6) & set(top5_6_3))
