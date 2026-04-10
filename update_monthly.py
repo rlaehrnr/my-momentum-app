@@ -69,7 +69,7 @@ def process_stock_monthly(row, mkt_name, market_type, ref_date, next_month_end, 
             score = round((r1 * 0.2) + (r3 * 0.8), 1)
         elif market_type in ['US', 'SP500']:
             # 미국 수식: 1개월 -80% + 3개월 20% + 6개월 70% + 12개월 90%
-            score = round((r1 * -0.8) + (r3 * 0.2) + (r6 * 0.7) + (r12 * 0.9), 1)
+            score = round((r1 * -0.1) + (r3 * 0.7) + (r6 * 0.4), 1)
         else:
             score = 0.0
         df_next = df[(df.index > ref_date) & (df.index <= next_month_end)]
