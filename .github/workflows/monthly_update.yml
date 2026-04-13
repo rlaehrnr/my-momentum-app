@@ -9,6 +9,10 @@ on:
 jobs:
   update-monthly-data:
     runs-on: ubuntu-latest
+    # 💡 아래 env 설정을 추가하면 경고가 사라지고 새로운 엔진을 미리 사용합니다.
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    
     permissions:
       contents: write
 
