@@ -1,16 +1,14 @@
-name: Momentum Data Auto-Update
+name: Momentum Data Auto-Update (Daily)
 
 on:
   schedule:
     # ⭐ 매일 한국 시간 오전 7시 실행 (UTC 22:00)
     - cron: '0 22 * * *'  
-  workflow_dispatch:      # 필요할 때 언제든 수동으로 실행하는 버튼
+  workflow_dispatch:
 
 jobs:
   update-data:
     runs-on: ubuntu-latest
-    
-    # 로봇에게 저장소 쓰기 권한 부여 (필수)
     permissions:
       contents: write
 
@@ -23,28 +21,20 @@ jobs:
         with:
           python-version: '3.11'
 
-      # 라이브러리 설치 (fdr 작동을 위한 lxml, html5lib 포함)
       - name: Install dependencies
         run: |
-          pip install pandas finance-datareader openpyxl pyarrow requests lxml html5lib
+          pip install pandas finance-datareader openpyxl pyarrow requests lxml html5lib yfinance
 
-      - name: Run update scripts
+      - name: Run DAILY update script
         run: |
-          # 1. 월말/초 보관 및 고정 데이터 업데이트
-          python update_monthly.py
-          
-          # 2. 매일 아침 데일리 순위 업데이트
+          # 매일 아침 데일리 순위만 업데이트
           python update_daily.py
 
       - name: Commit and push changes
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          
-          # 변경된 모든 파일 스테이징
           git add .
-          
-          # 변경 사항이 있는 경우에만 커밋 및 푸시
           if [ -n "$(git status --porcelain)" ]; then
             git commit -m "🤖 Daily Morning Update at 07:00 KST"
             git pull --rebase origin main
