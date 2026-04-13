@@ -45,10 +45,10 @@ st.markdown("""
     .highlight-cell { background-color: rgba(255, 255, 255, 0.03); font-size: 1.2rem; }
     .summary-total { background-color: #242834; font-size: 1.3rem; }
     
-    /* 💡 [수정] 설정 저장 버튼 정사각형 및 위치 완벽 맞춤 */
+    /* 설정 저장 버튼 정사각형 및 위치 완벽 맞춤 */
     div[data-testid="stForm"] [data-testid="stFormSubmitButton"] button {
-        height: 73px !important; /* 라벨과 입력칸을 모두 덮는 높이 */
-        margin-top: 0px !important; /* 위쪽 여백 제거하여 라벨과 윗선 맞춤 */
+        height: 73px !important; 
+        margin-top: 0px !important; 
         white-space: pre-wrap;
         line-height: 1.4;
         font-size: 1.05rem;
@@ -96,7 +96,6 @@ if 'portfolio_config' not in st.session_state:
     st.session_state['portfolio_config'] = load_config()
 
 # --- [3. 데이터 수집 로직] ---
-
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_face_value_map():
     fv_map = {}
@@ -180,6 +179,7 @@ def load_portfolio(path):
                 for c in ['매수단가', '수량']:
                     if c in df.columns: df[c] = pd.to_numeric(df[c].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce').fillna(0).astype(int)
                     else: df[c] = 0
+                # 💡 데이터를 불러올 때 딱 4가지 핵심 컬럼만 보장합니다.
                 return df[["종목명", "종목코드", "매수단가", "수량"]]
             except: continue
     return pd.DataFrame(columns=["종목명", "종목코드", "매수단가", "수량"])
@@ -212,7 +212,7 @@ def render_portfolio_tab(port_name, port_key, path, prices):
                         new_row = pd.DataFrame([{"종목명": name, "종목코드": code, "매수단가": int(p), "수량": int(q)}])
                         st.session_state[f'df_{port_key}'] = pd.concat([st.session_state[f'df_{port_key}'], new_row], ignore_index=True)
                         st.session_state[f'df_{port_key}'].index = range(1, len(st.session_state[f'df_{port_key}']) + 1)
-                        st.session_state[f'df_{port_key}'].to_csv(path, index=False, encoding='utf-8-sig')
+                        st.session_state[f'df_{port_key}'][["종목명", "종목코드", "매수단가", "수량"]].to_csv(path, index=False, encoding='utf-8-sig')
                         st.rerun()
     with col_file:
         with st.expander("📂 엑셀 업로드", expanded=False):
@@ -223,7 +223,11 @@ def render_portfolio_tab(port_name, port_key, path, prices):
                     up_df = pd.read_csv(up_file, encoding='utf-8-sig') if up_file.name.endswith('csv') else pd.read_excel(up_file)
                     up_df.columns = up_df.columns.str.strip()
                     up_df['종목코드'] = up_df['종목코드'].astype(str).str.zfill(6)
-                    st.session_state[f'df_{port_key}'] = up_df
+                    
+                    # 업로드 시 불필요한 컬럼 정리
+                    cols_to_keep = [c for c in ["종목명", "종목코드", "매수단가", "수량"] if c in up_df.columns]
+                    st.session_state[f'df_{port_key}'] = up_df[cols_to_keep]
+                    
                     st.session_state[f'df_{port_key}'].index = range(1, len(st.session_state[f'df_{port_key}']) + 1)
                     st.session_state[f'df_{port_key}'].to_csv(path, index=False, encoding='utf-8-sig')
                     st.rerun()
@@ -231,9 +235,11 @@ def render_portfolio_tab(port_name, port_key, path, prices):
 
     st.markdown(f"### 📝 {port_name} 편집")
     
-    st.session_state[f'df_{port_key}'].index = range(1, len(st.session_state[f'df_{port_key}']) + 1)
-    # 💡 [수정] hide_index=False 속성을 추가하여 Streamlit이 숫자 인덱스를 숨기지 않도록 강제합니다.
-    df_editor = st.data_editor(st.session_state[f'df_{port_key}'], num_rows="dynamic", use_container_width=True, hide_index=False, key=f"ed_{port_key}")
+    # 에디터에 표시하기 전에도 불필요한 컬럼이 있으면 잘라냅니다.
+    clean_df = st.session_state[f'df_{port_key}'][["종목명", "종목코드", "매수단가", "수량"]]
+    clean_df.index = range(1, len(clean_df) + 1)
+    
+    df_editor = st.data_editor(clean_df, num_rows="dynamic", use_container_width=True, hide_index=False, key=f"ed_{port_key}")
     
     if st.button("저장", key=f"sv_{port_key}"):
         df_editor.index = range(1, len(df_editor) + 1)
@@ -352,7 +358,9 @@ with tabs[0]:
     summary_data, total_buy, total_profit, total_daily, total_since, total_prev_all = [], 0, 0, 0, 0, 0
 
     for p_name, p_key in [("또", "ddo"), ("쏘", "sso"), ("맘", "mom")]:
-        df = st.session_state[f'df_{p_key}']
+        # 💡 [핵심 수정] .copy()를 사용하여 원본 데이터(편집 표)에 curr, prev가 오염되는 것을 완벽 차단!
+        df = st.session_state[f'df_{p_key}'].copy()
+        
         start_val = config[f'start_{p_key}']
         if not df.empty:
             df['curr'] = df['종목코드'].apply(lambda x: global_prices.get(x, {}).get('curr', 0))
