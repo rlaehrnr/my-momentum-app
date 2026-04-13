@@ -18,7 +18,7 @@ PORT_PATHS = {
 }
 MASTER_TICKER_PATH = 'data/krx_stock_master.csv'
 CONFIG_PATH = 'data/portfolio_config.json' 
-FACE_VALUE_PATH = 'data/krx_stock_info.csv' # 💡 추가된 액면가 데이터 파일 경로
+FACE_VALUE_PATH = 'data/krx_stock_info.csv' 
 
 if not os.path.exists('data'):
     os.makedirs('data')
@@ -88,7 +88,6 @@ if 'portfolio_config' not in st.session_state:
 
 # --- [3. 데이터 수집 로직] ---
 
-# 💡 [신규] 사용자가 업로드한 액면가 파일에서 데이터 추출
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_face_value_map():
     fv_map = {}
@@ -98,14 +97,13 @@ def get_face_value_map():
                 df = pd.read_csv(FACE_VALUE_PATH, dtype={'단축코드': str}, encoding=enc)
                 if '단축코드' in df.columns and '액면가' in df.columns:
                     df['단축코드'] = df['단축코드'].astype(str).str.zfill(6)
-                    # 쉼표나 기타 문자 제거 후 숫자로 변환
                     df['액면가'] = pd.to_numeric(df['액면가'].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce').fillna(0)
                     fv_map = df.set_index('단축코드')['액면가'].to_dict()
                     break
             except: continue
     return fv_map
 
-global_fv_map = get_face_value_map() # 전역으로 로드
+global_fv_map = get_face_value_map()
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_stock_master_and_cap():
@@ -232,10 +230,7 @@ def render_portfolio_tab(port_name, port_key, path, prices):
         df = st.session_state[f'df_{port_key}'].copy()
         if not df.empty:
             df['시총(억)'] = df['종목코드'].map(global_cap_map).fillna(0)
-            
-            # 💡 [신규] 액면가 매핑
             df['액면가'] = df['종목코드'].map(global_fv_map).fillna(0)
-            
             df['현재가'] = df['종목코드'].apply(lambda x: prices.get(x, {}).get('curr', 0))
             df['전일종가'] = df['종목코드'].apply(lambda x: prices.get(x, {}).get('prev', 0))
             
@@ -273,14 +268,12 @@ def render_portfolio_tab(port_name, port_key, path, prices):
                     s[col] = st_df[col].apply(lambda x: 'color: #FF3333; font-weight:bold;' if x > 0 else ('color: #3399FF; font-weight:bold;' if x < 0 else ''))
                 
                 highlight_css = 'background-color: rgba(255, 167, 38, 0.1); color: #FFA726; border: 1px solid #FFA726; font-weight:bold; border-radius: 4px;'
-                # 🚨 [신규] 상폐 경고: 현재가가 액면가보다 낮고 액면가가 0이 아닐 때 강렬한 붉은색 경고
                 warning_css = 'background-color: rgba(255, 0, 0, 0.2); color: #FF3333; border: 2px solid #FF3333; font-weight:bold; border-radius: 4px;'
                 
                 if '시총(억)' in st_df.columns:
                     s['시총(억)'] = st_df['시총(억)'].apply(lambda x: highlight_css if 0 < x <= 150 else '')
                 
                 for i, row in st_df.iterrows():
-                    # 액면가보다 낮으면 강한 경고, 아니면 기존처럼 1000원 미만 시 약한 주황색 하이라이트
                     if row['액면가'] > 0 and row['현재가'] < row['액면가']:
                         s.loc[i, '현재가'] = warning_css
                         s.loc[i, '액면가'] = warning_css
@@ -289,7 +282,6 @@ def render_portfolio_tab(port_name, port_key, path, prices):
                     
                 return s
 
-            # 화면에 띄울 때 액면가 컬럼 포함
             st.dataframe(df.style.apply(style_port_final, axis=None).format({'전일대비(%)':'{:.2f}%','수익률(%)':'{:.2f}%','시총(억)':'{:,}','매수단가':'{:,}','액면가':'{:,}','현재가':'{:,}','평가금액':'{:,}','평가손익':'{:,}'}), 
                          use_container_width=True, hide_index=True,
                          column_order=['티커_L', '종목명_L', '시총(억)', '수량', '매수단가', '액면가', '현재가', '전일대비(%)', '평가금액', '평가손익', '수익률(%)'],
@@ -405,7 +397,8 @@ with tabs[4]:
     c_sel, c_up = st.columns([1, 2])
     target_port_info = c_sel.selectbox("🔄 기준 포트폴리오 선택", options=[("또", "ddo"), ("쏘", "sso"), ("맘", "mom")], format_func=lambda x: f"[{x[0]}] 포트폴리오 기준")
     
-    up_target = c_up.file_uploader("목표 엑셀/CSV 업로드 양식 (필수 열: '코드번호', '목표금액')", type=['csv', 'xlsx'], key="up_rebal")
+    # 💡 1) 파일 업로드 텍스트 변경
+    up_target = c_up.file_uploader("목표 엑셀/CSV 업로드 양식 (필수 열: '코드번호 (A포함)', '목표금액(100만원 단위)')", type=['csv', 'xlsx'], key="up_rebal")
     
     if up_target:
         try:
@@ -413,19 +406,30 @@ with tabs[4]:
             tgt_df = pd.read_csv(up_target, encoding='utf-8-sig') if up_target.name.endswith('csv') else pd.read_excel(up_target)
             tgt_df.columns = tgt_df.columns.str.strip()
             
-            if '코드번호' not in tgt_df.columns or '목표금액' not in tgt_df.columns:
-                st.error("🚨 업로드하신 파일 첫 줄에 '코드번호'와 '목표금액'이라는 이름의 열(컬럼)이 반드시 존재해야 합니다!")
+            # 컬럼명이 조금이라도 포함되어 있는지 체크하기 위한 로직
+            code_col = [col for col in tgt_df.columns if '코드번호' in col]
+            target_col = [col for col in tgt_df.columns if '목표금액' in col]
+            
+            if not code_col or not target_col:
+                st.error("🚨 업로드하신 파일 첫 줄에 '코드번호'와 '목표금액'이라는 이름의 열(컬럼)이 반드시 포함되어야 합니다!")
             else:
-                tgt_df = tgt_df.dropna(subset=['코드번호'])
+                code_col = code_col[0]
+                target_col = target_col[0]
                 
-                tgt_df['종목코드'] = tgt_df['코드번호'].astype(str).str.replace(r'^[A-Za-z]+', '', regex=True).str.replace(r'\.0$', '', regex=True).str.zfill(6)
-                tgt_df['목표금액'] = pd.to_numeric(tgt_df['목표금액'].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce').fillna(0).astype(int) * 10000
+                tgt_df = tgt_df.dropna(subset=[code_col])
+                
+                tgt_df['종목코드'] = tgt_df[code_col].astype(str).str.replace(r'^[A-Za-z]+', '', regex=True).str.replace(r'\.0$', '', regex=True).str.zfill(6)
+                tgt_df['목표금액'] = pd.to_numeric(tgt_df[target_col].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce').fillna(0).astype(int) * 10000
                 
                 curr_df = st.session_state[f'df_{target_port_info[1]}'].copy()
                 
                 merged = pd.merge(curr_df[['종목코드', '수량']], tgt_df[['종목코드', '목표금액']], on='종목코드', how='outer')
                 merged['수량'] = merged['수량'].fillna(0).astype(int)
                 merged['목표금액'] = merged['목표금액'].fillna(0).astype(int)
+                
+                # 💡 4) 시가총액과 액면가 맵핑
+                merged['시총(억)'] = merged['종목코드'].map(global_cap_map).fillna(0)
+                merged['액면가'] = merged['종목코드'].map(global_fv_map).fillna(0)
                 
                 name_map = master_df.set_index('종목코드')['종목명'].to_dict() if not master_df.empty else {}
                 merged['종목명'] = merged['종목코드'].map(name_map).fillna('이름없음')
@@ -452,23 +456,38 @@ with tabs[4]:
                     return int(abs(row['차액']) // row['현재가'])
                     
                 merged['주문수량'] = merged.apply(get_rebal_qty, axis=1)
-                merged['예상체결금액'] = merged['주문수량'] * merged['현재가']
+                
+                # 💡 3) 예상체결금액을 수식이 아닌 매도(-), 매수(+) 기호를 붙일 수 있도록 부호 값을 적용
+                def get_signed_amount(row):
+                    val = row['주문수량'] * row['현재가']
+                    if row['주문'] in ["신규매수", "추가매수"]: return val
+                    if row['주문'] in ["전량매도", "부분매도"]: return -val
+                    return 0
+                    
+                merged['예상체결금액'] = merged.apply(get_signed_amount, axis=1)
                 
                 merged = merged[(merged['수량'] > 0) | (merged['목표금액'] > 0)]
                 merged = merged.sort_values(by='종목명', ascending=True)
                 
-                buy_sum = merged[merged['주문'].isin(['신규매수', '추가매수'])]['예상체결금액'].sum()
-                sell_sum = merged[merged['주문'].isin(['전량매도', '부분매도'])]['예상체결금액'].sum()
+                # 집계는 절대값(크기) 기준 또는 조건별로 처리
+                buy_sum = merged[merged['예상체결금액'] > 0]['예상체결금액'].sum()
+                sell_sum = merged[merged['예상체결금액'] < 0]['예상체결금액'].abs().sum()
                 net_cash = sell_sum - buy_sum
                 
-                net_css = "color: #FF3333; font-size: 1.25rem; padding: 2px 10px; margin-left: 5px; background-color: rgba(255, 51, 51, 0.15); border-radius: 6px;" if net_cash >= 0 else "color: #3399FF; font-size: 1.25rem; padding: 2px 10px; margin-left: 5px; background-color: rgba(51, 153, 255, 0.15); border-radius: 6px;"
+                # 💡 2) 리밸런싱 후 현금 잔액의 텍스트와 색상 설정 (매수, 매도 차이에 따른 직관적 텍스트)
+                if net_cash >= 0:
+                    net_css = "color: #FF3333; font-size: 1.25rem; padding: 2px 10px; margin-left: 5px; background-color: rgba(255, 51, 51, 0.15); border-radius: 6px;"
+                    net_text = f"₩{net_cash:,} 잔금"
+                else:
+                    net_css = "color: #3399FF; font-size: 1.25rem; padding: 2px 10px; margin-left: 5px; background-color: rgba(51, 153, 255, 0.15); border-radius: 6px;"
+                    net_text = f"₩{abs(net_cash):,} 추가 투자 필요"
                 
                 col_header, col_btn = st.columns([5, 1])
                 
                 with col_header:
-                    st.markdown(f"**🔵 총 매도 확보 자금:** `₩{sell_sum:,}` &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp; **🔴 총 예상 매수 자금:** `₩{buy_sum:,}` &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp; **💡 리밸런싱 후 현금 잔액:** <span style='{net_css}'>**₩{net_cash:,}**</span>", unsafe_allow_html=True)
+                    st.markdown(f"**🔵 총 매도 확보 자금:** `₩{sell_sum:,}` &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp; **🔴 총 예상 매수 자금:** `₩{buy_sum:,}` &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp; **💡 리밸런싱 후 잔액:** <span style='{net_css}'>**{net_text}**</span>", unsafe_allow_html=True)
                 
-                display_reb = merged[['종목코드', '종목명', '현재가', '수량', '현재평가금액', '목표금액', '주문', '주문수량', '예상체결금액']]
+                display_reb = merged[['종목코드', '종목명', '시총(억)', '현재가', '액면가', '수량', '현재평가금액', '목표금액', '주문', '주문수량', '예상체결금액']]
                 
                 with col_btn:
                     csv_data = display_reb.to_csv(index=False, encoding='utf-8-sig')
@@ -482,25 +501,52 @@ with tabs[4]:
                 
                 def style_rebal(st_df):
                     s = pd.DataFrame('', index=st_df.index, columns=st_df.columns)
+                    
+                    highlight_css = 'background-color: rgba(255, 167, 38, 0.1); color: #FFA726; border: 1px solid #FFA726; font-weight:bold; border-radius: 4px;'
+                    warning_css = 'background-color: rgba(255, 0, 0, 0.2); color: #FF3333; border: 2px solid #FF3333; font-weight:bold; border-radius: 4px;'
+                    
+                    if '시총(억)' in st_df.columns:
+                        s['시총(억)'] = st_df['시총(억)'].apply(lambda x: highlight_css if 0 < x <= 150 else '')
+                    
                     for i, row in st_df.iterrows():
+                        # 매수, 매도 주문 스타일링 (예상체결금액 포함)
                         if row['주문'] in ["신규매수", "추가매수"]:
                             s.loc[i, '주문'] = 'color: #FF3333; font-weight: bold; background-color: rgba(255,51,51,0.1);'
                             s.loc[i, '주문수량'] = 'color: #FF3333; font-weight: bold;'
+                            s.loc[i, '예상체결금액'] = 'color: #FF3333; font-weight: bold;'
                         elif row['주문'] in ["전량매도", "부분매도"]:
                             s.loc[i, '주문'] = 'color: #3399FF; font-weight: bold; background-color: rgba(51,153,255,0.1);'
                             s.loc[i, '주문수량'] = 'color: #3399FF; font-weight: bold;'
+                            s.loc[i, '예상체결금액'] = 'color: #3399FF; font-weight: bold;'
                         else:
                             s.loc[i, '주문'] = 'color: #9ca3af;'
+                            s.loc[i, '예상체결금액'] = 'color: #9ca3af;'
+                            
+                        # 상폐 리스크, 소형주, 동전주 등 붉은/노란 불빛 경고 스타일링
+                        if row['액면가'] > 0 and row['현재가'] < row['액면가']:
+                            s.loc[i, '현재가'] = warning_css
+                            s.loc[i, '액면가'] = warning_css
+                        elif 0 < row['현재가'] < 1000:
+                            s.loc[i, '현재가'] = highlight_css
+                            
                     return s
+                
+                # 예상체결금액에 대해 매수는 +, 매도는 - 기호를 붙이는 포맷팅 함수
+                def format_expected_amount(val):
+                    if val > 0: return f"+{val:,}"
+                    elif val < 0: return f"{val:,}" # 이미 음수이므로 자동으로 -가 붙음
+                    else: return "0"
                     
                 st.dataframe(
                     display_reb.style.apply(style_rebal, axis=None).format({
+                        '시총(억)': '{:,}',
                         '현재가': '{:,}',
+                        '액면가': '{:,}',
                         '수량': '{:,}',
                         '현재평가금액': '{:,}',
                         '목표금액': '{:,}',
                         '주문수량': '{:,}',
-                        '예상체결금액': '{:,}'
+                        '예상체결금액': format_expected_amount
                     }),
                     use_container_width=True, hide_index=True
                 )
