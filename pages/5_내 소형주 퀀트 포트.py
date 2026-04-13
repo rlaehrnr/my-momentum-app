@@ -45,6 +45,15 @@ st.markdown("""
     .highlight-cell { background-color: rgba(255, 255, 255, 0.03); font-size: 1.2rem; }
     .summary-total { background-color: #242834; font-size: 1.3rem; }
     
+    /* 💡 [신규] 설정 저장 버튼 정사각형 및 위치 맞춤 */
+    div[data-testid="stForm"] [data-testid="stFormSubmitButton"] button {
+        height: 68px;
+        margin-top: 28px;
+        white-space: pre-wrap;
+        line-height: 1.4;
+        font-size: 1.05rem;
+    }
+    
     /* 숫자 색상 */
     .val-red-thin { color: #FF3333 !important; font-weight: 500; }
     .val-blue-thin { color: #3399FF !important; font-weight: 500; }
@@ -202,6 +211,8 @@ def render_portfolio_tab(port_name, port_key, path, prices):
                         code, name = sel[1:7], sel[9:]
                         new_row = pd.DataFrame([{"종목명": name, "종목코드": code, "매수단가": int(p), "수량": int(q)}])
                         st.session_state[f'df_{port_key}'] = pd.concat([st.session_state[f'df_{port_key}'], new_row], ignore_index=True)
+                        # 💡 행 추가 시에도 인덱스 1부터 재정렬
+                        st.session_state[f'df_{port_key}'].index = range(1, len(st.session_state[f'df_{port_key}']) + 1)
                         st.session_state[f'df_{port_key}'].to_csv(path, index=False, encoding='utf-8-sig')
                         st.rerun()
     with col_file:
@@ -214,13 +225,20 @@ def render_portfolio_tab(port_name, port_key, path, prices):
                     up_df.columns = up_df.columns.str.strip()
                     up_df['종목코드'] = up_df['종목코드'].astype(str).str.zfill(6)
                     st.session_state[f'df_{port_key}'] = up_df
+                    # 💡 파일 업로드 시에도 인덱스 1부터 재정렬
+                    st.session_state[f'df_{port_key}'].index = range(1, len(st.session_state[f'df_{port_key}']) + 1)
                     st.session_state[f'df_{port_key}'].to_csv(path, index=False, encoding='utf-8-sig')
                     st.rerun()
                 except: st.error("파일 오류")
 
     st.markdown(f"### 📝 {port_name} 편집")
+    
+    # 💡 [업데이트] 데이터 에디터에 넘기기 직전에 인덱스를 1부터 시작하도록 설정
+    st.session_state[f'df_{port_key}'].index = range(1, len(st.session_state[f'df_{port_key}']) + 1)
     df_editor = st.data_editor(st.session_state[f'df_{port_key}'], num_rows="dynamic", use_container_width=True, key=f"ed_{port_key}")
+    
     if st.button("저장", key=f"sv_{port_key}"):
+        df_editor.index = range(1, len(df_editor) + 1) # 저장할 때도 1번부터 정리
         st.session_state[f'df_{port_key}'] = df_editor
         st.session_state[f'df_{port_key}'].to_csv(path, index=False, encoding='utf-8-sig')
         st.rerun()
@@ -309,16 +327,19 @@ with tabs[0]:
     st.markdown(f"##### ⚙️ 비교 시점 및 시작 수익금 설정 <span style='font-size: 1rem; color: #9ca3af; font-weight: normal; margin-left: 10px;'>(기준일 : {display_date_str}, 총 시작금 : {total_start_sum:,}원)</span>", unsafe_allow_html=True)
     
     with st.form("config_form"):
-        c_dt, c_d, c_s, c_m = st.columns([1.2, 1, 1, 1])
+        # 💡 [업데이트] 버튼을 넣기 위해 컬럼을 5개로 쪼개고 버튼을 오른쪽에 배치
+        c_dt, c_d, c_s, c_m, c_btn = st.columns([1.2, 1, 1, 1, 0.7])
         try: dt_val = datetime.strptime(config['start_date'], '%Y-%m-%d').date()
         except: dt_val = datetime.today().date()
         
-        new_date = c_dt.date_input("📅 시작일", value=dt_val)
-        str_ddo = c_d.text_input("💰 [또] 시작금", value=f"{config['start_ddo']:,}")
-        str_sso = c_s.text_input("💰 [쏘] 시작금", value=f"{config['start_sso']:,}")
-        str_mom = c_m.text_input("💰 [맘] 시작금", value=f"{config['start_mom']:,}")
+        with c_dt: new_date = st.date_input("📅 시작일", value=dt_val)
+        with c_d: str_ddo = st.text_input("💰 [또] 시작금", value=f"{config['start_ddo']:,}")
+        with c_s: str_sso = st.text_input("💰 [쏘] 시작금", value=f"{config['start_sso']:,}")
+        with c_m: str_mom = st.text_input("💰 [맘] 시작금", value=f"{config['start_mom']:,}")
         
-        submitted = st.form_submit_button("설정 저장")
+        with c_btn:
+            # 💡 [업데이트] 줄바꿈 기호(\n)를 사용해 버튼 글씨를 두 줄로 만듭니다.
+            submitted = st.form_submit_button("설정\n저장", use_container_width=True)
         
         if submitted:
             new_ddo = parse_krw(str_ddo, config['start_ddo'])
@@ -397,7 +418,6 @@ with tabs[4]:
     c_sel, c_up = st.columns([1, 2])
     target_port_info = c_sel.selectbox("🔄 기준 포트폴리오 선택", options=[("또", "ddo"), ("쏘", "sso"), ("맘", "mom")], format_func=lambda x: f"[{x[0]}] 포트폴리오 기준")
     
-    # 💡 1) 파일 업로드 텍스트 변경
     up_target = c_up.file_uploader("목표 엑셀/CSV 업로드 양식 (필수 열: '코드번호 (A포함)', '목표금액(100만원 단위)')", type=['csv', 'xlsx'], key="up_rebal")
     
     if up_target:
@@ -406,7 +426,6 @@ with tabs[4]:
             tgt_df = pd.read_csv(up_target, encoding='utf-8-sig') if up_target.name.endswith('csv') else pd.read_excel(up_target)
             tgt_df.columns = tgt_df.columns.str.strip()
             
-            # 컬럼명이 조금이라도 포함되어 있는지 체크하기 위한 로직
             code_col = [col for col in tgt_df.columns if '코드번호' in col]
             target_col = [col for col in tgt_df.columns if '목표금액' in col]
             
@@ -427,7 +446,6 @@ with tabs[4]:
                 merged['수량'] = merged['수량'].fillna(0).astype(int)
                 merged['목표금액'] = merged['목표금액'].fillna(0).astype(int)
                 
-                # 💡 4) 시가총액과 액면가 맵핑
                 merged['시총(억)'] = merged['종목코드'].map(global_cap_map).fillna(0)
                 merged['액면가'] = merged['종목코드'].map(global_fv_map).fillna(0)
                 
@@ -457,7 +475,6 @@ with tabs[4]:
                     
                 merged['주문수량'] = merged.apply(get_rebal_qty, axis=1)
                 
-                # 💡 3) 예상체결금액을 수식이 아닌 매도(-), 매수(+) 기호를 붙일 수 있도록 부호 값을 적용
                 def get_signed_amount(row):
                     val = row['주문수량'] * row['현재가']
                     if row['주문'] in ["신규매수", "추가매수"]: return val
@@ -469,12 +486,10 @@ with tabs[4]:
                 merged = merged[(merged['수량'] > 0) | (merged['목표금액'] > 0)]
                 merged = merged.sort_values(by='종목명', ascending=True)
                 
-                # 집계는 절대값(크기) 기준 또는 조건별로 처리
                 buy_sum = merged[merged['예상체결금액'] > 0]['예상체결금액'].sum()
                 sell_sum = merged[merged['예상체결금액'] < 0]['예상체결금액'].abs().sum()
                 net_cash = sell_sum - buy_sum
                 
-                # 💡 2) 리밸런싱 후 현금 잔액의 텍스트와 색상 설정 (매수, 매도 차이에 따른 직관적 텍스트)
                 if net_cash >= 0:
                     net_css = "color: #FF3333; font-size: 1.25rem; padding: 2px 10px; margin-left: 5px; background-color: rgba(255, 51, 51, 0.15); border-radius: 6px;"
                     net_text = f"₩{net_cash:,} 잔금"
@@ -509,7 +524,6 @@ with tabs[4]:
                         s['시총(억)'] = st_df['시총(억)'].apply(lambda x: highlight_css if 0 < x <= 150 else '')
                     
                     for i, row in st_df.iterrows():
-                        # 매수, 매도 주문 스타일링 (예상체결금액 포함)
                         if row['주문'] in ["신규매수", "추가매수"]:
                             s.loc[i, '주문'] = 'color: #FF3333; font-weight: bold; background-color: rgba(255,51,51,0.1);'
                             s.loc[i, '주문수량'] = 'color: #FF3333; font-weight: bold;'
@@ -522,7 +536,6 @@ with tabs[4]:
                             s.loc[i, '주문'] = 'color: #9ca3af;'
                             s.loc[i, '예상체결금액'] = 'color: #9ca3af;'
                             
-                        # 상폐 리스크, 소형주, 동전주 등 붉은/노란 불빛 경고 스타일링
                         if row['액면가'] > 0 and row['현재가'] < row['액면가']:
                             s.loc[i, '현재가'] = warning_css
                             s.loc[i, '액면가'] = warning_css
@@ -531,10 +544,9 @@ with tabs[4]:
                             
                     return s
                 
-                # 예상체결금액에 대해 매수는 +, 매도는 - 기호를 붙이는 포맷팅 함수
                 def format_expected_amount(val):
                     if val > 0: return f"+{val:,}"
-                    elif val < 0: return f"{val:,}" # 이미 음수이므로 자동으로 -가 붙음
+                    elif val < 0: return f"{val:,}"
                     else: return "0"
                     
                 st.dataframe(
