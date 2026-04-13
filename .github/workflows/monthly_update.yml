@@ -1,0 +1,47 @@
+name: Monthly Quant Data Update
+
+on:
+  schedule:
+    # ⭐ 매월 1일 UTC 00:00 (한국 시간 1일 아침 09:00) 실행
+    - cron: '0 0 1 * *'  
+  workflow_dispatch:
+
+jobs:
+  update-monthly-data:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install pandas finance-datareader openpyxl pyarrow requests lxml html5lib yfinance
+
+      - name: Run MONTHLY update scripts
+        run: |
+          # 1. 액면가 갱신 (먼저 실행)
+          python update_face_value.py
+          
+          # 2. 월말 고정 데이터 갱신
+          python update_monthly.py
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add .
+          if [ -n "$(git status --porcelain)" ]; then
+            git commit -m "📅 Monthly Update (Face Value & Monthly Data)"
+            git pull --rebase origin main
+            git push
+          else
+            echo "No changes to commit today."
+          fi
