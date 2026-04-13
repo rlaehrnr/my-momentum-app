@@ -272,10 +272,18 @@ st.markdown('<p class="main-title">💼 내 퀀트 포트폴리오 종합 대시
 tabs = st.tabs(["📊 종합 요약", "🌱 또", "🌿 쏘", "🍀 맘", "⚖️ 리밸런싱 계산기"])
 
 with tabs[0]:
-    # 💡 [핵심] JSON 파일 대신 안전하게 백업된 메모리(Session State)에서 설정값을 꺼내옵니다.
     config = st.session_state['portfolio_config']
     
-    st.markdown("##### ⚙️ 비교 시점 및 시작 수익금 설정")
+    # 💡 [업데이트] 설정된 총합 금액과 날짜를 계산해서 예쁘게 포맷팅
+    total_start_sum = config.get('start_ddo', 0) + config.get('start_sso', 0) + config.get('start_mom', 0)
+    try:
+        dt_obj = datetime.strptime(config['start_date'], '%Y-%m-%d')
+        display_date_str = f"{dt_obj.strftime('%y')}년 {dt_obj.month}월 {dt_obj.day}일"
+    except:
+        display_date_str = config['start_date']
+        
+    # 제목 옆에 정보 추가 (회색 계열로 작고 깔끔하게)
+    st.markdown(f"##### ⚙️ 비교 시점 및 시작 수익금 설정 <span style='font-size: 1rem; color: #9ca3af; font-weight: normal; margin-left: 10px;'>(기준일 : {display_date_str}, 총 시작금 : {total_start_sum:,}원)</span>", unsafe_allow_html=True)
     
     with st.form("config_form"):
         c_dt, c_d, c_s, c_m = st.columns([1.2, 1, 1, 1])
@@ -294,7 +302,6 @@ with tabs[0]:
             new_sso = parse_krw(str_sso, config['start_sso'])
             new_mom = parse_krw(str_mom, config['start_mom'])
             
-            # 💡 파일 저장과 동시에 Session State에도 새 값을 단단히 고정합니다.
             new_config = {"start_date": str(new_date), "start_ddo": new_ddo, "start_sso": new_sso, "start_mom": new_mom}
             st.session_state['portfolio_config'] = new_config
             save_config(new_config)
