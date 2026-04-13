@@ -45,10 +45,10 @@ st.markdown("""
     .highlight-cell { background-color: rgba(255, 255, 255, 0.03); font-size: 1.2rem; }
     .summary-total { background-color: #242834; font-size: 1.3rem; }
     
-    /* 💡 [신규] 설정 저장 버튼 정사각형 및 위치 맞춤 */
+    /* 💡 [수정] 설정 저장 버튼 정사각형 및 위치 완벽 맞춤 */
     div[data-testid="stForm"] [data-testid="stFormSubmitButton"] button {
-        height: 68px;
-        margin-top: 28px;
+        height: 73px !important; /* 라벨과 입력칸을 모두 덮는 높이 */
+        margin-top: 0px !important; /* 위쪽 여백 제거하여 라벨과 윗선 맞춤 */
         white-space: pre-wrap;
         line-height: 1.4;
         font-size: 1.05rem;
@@ -211,7 +211,6 @@ def render_portfolio_tab(port_name, port_key, path, prices):
                         code, name = sel[1:7], sel[9:]
                         new_row = pd.DataFrame([{"종목명": name, "종목코드": code, "매수단가": int(p), "수량": int(q)}])
                         st.session_state[f'df_{port_key}'] = pd.concat([st.session_state[f'df_{port_key}'], new_row], ignore_index=True)
-                        # 💡 행 추가 시에도 인덱스 1부터 재정렬
                         st.session_state[f'df_{port_key}'].index = range(1, len(st.session_state[f'df_{port_key}']) + 1)
                         st.session_state[f'df_{port_key}'].to_csv(path, index=False, encoding='utf-8-sig')
                         st.rerun()
@@ -225,7 +224,6 @@ def render_portfolio_tab(port_name, port_key, path, prices):
                     up_df.columns = up_df.columns.str.strip()
                     up_df['종목코드'] = up_df['종목코드'].astype(str).str.zfill(6)
                     st.session_state[f'df_{port_key}'] = up_df
-                    # 💡 파일 업로드 시에도 인덱스 1부터 재정렬
                     st.session_state[f'df_{port_key}'].index = range(1, len(st.session_state[f'df_{port_key}']) + 1)
                     st.session_state[f'df_{port_key}'].to_csv(path, index=False, encoding='utf-8-sig')
                     st.rerun()
@@ -233,12 +231,12 @@ def render_portfolio_tab(port_name, port_key, path, prices):
 
     st.markdown(f"### 📝 {port_name} 편집")
     
-    # 💡 [업데이트] 데이터 에디터에 넘기기 직전에 인덱스를 1부터 시작하도록 설정
     st.session_state[f'df_{port_key}'].index = range(1, len(st.session_state[f'df_{port_key}']) + 1)
-    df_editor = st.data_editor(st.session_state[f'df_{port_key}'], num_rows="dynamic", use_container_width=True, key=f"ed_{port_key}")
+    # 💡 [수정] hide_index=False 속성을 추가하여 Streamlit이 숫자 인덱스를 숨기지 않도록 강제합니다.
+    df_editor = st.data_editor(st.session_state[f'df_{port_key}'], num_rows="dynamic", use_container_width=True, hide_index=False, key=f"ed_{port_key}")
     
     if st.button("저장", key=f"sv_{port_key}"):
-        df_editor.index = range(1, len(df_editor) + 1) # 저장할 때도 1번부터 정리
+        df_editor.index = range(1, len(df_editor) + 1)
         st.session_state[f'df_{port_key}'] = df_editor
         st.session_state[f'df_{port_key}'].to_csv(path, index=False, encoding='utf-8-sig')
         st.rerun()
@@ -327,7 +325,6 @@ with tabs[0]:
     st.markdown(f"##### ⚙️ 비교 시점 및 시작 수익금 설정 <span style='font-size: 1rem; color: #9ca3af; font-weight: normal; margin-left: 10px;'>(기준일 : {display_date_str}, 총 시작금 : {total_start_sum:,}원)</span>", unsafe_allow_html=True)
     
     with st.form("config_form"):
-        # 💡 [업데이트] 버튼을 넣기 위해 컬럼을 5개로 쪼개고 버튼을 오른쪽에 배치
         c_dt, c_d, c_s, c_m, c_btn = st.columns([1.2, 1, 1, 1, 0.7])
         try: dt_val = datetime.strptime(config['start_date'], '%Y-%m-%d').date()
         except: dt_val = datetime.today().date()
@@ -338,7 +335,6 @@ with tabs[0]:
         with c_m: str_mom = st.text_input("💰 [맘] 시작금", value=f"{config['start_mom']:,}")
         
         with c_btn:
-            # 💡 [업데이트] 줄바꿈 기호(\n)를 사용해 버튼 글씨를 두 줄로 만듭니다.
             submitted = st.form_submit_button("설정\n저장", use_container_width=True)
         
         if submitted:
