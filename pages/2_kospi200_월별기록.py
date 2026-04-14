@@ -8,6 +8,7 @@ import plotly.express as px
 # --- [1. 페이지 설정] ---
 st.set_page_config(page_title="KOSPI 200 월별 기록", layout="wide")
 
+# 💡 [수정] 거슬리던 하얀색 외곽선 박스 CSS 클래스를 완전히 삭제했습니다.
 st.markdown("""
     <style>
     .block-container { padding-top: 2.8rem !important; padding-bottom: 1rem !important; }
@@ -26,9 +27,6 @@ st.markdown("""
     
     .title-link:hover { opacity: 0.7; transition: 0.2s; }
     th[data-testid="stTableColumnHeader"] div { white-space: pre-wrap !important; text-align: center !important; }
-    
-    /* 백테스트 설정 박스 디자인 */
-    .settings-box { background-color: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 20px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -363,27 +361,26 @@ with tab_detail:
                  column_order=['통합티커_L', '종목명_L', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '다음달수익률(%)'], 
                  column_config=full_cfg)
 
-# 💡 [업데이트] 인터랙티브 백테스트 및 팁(안내문) 제거
+# 💡 [업데이트] 인터랙티브 백테스트: CSS 박스 삭제 및 로직 고도화
 with tab_summary:
     st.markdown("### 📈 KOSPI 200 모멘텀 전략 백테스트 시뮬레이터 (2014 ~ 현재)")
     
     with st.spinner("백테스트 엔진을 구동 중입니다... (최초 1회만 수 초 소요)"):
         monthly_data = prep_backtest_data(df_all)
         
-    st.markdown("<div class='settings-box'>", unsafe_allow_html=True)
-    st.markdown("##### ⚙️ 실시간 시뮬레이션 설정 (옵션을 변경하면 차트와 표가 즉시 업데이트됩니다)")
-    
+    # 💡 텍스트 문구 삭제하고 슬라이더가 바로 나오도록 수정
     c1, c2 = st.columns([1, 1])
     with c1:
         top_n = st.slider("🏆 포트폴리오 매수 종목 수 (상위 N개)", min_value=1, max_value=30, value=5, step=1, help="수익률 순위가 높은 종목부터 몇 개를 살지 결정합니다.")
     with c2:
         st.markdown("<div style='margin-top: 35px;'></div>", unsafe_allow_html=True)
         apply_timing = st.checkbox("🛑 마켓타이밍 적용 (하락장 및 4개월선 이탈 시 현금 100% 보유)", value=True)
-    st.markdown("</div>", unsafe_allow_html=True)
     
+    # 설정값에 따른 실시간 성과 계산 (투자가 들어간 달 체크)
     records = []
     for m in monthly_data:
         mult = 0.0 if (apply_timing and m['is_bad']) else 1.0
+        is_invested = mult > 0.0  # 💡 현금을 보유하지 않고 투자를 집행했는지 여부
         
         def get_avg_ret(rets, n):
             sliced = rets[:n]
@@ -395,14 +392,17 @@ with tab_summary:
         
         records.append({
             '투자월': m['투자월'],
+            'invested': is_invested,
             f'퍼펙트상승 (Top {top_n})': ret_p,
             f'달리는말 (Top {top_n})': ret_s,
             f'앙상블 (반반 혼합)': (ret_p + ret_s) / 2
         })
         
     df_summary = pd.DataFrame(records)
+    strategy_cols = [c for c in df_summary.columns if c not in ['투자월', 'invested']]
     
-    df_cum = (1 + df_summary.set_index('투자월') / 100).cumprod() * 100
+    # 누적 수익률 계산
+    df_cum = (1 + df_summary.set_index('투자월')[strategy_cols] / 100).cumprod() * 100
     
     first_month = pd.to_datetime(df_summary['투자월'].iloc[0]) - pd.DateOffset(months=1)
     first_month_str = f"{first_month.year}-{first_month.month:02d}"
@@ -411,9 +411,11 @@ with tab_summary:
 
     df_melt = df_cum.reset_index().melt(id_vars='투자월', var_name='전략', value_name='누적수익률')
     
+    # 💡 [업데이트 3] Pan(이동) 모드를 기본값으로 설정한 Plotly 차트
     fig = px.line(df_melt, x='투자월', y='누적수익률', color='전략')
     fig.update_layout(
         hovermode="x unified",
+        dragmode="pan",  # 💡 줌 대신 좌우 드래그 패닝을 기본으로 설정
         xaxis_title="투자 기준 월",
         yaxis_title="누적 자산 (초기 자본 = 100)",
         legend_title_text="투자 전략",
@@ -425,16 +427,25 @@ with tab_summary:
     
     st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
     
-    # 💡 [업데이트] 에러 수정한 표 색상 로직 (Styler.map 적용)
+    # 💡 [업데이트 2] 투자한 달(invested)만 기준으로 한 승률 및 평균 수익률 계산
     st.markdown("#### 📊 전략별 핵심 통계 (초기 자본 100 기준)")
     
     stats = []
-    for col in df_summary.columns[1:]:
+    total_months = len(df_summary)
+    invested_months = df_summary['invested'].sum()
+    invest_ratio = (invested_months / total_months) * 100 if total_months > 0 else 0
+
+    for col in strategy_cols:
         total_ret = df_cum[col].iloc[-1] - 100
-        win_months = (df_summary[col] > 0).sum()
-        total_months = len(df_summary)
-        win_rate = (win_months / total_months) * 100
-        avg_ret = df_summary[col].mean()
+        
+        if invested_months > 0:
+            win_months = (df_summary.loc[df_summary['invested'], col] > 0).sum()
+            win_rate = (win_months / invested_months) * 100
+            avg_ret = df_summary.loc[df_summary['invested'], col].mean()
+        else:
+            win_months = 0
+            win_rate = 0.0
+            avg_ret = 0.0
         
         roll_max = df_cum[col].cummax()
         drawdown = (df_cum[col] / roll_max) - 1.0
@@ -444,8 +455,9 @@ with tab_summary:
             "전략명": col,
             "총 누적수익률": f"{total_ret:,.1f}%",
             "MDD (최대낙폭)": f"{mdd:.1f}%",
-            "월별 승률": f"{win_rate:.1f}% ({win_months}승 / {total_months}월)",
-            "월평균 수익률": f"{avg_ret:.2f}%"
+            "투자월 비율": f"{invest_ratio:.1f}% ({invested_months}/{total_months}개월)", # 💡 투자월 비율 추가
+            "월별 승률": f"{win_rate:.1f}% ({win_months}승 / {invested_months}개월)", # 💡 투자한 달만 모수로 계산
+            "평균 수익률(투자월)": f"{avg_ret:.2f}%"
         })
         
     df_stats = pd.DataFrame(stats)
@@ -464,4 +476,5 @@ with tab_summary:
     st.dataframe(styled_stats, use_container_width=True, hide_index=True)
     
     with st.expander("📝 월별 수익률 상세 기록 보기"):
-        st.dataframe(df_summary.set_index('투자월').style.format("{:.2f}%"), use_container_width=True)
+        display_df = df_summary.drop(columns=['invested']).set_index('투자월')
+        st.dataframe(display_df.style.format("{:.2f}%"), use_container_width=True)
