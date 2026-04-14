@@ -9,7 +9,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # --- [1. 설정 및 스타일] ---
 st.set_page_config(page_title="KOSPI 200 강세 종목", layout="wide")
 
-# 💡 [수정] padding-top을 3.5rem으로 늘려서 제목이 잘리지 않도록 공간을 확보했습니다!
 st.markdown("""
     <style>
     .block-container { padding-top: 3.5rem !important; }
@@ -31,6 +30,12 @@ st.markdown("""
     .title-link:hover { opacity: 0.7; transition: 0.2s; }
     /* 수익률 링크 호버 액션 */
     .return-link:hover { opacity: 0.6; }
+    
+    /* 컬럼 헤더 줄바꿈 허용 (날짜 표시용) */
+    th[data-testid="stTableColumnHeader"] div {
+        white-space: pre-wrap !important;
+        text-align: center !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -249,8 +254,19 @@ def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
     top5_spec = df_spec.head(5)['종목코드'].tolist()
     overlap_top5 = set(top5_perf).intersection(set(top5_spec))
 
+    # 💡 [핵심] 1, 3, 6, 12개월 전 기준 날짜 계산 함수
+    def get_ref_str(m):
+        ref_dt = (base_dt.replace(day=1) - pd.DateOffset(months=m-1)) - timedelta(days=1)
+        return ref_dt.strftime('%y.%m.%d')
+
     k_cfg = main_cfg.copy()
     k_cfg['시가총액'] = st.column_config.NumberColumn("시가총액(억)", format="%,d")
+    
+    # 💡 [신규] 컬럼 헤더에 기준 날짜(YY.MM.DD) 추가 반영
+    k_cfg['1개월(%)'] = st.column_config.NumberColumn(f"1개월(%)\n({get_ref_str(1)})", format="%.1f")
+    k_cfg['3개월(%)'] = st.column_config.NumberColumn(f"3개월(%)\n({get_ref_str(3)})", format="%.1f")
+    k_cfg['6개월(%)'] = st.column_config.NumberColumn(f"6개월(%)\n({get_ref_str(6)})", format="%.1f")
+    k_cfg['12개월(%)'] = st.column_config.NumberColumn(f"12개월(%)\n({get_ref_str(12)})", format="%.1f")
 
     if not is_daily and (top5_perf or top5_spec):
         track_codes = list(set(top5_perf + top5_spec))
@@ -276,7 +292,6 @@ def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
                 ret_strs = []
                 for code, r in rets:
                     color = '#FF3333' if r > 0 else '#3399FF' if r < 0 else '#555'
-                    # 💡 [수정] 숫자를 a 태그로 감싸 네이버 증권 차트로 연결하고 텍스트에 밑줄을 추가했습니다.
                     link = f"https://m.stock.naver.com/fchart/domestic/stock/{code}#"
                     ret_strs.append(f"<a href='{link}' target='_blank' class='return-link' style='color: {color}; font-weight: 600; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px;'>{r:.1f}%</a>")
                 
@@ -303,7 +318,6 @@ def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
                 ret_strs = []
                 for code, r in rets:
                     color = '#FF3333' if r > 0 else '#3399FF' if r < 0 else '#555'
-                    # 💡 [수정] 숫자를 a 태그로 감싸 네이버 증권 차트로 연결하고 텍스트에 밑줄을 추가했습니다.
                     link = f"https://m.stock.naver.com/fchart/domestic/stock/{code}#"
                     ret_strs.append(f"<a href='{link}' target='_blank' class='return-link' style='color: {color}; font-weight: 600; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px;'>{r:.1f}%</a>")
                 
@@ -332,7 +346,6 @@ def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
 # 💡 화면 구성부 (월간 / 데일리 탭)
 # =========================================================
 
-# 💡 [수정] 상단 여백 확보(margin-top 추가)로 링크 텍스트가 더 아래로 내려오게 안전장치를 강화했습니다.
 st.markdown('''
     <a href="https://stock.naver.com/" target="_blank" class="title-link" style="text-decoration: none; color: inherit;">
         <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 15px; margin-bottom: 10px;">
