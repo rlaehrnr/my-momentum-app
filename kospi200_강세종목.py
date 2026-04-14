@@ -3,6 +3,8 @@ import pandas as pd
 import FinanceDataReader as fdr
 from datetime import datetime, timedelta
 import os
+import yfinance as yf
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # --- [1. 설정 및 스타일] ---
 st.set_page_config(page_title="KOSPI 200 강세 종목", layout="wide")
@@ -24,6 +26,9 @@ st.markdown("""
             margin-bottom: 10px !important;
         }
     }
+    
+    /* 제목 링크 호버 액션 */
+    .title-link:hover { opacity: 0.7; transition: 0.2s; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -97,6 +102,27 @@ def get_kospi_ma_status(target_date_str):
         return pd.DataFrame([ma_values])
     except: return pd.DataFrame()
 
+# 💡 [신규] 초고속 실시간 가격 조회 함수
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_current_prices_fast(tickers):
+    prices = {}
+    def get_price(t):
+        try:
+            yf_t = str(t).zfill(6) + ".KS"
+            hist = yf.Ticker(yf_t).history(period="1d")
+            if not hist.empty:
+                return t, int(hist['Close'].iloc[-1])
+        except: pass
+        return t, 0
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = [executor.submit(get_price, t) for t in tickers]
+        for f in as_completed(futures):
+            t, p = f.result()
+            if p > 0:
+                prices[t] = p
+    return prices
+
 def style_kospi_ma(df):
     def apply_color(row):
         price = row['base_price']
@@ -131,10 +157,9 @@ main_cfg = {
     "12개월(%)": st.column_config.NumberColumn(format="%.1f"),
     "모멘텀스코어": st.column_config.NumberColumn("스코어", format="%.2f"),
     "전달순위": st.column_config.NumberColumn("전달 순위", format="%d위"),
-    "전일거래량": st.column_config.NumberColumn("거래량", format="%,d") # 💡 설정 추가
+    "전일거래량": st.column_config.NumberColumn("거래량", format="%,d") 
 }
 
-# 💡 월간/데일리에서 공통으로 호출할 '화면 그리기 함수'
 def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
     st.markdown(f'<p class="main-title">🎯 KOSPI 200 집중 분석 (기준: {b_date_str})</p>', unsafe_allow_html=True)
     
@@ -199,7 +224,6 @@ def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
         invest_status, box_color, text_color = "✅ 투자 진행", "#E8F5E9", "#2E7D32"
         status_desc = "상승장 & 4개월선 위"
 
-    # 💡 모바일 CSS가 적용되어 스마트폰에서는 2x3 바둑판, PC에서는 1줄로 나옵니다.
     st.markdown("<br>", unsafe_allow_html=True)
     col1, col2, col3, col4, col5, col6 = st.columns([0.9, 0.9, 1.0, 1.0, 1.4, 1.6])
     with col1: st.metric(label="📈 KOSPI 1M", value=f"{kospi_1m}%")
@@ -235,10 +259,38 @@ def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
         st.subheader("🚀 달리는 말")
         st.dataframe(df_spec.style.apply(apply_k200_styling, idx_df=idx_k, highlight_codes=top5_spec, overlap_codes=overlap_top5, axis=1), use_container_width=True, column_order=['통합티커_L', '종목명_L', '시가총액', '1개월(%)', '12개월(%)'], column_config=k_cfg)
 
+    # 💡 [신규] 월간 탭일 경우에만 이번 달 실시간 수익률 추적 전광판 표시
+    if not is_daily and (top5_perf or top5_spec):
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("### 📡 이번 달 실시간 수익률 추적 (Top 5)")
+        st.caption("전월 말일 종가(기준가) 대비 오늘 실시간으로 얼마나 올랐는지 확인합니다.")
+
+        track_codes = list(set(top5_perf + top5_spec))
+        curr_prices = fetch_current_prices_fast(track_codes)
+
+        if top5_perf:
+            st.markdown("##### 🔥 퍼펙트 상승 그룹")
+            cols_p = st.columns(len(top5_perf))
+            for i, code in enumerate(top5_perf):
+                row = df_k200[df_k200['종목코드'] == code].iloc[0]
+                base_p = row['기준가']
+                curr_p = curr_prices.get(code, base_p)
+                ret = ((curr_p - base_p) / base_p * 100) if base_p > 0 else 0
+                cols_p[i].metric(row['종목명'], f"{int(curr_p):,}원", f"{ret:.2f}%")
+
+        if top5_spec:
+            st.markdown("##### 🚀 달리는 말 그룹")
+            cols_s = st.columns(len(top5_spec))
+            for i, code in enumerate(top5_spec):
+                row = df_k200[df_k200['종목코드'] == code].iloc[0]
+                base_p = row['기준가']
+                curr_p = curr_prices.get(code, base_p)
+                ret = ((curr_p - base_p) / base_p * 100) if base_p > 0 else 0
+                cols_s[i].metric(row['종목명'], f"{int(curr_p):,}원", f"{ret:.2f}%")
+
     st.markdown("---")
     st.subheader("🏆 KOSPI 200 시가총액 전체 순위")
     
-    # 💡 [업데이트 1] 데일리 탭일 때만 전체 표에 '전일거래량' 삽입!
     full_table_cols = ['통합티커_L', '종목명_L', '시가총액', '기준가']
     if is_daily and '전일거래량' in df_k200.columns:
         df_k200['전일거래량'] = pd.to_numeric(df_k200['전일거래량'], errors='coerce').fillna(0)
@@ -254,7 +306,16 @@ def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
 # =========================================================
 # 💡 화면 구성부 (월간 / 데일리 탭)
 # =========================================================
-st.title("🎯 KOSPI 200 강세 종목 분석")
+
+# 💡 [수정] st.title 대신 마크다운을 사용하여 텍스트 전체 또는 링크 아이콘을 클릭 가능하게 만듭니다.
+st.markdown('''
+    <a href="https://stock.naver.com/" target="_blank" class="title-link" style="text-decoration: none; color: inherit;">
+        <h1 style="margin-top: 0; padding-top: 0; cursor: pointer;">
+            🎯 KOSPI 200 강세 종목 분석 <span style="font-size: 1rem; color: #3b82f6; vertical-align: middle;">🔗네이버 증권 이동</span>
+        </h1>
+    </a>
+''', unsafe_allow_html=True)
+
 tab_monthly, tab_daily = st.tabs(["📅 전월 말일 기준", "🕒 오늘(데일리) 기준"])
 
 f_kr = 'data/momentum_data.csv'
