@@ -9,10 +9,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # --- [1. 설정 및 스타일] ---
 st.set_page_config(page_title="KOSPI 200 강세 종목", layout="wide")
 
-# 💡 [모바일 최적화 CSS 추가] PC는 1줄, 모바일(768px 이하)은 2칸씩 바둑판 배열로 자동 변환!
+# 💡 [수정] padding-top을 3.5rem으로 늘려서 제목이 잘리지 않도록 공간을 확보했습니다!
 st.markdown("""
     <style>
-    .block-container { padding-top: 2rem !important; }
+    .block-container { padding-top: 3.5rem !important; }
     .main-title { font-size: 1.6rem !important; font-weight: bold; margin-bottom: 1rem; }
     .stTabs [data-baseweb="tab"] { font-size: 18px; font-weight: bold; }
     
@@ -29,6 +29,8 @@ st.markdown("""
     
     /* 제목 링크 호버 액션 */
     .title-link:hover { opacity: 0.7; transition: 0.2s; }
+    /* 수익률 링크 호버 액션 */
+    .return-link:hover { opacity: 0.6; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -102,7 +104,6 @@ def get_kospi_ma_status(target_date_str):
         return pd.DataFrame([ma_values])
     except: return pd.DataFrame()
 
-# 초고속 실시간 가격 조회 함수
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_current_prices_fast(tickers):
     prices = {}
@@ -251,7 +252,6 @@ def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
     k_cfg = main_cfg.copy()
     k_cfg['시가총액'] = st.column_config.NumberColumn("시가총액(억)", format="%,d")
 
-    # 💡 실시간 주가를 미리 한 번만 초고속으로 조회해 둡니다. (전월 말일 탭인 경우)
     if not is_daily and (top5_perf or top5_spec):
         track_codes = list(set(top5_perf + top5_spec))
         curr_prices = fetch_current_prices_fast(track_codes)
@@ -262,7 +262,6 @@ def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
     with col_p1:
         st.subheader("🔥 퍼펙트 상승")
         
-        # 💡 [업데이트 2] 카드 대신 심플한 텍스트 한 줄 요약 렌더링
         if not is_daily and top5_perf:
             rets = []
             for code in top5_perf:
@@ -270,11 +269,18 @@ def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
                 base_p = row['기준가']
                 curr_p = curr_prices.get(code, base_p)
                 ret = ((curr_p - base_p) / base_p * 100) if base_p > 0 else 0
-                rets.append(ret)
+                rets.append((code, ret))
             
             if rets:
-                avg_ret = sum(rets) / len(rets)
-                ret_str = ", ".join([f"<span style='color: {'#FF3333' if r > 0 else '#3399FF' if r < 0 else '#555'}; font-weight: 500;'>{r:.1f}%</span>" for r in rets])
+                avg_ret = sum(r[1] for r in rets) / len(rets)
+                ret_strs = []
+                for code, r in rets:
+                    color = '#FF3333' if r > 0 else '#3399FF' if r < 0 else '#555'
+                    # 💡 [수정] 숫자를 a 태그로 감싸 네이버 증권 차트로 연결하고 텍스트에 밑줄을 추가했습니다.
+                    link = f"https://m.stock.naver.com/fchart/domestic/stock/{code}#"
+                    ret_strs.append(f"<a href='{link}' target='_blank' class='return-link' style='color: {color}; font-weight: 600; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px;'>{r:.1f}%</a>")
+                
+                ret_str = ", ".join(ret_strs)
                 avg_color = '#FF3333' if avg_ret > 0 else '#3399FF' if avg_ret < 0 else '#555'
                 st.markdown(f"<div style='font-size: 0.95rem; margin-top: -10px; margin-bottom: 12px; color: #6b7280;'>이번달 수익률 : {ret_str} (평균 <strong style='color: {avg_color};'>{avg_ret:.1f}%</strong>)</div>", unsafe_allow_html=True)
                 
@@ -283,7 +289,6 @@ def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
     with col_p2:
         st.subheader("🚀 달리는 말")
         
-        # 💡 [업데이트 2] 카드 대신 심플한 텍스트 한 줄 요약 렌더링
         if not is_daily and top5_spec:
             rets = []
             for code in top5_spec:
@@ -291,11 +296,18 @@ def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
                 base_p = row['기준가']
                 curr_p = curr_prices.get(code, base_p)
                 ret = ((curr_p - base_p) / base_p * 100) if base_p > 0 else 0
-                rets.append(ret)
+                rets.append((code, ret))
             
             if rets:
-                avg_ret = sum(rets) / len(rets)
-                ret_str = ", ".join([f"<span style='color: {'#FF3333' if r > 0 else '#3399FF' if r < 0 else '#555'}; font-weight: 500;'>{r:.1f}%</span>" for r in rets])
+                avg_ret = sum(r[1] for r in rets) / len(rets)
+                ret_strs = []
+                for code, r in rets:
+                    color = '#FF3333' if r > 0 else '#3399FF' if r < 0 else '#555'
+                    # 💡 [수정] 숫자를 a 태그로 감싸 네이버 증권 차트로 연결하고 텍스트에 밑줄을 추가했습니다.
+                    link = f"https://m.stock.naver.com/fchart/domestic/stock/{code}#"
+                    ret_strs.append(f"<a href='{link}' target='_blank' class='return-link' style='color: {color}; font-weight: 600; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px;'>{r:.1f}%</a>")
+                
+                ret_str = ", ".join(ret_strs)
                 avg_color = '#FF3333' if avg_ret > 0 else '#3399FF' if avg_ret < 0 else '#555'
                 st.markdown(f"<div style='font-size: 0.95rem; margin-top: -10px; margin-bottom: 12px; color: #6b7280;'>이번달 수익률 : {ret_str} (평균 <strong style='color: {avg_color};'>{avg_ret:.1f}%</strong>)</div>", unsafe_allow_html=True)
 
@@ -320,10 +332,10 @@ def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
 # 💡 화면 구성부 (월간 / 데일리 탭)
 # =========================================================
 
-# 💡 [업데이트 1] Flexbox 레이아웃을 사용해 모바일에서도 제목이 짤리지 않고 자연스럽게 다음 줄로 넘어가게 만듭니다.
+# 💡 [수정] 상단 여백 확보(margin-top 추가)로 링크 텍스트가 더 아래로 내려오게 안전장치를 강화했습니다.
 st.markdown('''
     <a href="https://stock.naver.com/" target="_blank" class="title-link" style="text-decoration: none; color: inherit;">
-        <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 10px;">
+        <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 15px; margin-bottom: 10px;">
             <h1 style="margin: 0; padding: 0; font-size: 2.2rem; line-height: 1.2; word-break: keep-all;">🎯 KOSPI 200 강세 종목 분석</h1>
             <span style="font-size: 0.95rem; color: #3b82f6; background-color: #eff6ff; padding: 4px 10px; border-radius: 6px; border: 1px solid #bfdbfe; white-space: nowrap;">🔗 네이버 증권 이동</span>
         </div>
