@@ -9,11 +9,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # --- [1. 설정 및 스타일] ---
 st.set_page_config(page_title="KOSPI 200 강세 종목", layout="wide")
 
+# 💡 [수정] 상단 여백을 1.5rem으로 줄여서 사이드바 텍스트 높이와 일치시켰습니다.
 st.markdown("""
     <style>
-    .block-container { padding-top: 3.5rem !important; }
-    .main-title { font-size: 1.6rem !important; font-weight: bold; margin-bottom: 1rem; }
-    .stTabs [data-baseweb="tab"] { font-size: 18px; font-weight: bold; }
+    .block-container { padding-top: 1.5rem !important; padding-bottom: 1rem !important; }
+    .main-title { font-size: 1.5rem !important; font-weight: bold; margin-bottom: 0.5rem; }
+    .stTabs [data-baseweb="tab"] { font-size: 17px; font-weight: bold; }
     
     @media (max-width: 768px) {
         div[data-testid="stHorizontalBlock"] {
@@ -22,7 +23,7 @@ st.markdown("""
         div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
             min-width: 45% !important; 
             flex: 1 1 45% !important;
-            margin-bottom: 10px !important;
+            margin-bottom: 5px !important;
         }
     }
     
@@ -167,7 +168,7 @@ main_cfg = {
 }
 
 def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
-    st.markdown(f'<p class="main-title">🎯 KOSPI 200 집중 분석 (기준: {b_date_str})</p>', unsafe_allow_html=True)
+    st.markdown(f'<p class="main-title" style="margin-top:0.5rem;">🎯 KOSPI 200 집중 분석 (기준: {b_date_str})</p>', unsafe_allow_html=True)
     
     kospi_ma_df = get_kospi_ma_status(b_date_str)
     kospi_curr = 0
@@ -180,8 +181,7 @@ def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
         kospi_curr = kospi_ma_df['base_price'].iloc[0]
         kospi_4m_ma = kospi_ma_df['4개월선'].iloc[0]
         
-    st.markdown("<br>", unsafe_allow_html=True)
-    
+    # 💡 [수정] 불필요한 줄바꿈 <br> 제거
     idx_k = get_idx_kr(pd.to_datetime(b_date_str))
     kospi_1m = idx_k.loc['KOSPI', '1개월(%)'] if 'KOSPI' in idx_k.index else 0.0
     kospi_3m = idx_k.loc['KOSPI', '3개월(%)'] if 'KOSPI' in idx_k.index else 0.0
@@ -230,18 +230,19 @@ def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
         invest_status, box_color, text_color = "✅ 투자 진행", "#E8F5E9", "#2E7D32"
         status_desc = "상승장 & 4개월선 위"
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    # 💡 [수정] 박스들의 padding을 줄이고 flex를 적용하여 세로폭을 아주 컴팩트하게 압축했습니다.
     col1, col2, col3, col4, col5, col6 = st.columns([0.9, 0.9, 1.0, 1.0, 1.4, 1.6])
     with col1: st.metric(label="📈 KOSPI 1M", value=f"{kospi_1m}%")
     with col2: st.metric(label="📈 KOSPI 3M", value=f"{kospi_3m}%")
     with col3: st.metric(label="📉 1개월 하락", value=f"{neg_1m_cnt}개")
     with col4: st.metric(label="📉 3개월 하락", value=f"{neg_3m_cnt}개")
     with col5:
-        st.markdown(f'<div style="background-color: #f0f2f6; padding: 12px 10px; border-radius: 10px; text-align: center; border: 1px solid #d1d5db; height: 100%;"><div style="font-size: 13px; font-weight: bold; color: #333; margin-bottom: 5px;">🇺🇸대통령 <span style="color:#0047AB; font-size:15px;">{cycle_year}년차</span> ({target_year}년)</div><div style="font-size: 13px; font-weight: bold; color: #D84315;">위험달: {bad_m_str}</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="background-color: #f0f2f6; padding: 6px 5px; border-radius: 8px; text-align: center; border: 1px solid #d1d5db; height: 100%; display: flex; flex-direction: column; justify-content: center;"><div style="font-size: 12px; font-weight: bold; color: #333; margin-bottom: 2px;">🇺🇸대통령 <span style="color:#0047AB; font-size:13px;">{cycle_year}년차</span> ({target_year}년)</div><div style="font-size: 12px; font-weight: bold; color: #D84315;">위험달: {bad_m_str}</div></div>', unsafe_allow_html=True)
     with col6:
-        st.markdown(f'<div style="background-color: {box_color}; padding: 10px; border-radius: 10px; text-align: center; border: 1px solid {text_color};"><p style="margin: 0; font-size: 12px; color: {text_color}; font-weight: bold;">최종 판단 ({status_desc})</p><h3 style="margin: 3px 0 0 0; color: {text_color};">{invest_status}</h3></div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="background-color: {box_color}; padding: 6px 5px; border-radius: 8px; text-align: center; border: 1px solid {text_color}; display: flex; flex-direction: column; justify-content: center; height: 100%;"><p style="margin: 0; font-size: 11px; color: {text_color}; font-weight: bold;">최종 판단 ({status_desc})</p><div style="margin: 2px 0 0 0; font-size: 1.1rem; font-weight: bold; color: {text_color};">{invest_status}</div></div>', unsafe_allow_html=True)
         
-    st.markdown("<br><hr>", unsafe_allow_html=True)
+    # 💡 [수정] 빈 공간 낭비를 막기 위해 <hr>의 마진을 대폭 축소
+    st.markdown("<hr style='margin: 1rem 0;'>", unsafe_allow_html=True)
 
     q30 = {c: df_k200[c].quantile(0.7) for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']}
     t10_1m = df_k200['1개월(%)'].quantile(0.9)
@@ -254,7 +255,6 @@ def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
     top5_spec = df_spec.head(5)['종목코드'].tolist()
     overlap_top5 = set(top5_perf).intersection(set(top5_spec))
 
-    # 💡 [핵심] 1, 3, 6, 12개월 전 기준 날짜 계산 함수
     def get_ref_str(m):
         ref_dt = (base_dt.replace(day=1) - pd.DateOffset(months=m-1)) - timedelta(days=1)
         return ref_dt.strftime('%y.%m.%d')
@@ -262,7 +262,6 @@ def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
     k_cfg = main_cfg.copy()
     k_cfg['시가총액'] = st.column_config.NumberColumn("시가총액(억)", format="%,d")
     
-    # 💡 [신규] 컬럼 헤더에 기준 날짜(YY.MM.DD) 추가 반영
     k_cfg['1개월(%)'] = st.column_config.NumberColumn(f"1개월(%)\n({get_ref_str(1)})", format="%.1f")
     k_cfg['3개월(%)'] = st.column_config.NumberColumn(f"3개월(%)\n({get_ref_str(3)})", format="%.1f")
     k_cfg['6개월(%)'] = st.column_config.NumberColumn(f"6개월(%)\n({get_ref_str(6)})", format="%.1f")
@@ -297,7 +296,8 @@ def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
                 
                 ret_str = ", ".join(ret_strs)
                 avg_color = '#FF3333' if avg_ret > 0 else '#3399FF' if avg_ret < 0 else '#555'
-                st.markdown(f"<div style='font-size: 0.95rem; margin-top: -10px; margin-bottom: 12px; color: #6b7280;'>이번달 수익률 : {ret_str} (평균 <strong style='color: {avg_color};'>{avg_ret:.1f}%</strong>)</div>", unsafe_allow_html=True)
+                # 💡 [수정] 아래쪽 여백을 확 줄였습니다.
+                st.markdown(f"<div style='font-size: 0.95rem; margin-top: -10px; margin-bottom: 5px; color: #6b7280;'>이번달 수익률 : {ret_str} (평균 <strong style='color: {avg_color};'>{avg_ret:.1f}%</strong>)</div>", unsafe_allow_html=True)
                 
         st.dataframe(df_perf.style.apply(apply_k200_styling, idx_df=idx_k, highlight_codes=top5_perf, overlap_codes=overlap_top5, axis=1), use_container_width=True, column_order=['통합티커_L', '종목명_L', '시가총액', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)'], column_config=k_cfg)
         
@@ -323,7 +323,8 @@ def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
                 
                 ret_str = ", ".join(ret_strs)
                 avg_color = '#FF3333' if avg_ret > 0 else '#3399FF' if avg_ret < 0 else '#555'
-                st.markdown(f"<div style='font-size: 0.95rem; margin-top: -10px; margin-bottom: 12px; color: #6b7280;'>이번달 수익률 : {ret_str} (평균 <strong style='color: {avg_color};'>{avg_ret:.1f}%</strong>)</div>", unsafe_allow_html=True)
+                # 💡 [수정] 아래쪽 여백을 확 줄였습니다.
+                st.markdown(f"<div style='font-size: 0.95rem; margin-top: -10px; margin-bottom: 5px; color: #6b7280;'>이번달 수익률 : {ret_str} (평균 <strong style='color: {avg_color};'>{avg_ret:.1f}%</strong>)</div>", unsafe_allow_html=True)
 
         st.dataframe(df_spec.style.apply(apply_k200_styling, idx_df=idx_k, highlight_codes=top5_spec, overlap_codes=overlap_top5, axis=1), use_container_width=True, column_order=['통합티커_L', '종목명_L', '시가총액', '1개월(%)', '12개월(%)'], column_config=k_cfg)
 
@@ -346,9 +347,10 @@ def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
 # 💡 화면 구성부 (월간 / 데일리 탭)
 # =========================================================
 
+# 💡 [수정] margin-top을 없애서 링크 텍스트가 위로 딱 달라붙게 변경했습니다.
 st.markdown('''
     <a href="https://stock.naver.com/" target="_blank" class="title-link" style="text-decoration: none; color: inherit;">
-        <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 15px; margin-bottom: 10px;">
+        <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 5px;">
             <h1 style="margin: 0; padding: 0; font-size: 2.2rem; line-height: 1.2; word-break: keep-all;">🎯 KOSPI 200 강세 종목 분석</h1>
             <span style="font-size: 0.95rem; color: #3b82f6; background-color: #eff6ff; padding: 4px 10px; border-radius: 6px; border: 1px solid #bfdbfe; white-space: nowrap;">🔗 네이버 증권 이동</span>
         </div>
