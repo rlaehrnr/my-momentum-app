@@ -7,7 +7,6 @@ import os
 # --- [1. 페이지 설정] ---
 st.set_page_config(page_title="KOSPI 200 월별 기록", layout="wide")
 
-# 💡 [수정 1] 상단 여백 2.8rem 및 이전 페이지와 동일한 반응형 CSS 적용
 st.markdown("""
     <style>
     .block-container { padding-top: 2.8rem !important; padding-bottom: 1rem !important; }
@@ -102,7 +101,6 @@ def load_historical_data(filepath):
         
     return df
 
-# 💡 [수정 3] target_month를 넘겨받아 'N월 성적'이라고 동적으로 표시되게 변경
 def get_perf_html(title, df, target_month):
     if df.empty:
         return f"### {title} <span style='font-size: 15px; color: gray; font-weight: normal;'>(해당 종목 없음)</span>"
@@ -120,7 +118,6 @@ def get_perf_html(title, df, target_month):
     t5_str, t5_col = format_val(top5_avg)
     t10_str, t10_col = format_val(top10_avg)
     
-    # "다음달 성적" 대신 "{target_month}월 성적" 표시
     return f"### {title} <span style='font-size: 15px; font-weight: normal; color: #666;'> &nbsp; | &nbsp; 📊 {target_month}월 성적 ➔ Top5: <span style='color:{t5_col}; font-weight:bold;'>{t5_str}</span> &nbsp; Top10: <span style='color:{t10_col}; font-weight:bold;'>{t10_str}</span> &nbsp; 모두매수: <span style='color:{a_col}; font-weight:bold;'>{a_str}</span></span>"
 
 def format_invest_month(date_str):
@@ -130,7 +127,6 @@ def format_invest_month(date_str):
 
 # --- [3. 메인 화면 구성] ---
 
-# 💡 [수정 1] 이전 페이지와 똑같은 통합 타이틀 디자인 (네이버 링크 포함)
 st.markdown('''
     <div style="margin-bottom: 20px;">
         <a href="https://stock.naver.com/" target="_blank" class="title-link" style="text-decoration: none; color: inherit;">
@@ -199,7 +195,6 @@ else:
     box_color, text_color = "#E8F5E9", "#2E7D32"
     status_desc = "하락장 통과 & 양호한 달"
 
-# 💡 [수정 2] <br>을 제거하고 박스 디자인/사이즈를 이전 페이지와 동일하게 압축했습니다.
 col1, col2, col3, col4, col5, col6 = st.columns([0.9, 0.9, 1.0, 1.0, 1.4, 1.6])
 
 with col1: st.metric(label="📈 KOSPI 1M", value=f"{kospi_1m}%")
@@ -230,7 +225,7 @@ top5_perf = df_perf.head(5)['종목코드'].tolist()
 top5_spec = df_spec.head(5)['종목코드'].tolist()
 overlap_top5 = set(top5_perf).intersection(set(top5_spec))
 
-# 💡 [수정 3] 표 헤더 이름도 동적으로 설정 (예: 다음달수익률 -> 3월 수익률)
+# 상단 두 개의 표(퍼펙트 상승, 달리는 말)를 위한 설정 (날짜 없음)
 main_cfg = {
     "통합티커_L": st.column_config.LinkColumn("티커", display_text=r"#(.+)"), 
     "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
@@ -257,7 +252,20 @@ with col2:
 
 st.markdown("---")
 st.subheader("🏆 KOSPI 200 전체 순위 (과거)")
+
+# 💡 [수정] 날짜 계산 함수 (과거 기준일을 바탕으로 n개월 전 날짜 계산)
+def get_ref_str(m):
+    ref_dt = (base_dt.replace(day=1) - pd.DateOffset(months=m-1)) - timedelta(days=1)
+    return ref_dt.strftime('%y.%m.%d')
+
+# 💡 하단 전체 순위 표를 위한 전용 설정 (날짜 포함)
+full_cfg = main_cfg.copy()
+full_cfg['1개월(%)'] = st.column_config.NumberColumn(f"1개월(%)\n({get_ref_str(1)})", format="%.1f")
+full_cfg['3개월(%)'] = st.column_config.NumberColumn(f"3개월(%)\n({get_ref_str(3)})", format="%.1f")
+full_cfg['6개월(%)'] = st.column_config.NumberColumn(f"6개월(%)\n({get_ref_str(6)})", format="%.1f")
+full_cfg['12개월(%)'] = st.column_config.NumberColumn(f"12개월(%)\n({get_ref_str(12)})", format="%.1f")
+
 st.dataframe(df_k200.style.apply(apply_k200_styling, axis=1), 
              use_container_width=True, height=600, 
              column_order=['통합티커_L', '종목명_L', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '다음달수익률(%)'], 
-             column_config=main_cfg)
+             column_config=full_cfg)
