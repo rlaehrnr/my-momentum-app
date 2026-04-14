@@ -9,10 +9,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # --- [1. 설정 및 스타일] ---
 st.set_page_config(page_title="KOSPI 200 강세 종목", layout="wide")
 
-# 💡 [수정] S&P 500 페이지와 완벽하게 동일한 높이 라인을 맞추기 위해 상단 여백을 2.8rem으로 조정했습니다.
+# 💡 [수정 1] 상단 여백을 4.5rem으로 대폭 늘려 제목이 절대 천장에 붙어 잘리지 않도록 강제했습니다.
 st.markdown("""
     <style>
-    .block-container { padding-top: 2.8rem !important; padding-bottom: 1rem !important; }
+    .block-container { padding-top: 4.5rem !important; padding-bottom: 1rem !important; }
     .main-title { font-size: 1.5rem !important; font-weight: bold; margin-bottom: 0.5rem; }
     .stTabs [data-baseweb="tab"] { font-size: 17px; font-weight: bold; }
     
@@ -220,7 +220,7 @@ def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
     
     reasons = []
     if is_bad_market: reasons.append("하락장(1,3M 100개↑)")
-    if is_below_4m_ma: reasons.append("KOSPI 4개월선 이탈")
+    if is_below_4m_ma: reasons.append("4개월선 이탈")
 
     if reasons:
         invest_status, box_color, text_color = "🛑 투자 중지", "#FFEBEE", "#C62828"
@@ -234,10 +234,12 @@ def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
     with col2: st.metric(label="📈 KOSPI 3M", value=f"{kospi_3m}%")
     with col3: st.metric(label="📉 1개월 하락", value=f"{neg_1m_cnt}개")
     with col4: st.metric(label="📉 3개월 하락", value=f"{neg_3m_cnt}개")
+    
+    # 💡 [수정 2] 박스의 높이를 맞추고, 글자 크기를 키워서 가독성과 밸런스를 잡았습니다.
     with col5:
-        st.markdown(f'<div style="background-color: #f0f2f6; padding: 6px 5px; border-radius: 8px; text-align: center; border: 1px solid #d1d5db; height: 100%; display: flex; flex-direction: column; justify-content: center;"><div style="font-size: 12px; font-weight: bold; color: #333; margin-bottom: 2px;">🇺🇸대통령 <span style="color:#0047AB; font-size:13px;">{cycle_year}년차</span> ({target_year}년)</div><div style="font-size: 12px; font-weight: bold; color: #D84315;">위험달: {bad_m_str}</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="background-color: #f0f2f6; padding: 10px; border-radius: 10px; text-align: center; border: 1px solid #d1d5db; height: 100%; min-height: 95px; display: flex; flex-direction: column; justify-content: center;"><div style="font-size: 13px; font-weight: bold; color: #333; margin-bottom: 4px;">🇺🇸대통령 <span style="color:#0047AB; font-size:14px;">{cycle_year}년차</span> ({target_year}년)</div><div style="font-size: 13px; font-weight: bold; color: #D84315;">위험달: {bad_m_str}</div></div>', unsafe_allow_html=True)
     with col6:
-        st.markdown(f'<div style="background-color: {box_color}; padding: 6px 5px; border-radius: 8px; text-align: center; border: 1px solid {text_color}; display: flex; flex-direction: column; justify-content: center; height: 100%;"><p style="margin: 0; font-size: 11px; color: {text_color}; font-weight: bold;">최종 판단 ({status_desc})</p><div style="margin: 2px 0 0 0; font-size: 1.1rem; font-weight: bold; color: {text_color};">{invest_status}</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="background-color: {box_color}; padding: 10px; border-radius: 10px; text-align: center; border: 1px solid {text_color}; display: flex; flex-direction: column; justify-content: center; height: 100%; min-height: 95px;"><p style="margin: 0; font-size: 12px; color: {text_color}; font-weight: bold;">최종 판단 ({status_desc})</p><div style="margin: 4px 0 0 0; font-size: 1.5rem; font-weight: 900; color: {text_color};">{invest_status}</div></div>', unsafe_allow_html=True)
         
     st.markdown("<hr style='margin: 1rem 0;'>", unsafe_allow_html=True)
 
@@ -342,8 +344,9 @@ def render_kospi200_dashboard(df_raw, b_date_str, is_daily=False):
 # 💡 화면 구성부 (월간 / 데일리 탭)
 # =========================================================
 
+# 💡 [수정] 위아래 여백을 줘서 제목이 안전하게 배치되도록 처리했습니다.
 st.markdown('''
-    <div style="margin-bottom: 10px;">
+    <div style="margin-top: 10px; margin-bottom: 15px;">
         <a href="https://stock.naver.com/" target="_blank" class="title-link" style="text-decoration: none; color: inherit;">
             <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 12px;">
                 <h1 style="margin: 0; padding: 0; font-size: 2.2rem; font-weight: 800; line-height: 1.2; word-break: keep-all;">🎯 KOSPI 200 강세 종목 분석</h1>
