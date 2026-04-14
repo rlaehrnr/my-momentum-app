@@ -126,7 +126,6 @@ def load_historical_data(filepath):
     else: df['시가총액(억)'] = 0
     return df
 
-# 💡 [핵심] 백테스트 시뮬레이터를 위한 초고속 데이터 캐싱 로직
 @st.cache_data
 def prep_backtest_data(df_all):
     min_date = pd.to_datetime(df_all['기준일'].min()) - timedelta(days=400)
@@ -215,7 +214,6 @@ df_all = load_historical_data(f_csv)
 tab_detail, tab_summary = st.tabs(["📅 월별 상세 분석", "📈 전략 누적 성과 (백테스트)"])
 
 with tab_detail:
-    # 💡 [수정] 텍스트 제거 및 셀렉트 박스 좌측 배치 (연도 역순, 월 정순)
     dates = sorted(df_all['기준일'].unique(), reverse=True)
     date_map = {}
     for d in dates:
@@ -365,7 +363,7 @@ with tab_detail:
                  column_order=['통합티커_L', '종목명_L', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '다음달수익률(%)'], 
                  column_config=full_cfg)
 
-# 💡 [업데이트] 인터랙티브 백테스트 탭 구현
+# 💡 [업데이트] 인터랙티브 백테스트 및 팁(안내문) 제거
 with tab_summary:
     st.markdown("### 📈 KOSPI 200 모멘텀 전략 백테스트 시뮬레이터 (2014 ~ 현재)")
     
@@ -383,7 +381,6 @@ with tab_summary:
         apply_timing = st.checkbox("🛑 마켓타이밍 적용 (하락장 및 4개월선 이탈 시 현금 100% 보유)", value=True)
     st.markdown("</div>", unsafe_allow_html=True)
     
-    # 설정값에 따른 실시간 성과 계산
     records = []
     for m in monthly_data:
         mult = 0.0 if (apply_timing and m['is_bad']) else 1.0
@@ -405,7 +402,6 @@ with tab_summary:
         
     df_summary = pd.DataFrame(records)
     
-    # 누적 수익률(복리) 계산 (100 기준)
     df_cum = (1 + df_summary.set_index('투자월') / 100).cumprod() * 100
     
     first_month = pd.to_datetime(df_summary['투자월'].iloc[0]) - pd.DateOffset(months=1)
@@ -413,10 +409,8 @@ with tab_summary:
     df_cum.loc[first_month_str] = 100
     df_cum = df_cum.sort_index()
 
-    # 데이터를 Plotly용으로 변환
     df_melt = df_cum.reset_index().melt(id_vars='투자월', var_name='전략', value_name='누적수익률')
     
-    # 💡 [업데이트] 마우스 드래그 Zoom/Pan이 완벽 지원되는 Plotly 차트
     fig = px.line(df_melt, x='투자월', y='누적수익률', color='전략')
     fig.update_layout(
         hovermode="x unified",
@@ -425,15 +419,13 @@ with tab_summary:
         legend_title_text="투자 전략",
         margin=dict(l=0, r=0, t=20, b=0)
     )
-    # X/Y축 Zoom 허용 설정
     fig.update_xaxes(fixedrange=False)
     fig.update_yaxes(fixedrange=False)
-    # 툴팁 디자인 커스텀
-    fig.update_traces(hovertemplate="<b>%{data.name}</b><br>누적: %{y:.2f}%<extra></extra>")
+    fig.update_traces(hovertemplate="<b>%{data.name}</b><br>누적수익률: %{y:.2f}<extra></extra>")
     
     st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
     
-    # 💡 [업데이트] MDD 및 앙상블 추가된 성과 요약 표
+    # 💡 [업데이트] 에러 수정한 표 색상 로직 (Styler.map 적용)
     st.markdown("#### 📊 전략별 핵심 통계 (초기 자본 100 기준)")
     
     stats = []
@@ -444,7 +436,6 @@ with tab_summary:
         win_rate = (win_months / total_months) * 100
         avg_ret = df_summary[col].mean()
         
-        # MDD (최대 낙폭) 계산
         roll_max = df_cum[col].cummax()
         drawdown = (df_cum[col] / roll_max) - 1.0
         mdd = drawdown.min() * 100
@@ -458,7 +449,19 @@ with tab_summary:
         })
         
     df_stats = pd.DataFrame(stats)
-    st.dataframe(df_stats.style.applymap(lambda x: 'color: #D32F2F; font-weight:bold;' if isinstance(x, str) and '-' not in x and '%' in x and x != '0.0%' else ('color: #1976D2; font-weight:bold;' if isinstance(x, str) and '-' in x else ''), subset=['총 누적수익률', 'MDD (최대낙폭)']), use_container_width=True, hide_index=True)
+    
+    def style_stats(x):
+        if isinstance(x, str) and '%' in x:
+            if '-' in x: return 'color: #1976D2; font-weight:bold;'
+            elif x != '0.0%': return 'color: #D32F2F; font-weight:bold;'
+        return ''
+        
+    try:
+        styled_stats = df_stats.style.map(style_stats, subset=['총 누적수익률', 'MDD (최대낙폭)'])
+    except AttributeError:
+        styled_stats = df_stats.style.applymap(style_stats, subset=['총 누적수익률', 'MDD (최대낙폭)'])
+        
+    st.dataframe(styled_stats, use_container_width=True, hide_index=True)
     
     with st.expander("📝 월별 수익률 상세 기록 보기"):
         st.dataframe(df_summary.set_index('투자월').style.format("{:.2f}%"), use_container_width=True)
