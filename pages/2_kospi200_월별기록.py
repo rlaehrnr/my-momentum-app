@@ -3,7 +3,7 @@ import pandas as pd
 import FinanceDataReader as fdr
 from datetime import datetime, timedelta
 import os
-import plotly.express as px  # 💡 [신규] 강력한 인터랙티브 차트를 위한 라이브러리
+import plotly.express as px
 
 # --- [1. 페이지 설정] ---
 st.set_page_config(page_title="KOSPI 200 월별 기록", layout="wide")
@@ -24,52 +24,36 @@ st.markdown("""
         }
     }
     
-    /* 제목 링크 호버 액션 */
     .title-link:hover { opacity: 0.7; transition: 0.2s; }
+    th[data-testid="stTableColumnHeader"] div { white-space: pre-wrap !important; text-align: center !important; }
     
-    /* 컬럼 헤더 줄바꿈 허용 (날짜 표시용) */
-    th[data-testid="stTableColumnHeader"] div {
-        white-space: pre-wrap !important;
-        text-align: center !important;
-    }
+    /* 백테스트 설정 박스 디자인 */
+    .settings-box { background-color: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 20px; }
     </style>
 """, unsafe_allow_html=True)
 
-# 💡 [대통령 주기 하드코딩] 8년차 주기 위험달 데이터
 PRESIDENTIAL_DANGEROUS_MONTHS = {
-    1: [2, 9],                 # 1년차 (초선 1년차)
-    2: [2, 4, 6, 9, 12],       # 2년차 (초선 중간선거)
-    3: [8, 9],                 # 3년차 (초선 3년차)
-    4: [3],                    # 4년차 (초선 대선해)
-    5: [],                     # 5년차 (재선 1년차 / 2025년 트럼프 2기)
-    6: [7],                    # 6년차 (재선 중간선거 / 2026년)
-    7: [6, 8, 11, 12],         # 7년차 (재선 3년차 / 2027년 예상)
-    8: [1, 6, 9, 10, 11]       # 8년차 (재선 대선해 / 2028년 예상)
+    1: [2, 9], 2: [2, 4, 6, 9, 12], 3: [8, 9], 4: [3],
+    5: [], 6: [7], 7: [6, 8, 11, 12], 8: [1, 6, 9, 10, 11]
 }
 
 def get_cycle_year(year):
     return ((year - 2021) % 8) + 1
 
-# --- [2. 스타일 및 헬퍼 함수] ---
+# --- [2. 헬퍼 함수] ---
 def apply_k200_styling(row, highlight_codes=None, overlap_codes=None):
     styles = [''] * len(row)
-    
     if '다음달수익률(%)' in row.index:
         col_idx = row.index.get_loc('다음달수익률(%)')
         val = row['다음달수익률(%)']
-        if pd.notna(val) and val > 0:
-            styles[col_idx] = 'color: #D32F2F; font-weight: bold;'
-        elif pd.notna(val) and val < 0:
-            styles[col_idx] = 'color: #1976D2; font-weight: bold;'
+        if pd.notna(val) and val > 0: styles[col_idx] = 'color: #D32F2F; font-weight: bold;'
+        elif pd.notna(val) and val < 0: styles[col_idx] = 'color: #1976D2; font-weight: bold;'
             
     code = row.get('종목코드')
     if code and '종목명_L' in row.index:
         name_idx = row.index.get_loc('종목명_L')
-        if overlap_codes and code in overlap_codes:
-            styles[name_idx] = 'background-color: #FFF59D; color: #D84315; font-weight: bold;'
-        elif highlight_codes and code in highlight_codes:
-            styles[name_idx] = 'background-color: #E8F5E9; color: #2E7D32; font-weight: bold;'
-            
+        if overlap_codes and code in overlap_codes: styles[name_idx] = 'background-color: #FFF59D; color: #D84315; font-weight: bold;'
+        elif highlight_codes and code in highlight_codes: styles[name_idx] = 'background-color: #E8F5E9; color: #2E7D32; font-weight: bold;'
     return styles
 
 @st.cache_data(ttl=3600)
@@ -78,7 +62,6 @@ def get_idx_kr(target_date_str):
     try:
         df = fdr.DataReader('KS11', target_date - pd.DateOffset(months=18), target_date)
         if df.empty: return 0.0, 0.0
-        
         curr_val = df.loc[df.index <= target_date]['Close'].iloc[-1]
         last_date = df.index[df.index <= target_date][-1]
         def get_ret(m):
@@ -86,8 +69,7 @@ def get_idx_kr(target_date_str):
             p_df = df[df.index <= ref]
             return round(((curr_val / p_df['Close'].iloc[-1]) - 1) * 100, 1) if not p_df.empty else 0.0
         return get_ret(1), get_ret(3)
-    except: 
-        return 0.0, 0.0
+    except: return 0.0, 0.0
 
 @st.cache_data(ttl=3600)
 def get_kospi_ma_status(target_date_str):
@@ -96,7 +78,6 @@ def get_kospi_ma_status(target_date_str):
     try:
         df = fdr.DataReader('KS11', start_date, target_date)
         if df.empty: return pd.DataFrame()
-        
         curr_price = df['Close'].iloc[-1]
         url_name = "https://m.stock.naver.com/domestic/index/KOSPI/total#KOSPI"
         url_price = f"https://m.stock.naver.com/fchart/domestic/index/KOSPI#{curr_price:,.2f}"
@@ -141,65 +122,62 @@ def load_historical_data(filepath):
     df = pd.read_csv(filepath)
     df.columns = df.columns.str.replace(' ', '') 
     df['종목코드'] = df['종목코드'].astype(str).str.zfill(6)
-    
-    if '시가총액' in df.columns:
-        df['시가총액(억)'] = (df['시가총액'] / 100000000).fillna(0).astype(int)
-    else:
-        df['시가총액(억)'] = 0
-        
+    if '시가총액' in df.columns: df['시가총액(억)'] = (df['시가총액'] / 100000000).fillna(0).astype(int)
+    else: df['시가총액(억)'] = 0
     return df
 
+# 💡 [핵심] 백테스트 시뮬레이터를 위한 초고속 데이터 캐싱 로직
 @st.cache_data
-def build_backtest_summary(df_all):
-    records = []
-    dates = sorted(df_all['기준일'].unique()) # 과거부터 순차적으로
-    
+def prep_backtest_data(df_all):
+    min_date = pd.to_datetime(df_all['기준일'].min()) - timedelta(days=400)
+    max_date = pd.to_datetime(df_all['기준일'].max()) + timedelta(days=31)
+    try:
+        ks11 = fdr.DataReader('KS11', min_date, max_date)
+        ks11['4MA'] = ks11['Close'].rolling(80).mean()
+    except: ks11 = pd.DataFrame()
+
+    monthly_data = []
+    dates = sorted(df_all['기준일'].unique())
+
     for d in dates:
         dt = pd.to_datetime(d)
         inv_dt = dt + pd.DateOffset(months=1)
         inv_str = f"{inv_dt.year}-{inv_dt.month:02d}"
-        
+
         df_k200 = df_all[df_all['기준일'] == d].copy()
         df_k200 = df_k200.sort_values(by='시가총액(억)', ascending=False).head(200)
-        
+
         for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '다음달수익률(%)']:
-            if c in df_k200.columns:
-                df_k200[c] = pd.to_numeric(df_k200[c], errors='coerce').fillna(0)
-                
+            if c in df_k200.columns: df_k200[c] = pd.to_numeric(df_k200[c], errors='coerce').fillna(0)
+
         q30 = {c: df_k200[c].quantile(0.7) for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']}
         t10_1m = df_k200['1개월(%)'].quantile(0.9)
 
-        cond_perf = (df_k200['1개월(%)']>=q30['1개월(%)'])&(df_k200['3개월(%)']>=q30['3개월(%)'])&(df_k200['6개월(%)']>=q30['6개월(%)'])&(df_k200['12개월(%)']>=q30['12개월(%)']) & \
-                    (df_k200['1개월(%)']>0)&(df_k200['3개월(%)']>0)&(df_k200['6개월(%)']>0)&(df_k200['12개월(%)']>0)
+        cond_perf = (df_k200['1개월(%)']>=q30['1개월(%)'])&(df_k200['3개월(%)']>=q30['3개월(%)'])&(df_k200['6개월(%)']>=q30['6개월(%)'])&(df_k200['12개월(%)']>=q30['12개월(%)']) & (df_k200['1개월(%)']>0)&(df_k200['3개월(%)']>0)&(df_k200['6개월(%)']>0)&(df_k200['12개월(%)']>0)
 
         df_perf = df_k200[cond_perf].sort_values('3개월(%)', ascending=False)
         df_spec = df_k200[(df_k200['12개월(%)']>=q30['12개월(%)']) & (df_k200['1개월(%)']>=t10_1m)].sort_values('1개월(%)', ascending=False)
-        
-        def get_ret(df, n=None):
-            if df.empty: return 0.0
-            if n: return df.head(n)['다음달수익률(%)'].mean()
-            return df['다음달수익률(%)'].mean()
-        
-        # 각 전략별 수익률 계산
-        ret_perf_5 = get_ret(df_perf, 5)
-        ret_spec_5 = get_ret(df_spec, 5)
-        
-        records.append({
-            '투자월': inv_str,
-            '퍼펙트상승(Top5)': ret_perf_5,
-            '퍼펙트상승(Top10)': get_ret(df_perf, 10),
-            '퍼펙트상승(전체)': get_ret(df_perf),
-            '달리는말(Top5)': ret_spec_5,
-            '달리는말(Top10)': get_ret(df_spec, 10),
-            '달리는말(전체)': get_ret(df_spec),
-            '앙상블(Top5 반반)': (ret_perf_5 + ret_spec_5) / 2 # 💡 [추가] 앙상블 전략 계산
+
+        is_bad = False
+        if not ks11.empty:
+            ks_sub = ks11.loc[ks11.index <= dt]
+            if not ks_sub.empty:
+                ks_row = ks_sub.iloc[-1]
+                kospi_curr = ks_row['Close']
+                kospi_4m = ks_row['4MA']
+                neg_1m = (df_k200['1개월(%)'] < 0).sum()
+                neg_3m = (df_k200['3개월(%)'] < 0).sum()
+                is_bad = (neg_1m >= 100 and neg_3m >= 100) or (pd.notna(kospi_4m) and kospi_curr < kospi_4m)
+
+        monthly_data.append({
+            '투자월': inv_str, 'is_bad': is_bad,
+            'perf_rets': df_perf['다음달수익률(%)'].tolist(),
+            'spec_rets': df_spec['다음달수익률(%)'].tolist()
         })
-    return pd.DataFrame(records)
+    return monthly_data
 
 def get_perf_html(title, df, target_month):
-    if df.empty:
-        return f"### {title} <span style='font-size: 15px; color: gray; font-weight: normal;'>(해당 종목 없음)</span>"
-    
+    if df.empty: return f"### {title} <span style='font-size: 15px; color: gray; font-weight: normal;'>(해당 종목 없음)</span>"
     all_avg = df['다음달수익률(%)'].mean()
     top5_avg = df.head(5)['다음달수익률(%)'].mean()
     top10_avg = df.head(10)['다음달수익률(%)'].mean()
@@ -212,14 +190,12 @@ def get_perf_html(title, df, target_month):
     a_str, a_col = format_val(all_avg)
     t5_str, t5_col = format_val(top5_avg)
     t10_str, t10_col = format_val(top10_avg)
-    
     return f"### {title} <span style='font-size: 15px; font-weight: normal; color: #666;'> &nbsp; | &nbsp; 📊 {target_month}월 성적 ➔ Top5: <span style='color:{t5_col}; font-weight:bold;'>{t5_str}</span> &nbsp; Top10: <span style='color:{t10_col}; font-weight:bold;'>{t10_str}</span> &nbsp; 모두매수: <span style='color:{a_col}; font-weight:bold;'>{a_str}</span></span>"
 
 
 # --- [3. 메인 화면 구성] ---
-
 st.markdown('''
-    <div style="margin-bottom: 10px;">
+    <div style="margin-bottom: 20px;">
         <a href="https://stock.naver.com/" target="_blank" class="title-link" style="text-decoration: none; color: inherit;">
             <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 12px;">
                 <h1 style="margin: 0; padding: 0; font-size: 2.2rem; font-weight: 800; line-height: 1.2; word-break: keep-all;">🎯 KOSPI 200 강세 종목 월별 기록</h1>
@@ -229,9 +205,7 @@ st.markdown('''
     </div>
 ''', unsafe_allow_html=True)
 
-
 f_csv = 'data/한국 코스피 2014년부터 200위까지 자료.csv'
-
 if not os.path.exists(f_csv):
     st.error(f"데이터 파일이 없습니다: {f_csv}")
     st.stop()
@@ -241,7 +215,7 @@ df_all = load_historical_data(f_csv)
 tab_detail, tab_summary = st.tabs(["📅 월별 상세 분석", "📈 전략 누적 성과 (백테스트)"])
 
 with tab_detail:
-    # 💡 [수정] 텍스트 제거 및 셀렉트 박스를 좌측으로 모으고, 월은 정순(1월부터)으로 정렬
+    # 💡 [수정] 텍스트 제거 및 셀렉트 박스 좌측 배치 (연도 역순, 월 정순)
     dates = sorted(df_all['기준일'].unique(), reverse=True)
     date_map = {}
     for d in dates:
@@ -251,18 +225,17 @@ with tab_detail:
         
     years = sorted(list(set(v['year'] for v in date_map.values())), reverse=True)
     
-    # 컬럼 비율을 조정하여 선택 박스를 왼쪽으로 모음 (공백 5 확보)
-    col_y, col_m, _ = st.columns([1.5, 1.5, 6]) 
+    col_y, col_m, col_info = st.columns([1.5, 1.5, 6])
     with col_y:
         selected_year = st.selectbox("투자 연도", years, format_func=lambda x: f"{x}년")
     with col_m:
-        # 월은 역순(reverse=True)이 아니라 정순(reverse=False)으로 배치하여 1월부터 나오게 함
         months_for_year = sorted(list(set(v['month'] for v in date_map.values() if v['year'] == selected_year)), reverse=False)
         selected_month = st.selectbox("투자 월", months_for_year, format_func=lambda x: f"{x}월")
         
     selected_date = next(d for d, v in date_map.items() if v['year'] == selected_year and v['month'] == selected_month)
 
-    st.markdown(f"<p style='color: #6b7280; font-size: 0.95rem; margin-top: -10px;'>💡 <b>데이터 기준일:</b> {selected_date} (해당 일자 종가로 매수하여 {selected_month}월 한 달간 보유)</p>", unsafe_allow_html=True)
+    with col_info:
+        st.markdown(f"<div style='margin-top: 32px; color: #6b7280; font-size: 0.95rem;'>💡 <b>데이터 기준일:</b> {selected_date}</div>", unsafe_allow_html=True)
 
     kospi_ma_df = get_kospi_ma_status(selected_date)
     kospi_curr = 0
@@ -392,14 +365,45 @@ with tab_detail:
                  column_order=['통합티커_L', '종목명_L', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '다음달수익률(%)'], 
                  column_config=full_cfg)
 
-
-# 💡 [업데이트 4, 5] 인터랙티브 차트 및 MDD 추가
+# 💡 [업데이트] 인터랙티브 백테스트 탭 구현
 with tab_summary:
-    st.markdown("### 📈 퍼펙트 상승 & 달리는 말 전략 누적 백테스트 (2014 ~ 현재)")
-    st.info("2014년 2월부터 매월 전략 조건에 맞는 종목을 기계적으로 매수했을 때의 가상 누적 자산 곡선입니다. 차트를 드래그하여 확대(Zoom)하거나 더블클릭하여 원래대로 되돌릴 수 있습니다.")
+    st.markdown("### 📈 KOSPI 200 모멘텀 전략 백테스트 시뮬레이터 (2014 ~ 현재)")
     
-    with st.spinner("백테스트 데이터를 계산 중입니다... (최초 1회만 약 3초 소요)"):
-        df_summary = build_backtest_summary(df_all)
+    with st.spinner("백테스트 엔진을 구동 중입니다... (최초 1회만 수 초 소요)"):
+        monthly_data = prep_backtest_data(df_all)
+        
+    st.markdown("<div class='settings-box'>", unsafe_allow_html=True)
+    st.markdown("##### ⚙️ 실시간 시뮬레이션 설정 (옵션을 변경하면 차트와 표가 즉시 업데이트됩니다)")
+    
+    c1, c2 = st.columns([1, 1])
+    with c1:
+        top_n = st.slider("🏆 포트폴리오 매수 종목 수 (상위 N개)", min_value=1, max_value=30, value=5, step=1, help="수익률 순위가 높은 종목부터 몇 개를 살지 결정합니다.")
+    with c2:
+        st.markdown("<div style='margin-top: 35px;'></div>", unsafe_allow_html=True)
+        apply_timing = st.checkbox("🛑 마켓타이밍 적용 (하락장 및 4개월선 이탈 시 현금 100% 보유)", value=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # 설정값에 따른 실시간 성과 계산
+    records = []
+    for m in monthly_data:
+        mult = 0.0 if (apply_timing and m['is_bad']) else 1.0
+        
+        def get_avg_ret(rets, n):
+            sliced = rets[:n]
+            if not sliced: return 0.0
+            return (sum(sliced) / len(sliced)) * mult
+            
+        ret_p = get_avg_ret(m['perf_rets'], top_n)
+        ret_s = get_avg_ret(m['spec_rets'], top_n)
+        
+        records.append({
+            '투자월': m['투자월'],
+            f'퍼펙트상승 (Top {top_n})': ret_p,
+            f'달리는말 (Top {top_n})': ret_s,
+            f'앙상블 (반반 혼합)': (ret_p + ret_s) / 2
+        })
+        
+    df_summary = pd.DataFrame(records)
     
     # 누적 수익률(복리) 계산 (100 기준)
     df_cum = (1 + df_summary.set_index('투자월') / 100).cumprod() * 100
@@ -409,25 +413,28 @@ with tab_summary:
     df_cum.loc[first_month_str] = 100
     df_cum = df_cum.sort_index()
 
-    # 데이터를 Plotly에 맞게 길게(Long format) 변환
+    # 데이터를 Plotly용으로 변환
     df_melt = df_cum.reset_index().melt(id_vars='투자월', var_name='전략', value_name='누적수익률')
     
-    # 💡 [업데이트 4] 확대, 축소, 이동이 자유로운 Plotly 차트 적용 및 툴팁 완벽 커스텀
+    # 💡 [업데이트] 마우스 드래그 Zoom/Pan이 완벽 지원되는 Plotly 차트
     fig = px.line(df_melt, x='투자월', y='누적수익률', color='전략')
     fig.update_layout(
         hovermode="x unified",
         xaxis_title="투자 기준 월",
-        yaxis_title="누적 자산 (시작금 = 100)",
+        yaxis_title="누적 자산 (초기 자본 = 100)",
         legend_title_text="투자 전략",
         margin=dict(l=0, r=0, t=20, b=0)
     )
-    # 툴팁에 "누적수익률" 이라는 이름과 소수점 2자리 적용
-    fig.update_traces(hovertemplate="%{y:.2f}")
+    # X/Y축 Zoom 허용 설정
+    fig.update_xaxes(fixedrange=False)
+    fig.update_yaxes(fixedrange=False)
+    # 툴팁 디자인 커스텀
+    fig.update_traces(hovertemplate="<b>%{data.name}</b><br>누적: %{y:.2f}%<extra></extra>")
     
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
     
-    # 💡 [업데이트 5] MDD 계산 및 요약 표 반영
-    st.markdown("#### 📊 전략별 핵심 통계 (MDD 포함)")
+    # 💡 [업데이트] MDD 및 앙상블 추가된 성과 요약 표
+    st.markdown("#### 📊 전략별 핵심 통계 (초기 자본 100 기준)")
     
     stats = []
     for col in df_summary.columns[1:]:
@@ -437,7 +444,7 @@ with tab_summary:
         win_rate = (win_months / total_months) * 100
         avg_ret = df_summary[col].mean()
         
-        # MDD 계산 로직: (현재 누적값 / 지금까지의 최고 누적값) - 1
+        # MDD (최대 낙폭) 계산
         roll_max = df_cum[col].cummax()
         drawdown = (df_cum[col] / roll_max) - 1.0
         mdd = drawdown.min() * 100
@@ -451,7 +458,7 @@ with tab_summary:
         })
         
     df_stats = pd.DataFrame(stats)
-    st.dataframe(df_stats, use_container_width=True, hide_index=True)
+    st.dataframe(df_stats.style.applymap(lambda x: 'color: #D32F2F; font-weight:bold;' if isinstance(x, str) and '-' not in x and '%' in x and x != '0.0%' else ('color: #1976D2; font-weight:bold;' if isinstance(x, str) and '-' in x else ''), subset=['총 누적수익률', 'MDD (최대낙폭)']), use_container_width=True, hide_index=True)
     
     with st.expander("📝 월별 수익률 상세 기록 보기"):
         st.dataframe(df_summary.set_index('투자월').style.format("{:.2f}%"), use_container_width=True)
