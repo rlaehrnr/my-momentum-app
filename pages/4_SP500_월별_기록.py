@@ -32,14 +32,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# --- [2. archive_sp500 폴더에서만 데이터 로드 (핵심 변경!)] ---
+# --- [2. archive_sp500 폴더에서만 데이터 로드] ---
 @st.cache_data(show_spinner=False)
 def load_archive_data():
     folder = 'archive_sp500'
     if not os.path.exists(folder):
         return pd.DataFrame()
         
-    # 폴더 안의 모든 csv 파일 읽어오기
     files = glob.glob(f"{folder}/*.csv")
     if not files:
         return pd.DataFrame()
@@ -47,13 +46,11 @@ def load_archive_data():
     dfs = [pd.read_csv(f, encoding='utf-8-sig') for f in files]
     df = pd.concat(dfs, ignore_index=True)
     
-    # 날짜 및 연월 처리
     df['기준일(월말)'] = pd.to_datetime(df['기준일(월말)'])
     df['Year'] = df['기준일(월말)'].dt.year.astype(str)
     df['Month'] = df['기준일(월말)'].dt.month.astype(str).str.zfill(2)
     df['YearMonth'] = df['기준일(월말)'].dt.to_period('M').astype(str)
     
-    # 통합티커 및 링크 세팅
     if '시장' not in df.columns: df['시장'] = 'S&P 500'
     df['통합티커'] = df['시장'] + ":" + df['종목코드']
     df['종목명_L'] = df.apply(lambda r: f"https://finance.yahoo.com/quote/{str(r['종목코드']).replace('.', '-')}#{r['종목코드']}", axis=1)
@@ -182,7 +179,6 @@ if df_master.empty:
 
 timing_df = get_market_timing()
 
-# 💡 세 번째 탭(커스텀 백테스트) 추가!
 tab_detail, tab_summary, tab_custom = st.tabs(["📅 타임머신 상세 분석", "📈 전략조합 장기 백테스트", "🏅 스코어 커스텀 백테스트"])
 
 # ==========================================
@@ -296,7 +292,6 @@ with tab_detail:
 # 탭 2: 장기 백테스트 (전략 검증)
 # ==========================================
 with tab_summary:
-    # 💡 UI 간격 좁히기 (margin-bottom 조절)
     col_title, col_check = st.columns([1, 4])
     with col_title:
         st.markdown("<h4 style='margin-top: 5px; margin-bottom: 0px;'>⚙️ 시뮬레이션 설정</h4>", unsafe_allow_html=True)
@@ -406,9 +401,13 @@ with tab_summary:
             except AttributeError: styled_stats = df_stats.style.applymap(style_stats, subset=['CAGR (연평균)', '총 누적수익률', 'MDD (최대낙폭)'])
             st.dataframe(styled_stats, use_container_width=True, hide_index=True)
 
+            with st.expander(f"📝 {start_year}~{end_year}년 ({total_months}개월) 월별 수익률 상세 기록 열어보기"):
+                display_df = df_res.drop(columns=['invested']).set_index('YearMonth')
+                st.dataframe(display_df.style.format("{:.2f}%"), use_container_width=True)
+
 
 # ==========================================
-# 탭 3: 모멘텀 스코어 커스텀 백테스트 (신규 추가!)
+# 탭 3: 모멘텀 스코어 커스텀 백테스트 
 # ==========================================
 with tab_custom:
     col_title, col_check = st.columns([1, 4])
@@ -439,7 +438,6 @@ with tab_custom:
         st.stop()
         
     with st.spinner("커스텀 스코어 재계산 및 시뮬레이션 중..."):
-        # 💡 Pandas 벡터 연산으로 전체 데이터셋의 커스텀 스코어 1초 만에 재계산
         df_calc = df_master.copy()
         df_calc['커스텀스코어'] = (df_calc['1개월(%)'] * weight_1m) + (df_calc['3개월(%)'] * weight_3m) + (df_calc['6개월(%)'] * weight_6m)
         
@@ -455,7 +453,6 @@ with tab_custom:
             mult = 0.0 if is_bad else 1.0
             is_invested = mult > 0.0
             
-            # 커스텀 스코어 기준으로 정렬 후 해당 순위 대역 추출
             sorted_m = monthly_data.sort_values('커스텀스코어', ascending=False)
             target_group = sorted_m.iloc[rank_c_start-1 : rank_c_end]
             
@@ -508,3 +505,8 @@ with tab_custom:
             try: styled_stats_c = df_stats_c.style.map(style_stats, subset=['CAGR (연평균)', '총 누적수익률', 'MDD (최대낙폭)'])
             except AttributeError: styled_stats_c = df_stats_c.style.applymap(style_stats, subset=['CAGR (연평균)', '총 누적수익률', 'MDD (최대낙폭)'])
             st.dataframe(styled_stats_c, use_container_width=True, hide_index=True)
+
+            # 💡 바로 이 부분입니다! 커스텀 탭에도 상세 기록 표 추가 완료!
+            with st.expander(f"📝 {start_year_c}~{end_year_c}년 ({total_months}개월) 월별 수익률 상세 기록 열어보기"):
+                display_df_c = df_res_c.drop(columns=['invested']).set_index('YearMonth')
+                st.dataframe(display_df_c.style.format("{:.2f}%"), use_container_width=True)
