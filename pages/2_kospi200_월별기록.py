@@ -14,6 +14,9 @@ st.markdown("""
     .block-container { padding-top: 2.8rem !important; padding-bottom: 1rem !important; }
     .main-title { font-size: 1.5rem !important; font-weight: bold; margin-bottom: 0.5rem; }
     
+    /* 💡 가로형 라디오 버튼 간격 조절 및 줄바꿈 허용 */
+    div[role="radiogroup"] { gap: 10px !important; flex-wrap: wrap; }
+    
     @media (max-width: 768px) {
         div[data-testid="stHorizontalBlock"] {
             flex-wrap: wrap !important;
@@ -175,14 +178,6 @@ def prep_backtest_data(df_all):
         for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '다음달수익률(%)']:
             if c in df_k200.columns: df_k200[c] = pd.to_numeric(df_k200[c], errors='coerce').fillna(0)
 
-        q30 = {c: df_k200[c].quantile(0.7) for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']}
-        t10_1m = df_k200['1개월(%)'].quantile(0.9)
-
-        cond_perf = (df_k200['1개월(%)']>=q30['1개월(%)'])&(df_k200['3개월(%)']>=q30['3개월(%)'])&(df_k200['6개월(%)']>=q30['6개월(%)'])&(df_k200['12개월(%)']>=q30['12개월(%)']) & (df_k200['1개월(%)']>0)&(df_k200['3개월(%)']>0)&(df_k200['6개월(%)']>0)&(df_k200['12개월(%)']>0)
-
-        df_perf = df_k200[cond_perf].sort_values('3개월(%)', ascending=False)
-        df_spec = df_k200[(df_k200['12개월(%)']>=q30['12개월(%)']) & (df_k200['1개월(%)']>=t10_1m)].sort_values('1개월(%)', ascending=False)
-
         neg_1m = (df_k200['1개월(%)'] < 0).sum()
         neg_3m = (df_k200['3개월(%)'] < 0).sum()
         is_bad_breadth = (neg_1m >= 100 and neg_3m >= 100)
@@ -192,8 +187,6 @@ def prep_backtest_data(df_all):
             '기준월': base_str,  
             '투자연도': inv_year,
             'is_bad_breadth': is_bad_breadth,
-            'df_perf': df_perf, 
-            'df_spec': df_spec, 
             'df_k200': df_k200  
         })
     return monthly_data
@@ -233,6 +226,13 @@ if df_all.empty:
     st.error("🚨 `archive_kospi` 폴더에 데이터가 없습니다! 깃허브 저장소를 확인해주세요.")
     st.stop()
 
+# 💡 백테스트를 위한 데이터 사전 로드 및 연도 범위 산출
+with st.spinner("백테스트 데이터를 준비 중입니다... (최초 1회만)"):
+    monthly_data = prep_backtest_data(df_all)
+
+years_list_global = sorted(list(set([m['투자연도'] for m in monthly_data])))
+min_y, max_y = min(years_list_global), max(years_list_global)
+
 tab_detail, tab_summary, tab_custom = st.tabs(["📅 월별 상세 분석", "📈 전략 누적 성과 (백테스트)", "🏅 스코어 커스텀 백테스트"])
 
 # ==========================================
@@ -248,46 +248,39 @@ with tab_detail:
         
     years = sorted(list(set(v['year'] for v in date_map.values())), reverse=True)
     
-    col_y, col_m, col_info = st.columns([1.5, 1.5, 6])
+    # 💡 연도(드롭다운), 월(버튼형), 기준일(우측) UI 적용
+    col_y, col_info = st.columns([2, 8])
     with col_y:
-        selected_year = st.selectbox("투자 연도", years, format_func=lambda x: f"{x}년")
-    with col_m:
-        months_for_year = sorted(list(set(v['month'] for v in date_map.values() if v['year'] == selected_year)), reverse=False)
-        selected_month = st.selectbox("투자 월", months_for_year, format_func=lambda x: f"{x}월")
-        
+        selected_year = st.selectbox("📅 투자 연도", years, format_func=lambda x: f"{x}년", key='y_detail')
+    
+    months_for_year = sorted(list(set(v['month'] for v in date_map.values() if v['year'] == selected_year)), reverse=False)
+    st.markdown("<div style='margin-bottom: 5px;'></div>", unsafe_allow_html=True)
+    selected_month = st.radio("🌙 투자 월", months_for_year, horizontal=True, key='m_detail', format_func=lambda x: f"{x}월")
+    
     selected_date = next(d for d, v in date_map.items() if v['year'] == selected_year and v['month'] == selected_month)
 
     with col_info:
-        st.markdown(f"<div style='margin-top: 32px; color: #6b7280; font-size: 0.95rem;'>💡 <b>데이터 기준일:</b> {selected_date}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='margin-top: 32px; text-align: right; color: #9ca3af; font-size: 0.95rem;'>💡 <b>데이터 기준일:</b> {selected_date}</div>", unsafe_allow_html=True)
 
     kospi_ma_df = get_kospi_ma_status(selected_date)
-    kospi_curr = 0
-    kospi_4m_ma = 0
+    kospi_curr = kospi_ma_df['base_price'].iloc[0] if not kospi_ma_df.empty else 0
+    kospi_4m_ma = kospi_ma_df['4개월선'].iloc[0] if not kospi_ma_df.empty else 0
 
     if not kospi_ma_df.empty:
         st.dataframe(style_kospi_ma(kospi_ma_df), use_container_width=True, hide_index=True, 
                      column_order=["지수_L", "현재가_L", "4개월선", "5개월선", "6개월선", "10개월선", "12개월선"],
                      column_config=kospi_ma_config)
-        kospi_curr = kospi_ma_df['base_price'].iloc[0]
-        kospi_4m_ma = kospi_ma_df['4개월선'].iloc[0]
 
     st.markdown("<br>", unsafe_allow_html=True)
 
     df_k200 = df_all[df_all['기준일(월말)'] == selected_date].copy()
-
-    df_k200['통합티커_L'] = df_k200.apply(
-        lambda r: f"https://finance.naver.com/item/main.naver?code={r['종목코드']}#KOSPI:{r['종목코드']}", axis=1
-    )
-    df_k200['종목명_L'] = df_k200.apply(
-        lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드']}#{r['종목명']}", axis=1
-    )
-
+    df_k200['통합티커_L'] = df_k200.apply(lambda r: f"https://finance.naver.com/item/main.naver?code={r['종목코드']}#KOSPI:{r['종목코드']}", axis=1)
+    df_k200['종목명_L'] = df_k200.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드']}#{r['종목명']}", axis=1)
     df_k200 = df_k200.sort_values(by='시가총액(억)', ascending=False).head(200)
     df_k200['시총순위'] = range(1, len(df_k200) + 1)
     df_k200 = df_k200.set_index('시총순위')
 
     kospi_1m, kospi_3m = get_idx_kr(selected_date)
-
     neg_1m_cnt = (df_k200['1개월(%)'] < 0).sum()
     neg_3m_cnt = (df_k200['3개월(%)'] < 0).sum()
 
@@ -317,7 +310,6 @@ with tab_detail:
         status_desc = "상승장 & 4개월선 위"
 
     col1, col2, col3, col4, col5, col6 = st.columns([0.9, 0.9, 1.0, 1.0, 1.4, 1.6])
-
     with col1: st.metric(label="📈 KOSPI 1M", value=f"{kospi_1m}%")
     with col2: st.metric(label="📈 KOSPI 3M", value=f"{kospi_3m}%")
     with col3: st.metric(label="📉 1개월 하락", value=f"{neg_1m_cnt}개")
@@ -393,30 +385,24 @@ with tab_detail:
 # 탭 2: 전략 누적 성과 (백테스트)
 # ==========================================
 with tab_summary:
-    col_title, col_check = st.columns([1, 4])
-    with col_title:
-        st.markdown("<h4 style='margin-top: 5px; margin-bottom: 0px;'>⚙️ 시뮬레이션 설정</h4>", unsafe_allow_html=True)
-    with col_check:
-        st.markdown("<div style='margin-top: 8px;'>", unsafe_allow_html=True)
+    st.markdown("<h4 style='margin-top: 5px; margin-bottom: 0px;'>⚙️ 시뮬레이션 설정</h4>", unsafe_allow_html=True)
+        
+    c1, c_ma, c_chk = st.columns([1, 1, 1.5])
+    with c1: start_year, end_year = st.slider("📅 테스트 기간 (연도)", min_y, max_y, (min_y, max_y), key='k_yr2')
+    with c_ma: ma_months_t2 = st.slider("📉 마켓타이밍 (개월선)", 1, 12, 4, key='ma_t2')
+    with c_chk:
+        st.markdown("<div style='margin-top: 35px;'></div>", unsafe_allow_html=True)
         apply_timing = st.checkbox("🛑 마켓타이밍 적용 (선택 이평선 이탈 OR 1·3M 하락종목 100개↑ 시 현금 100%)", value=True, key='k_timing2')
-        st.markdown("</div>", unsafe_allow_html=True)
         
-    with st.spinner("백테스트 데이터를 준비 중입니다... (최초 1회만)"):
-        monthly_data = prep_backtest_data(df_all)
-        
-    c1, c_ma, c2, c3 = st.columns([1, 0.8, 1, 1])
-    with c1:
-        years_list = sorted(list(set([m['투자연도'] for m in monthly_data])))
-        min_y, max_y = min(years_list), max(years_list)
-        start_year, end_year = st.slider("📅 테스트 기간 (연도)", min_y, max_y, (min_y, max_y), key='k_yr2')
-    with c_ma:
-        ma_months_t2 = st.slider("📉 마켓타이밍 (개월선)", 1, 12, 4, key='ma_t2')
-    with c2:
-        rank_p_start, rank_p_end = st.slider("🔥 퍼펙트 상승 (순위)", 1, 30, (1, 5))
-    with c3:
-        rank_s_start, rank_s_end = st.slider("🐎 달리는 말 (순위)", 1, 30, (1, 5))
-        
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("<hr style='margin: 10px 0px;'>", unsafe_allow_html=True)
+    st.markdown("##### 🔥 전략 상세 조건 필터")
+    
+    # 💡 백테스트 상위 % 조절 슬라이더 추가
+    c2, c3, c4, c5 = st.columns([1, 1, 1, 1])
+    with c2: perf_pct = st.slider("🔥 퍼펙트 상승 (1,3,6,12M 상위 %)", 5, 50, 30, step=5)
+    with c3: rank_p_start, rank_p_end = st.slider("🔥 퍼펙트 상승 (매수 순위)", 1, 30, (1, 5))
+    with c4: spec_12m_pct = st.slider("🐎 달리는 말 (12M 상위 %, 1M은 10%)", 5, 50, 30, step=5)
+    with c5: rank_s_start, rank_s_end = st.slider("🐎 달리는 말 (매수 순위)", 1, 30, (1, 5))
     
     if rank_p_start > rank_p_end or rank_s_start > rank_s_end:
         st.error("🚨 순위 범위가 잘못되었습니다. (예: 2~6위 형태로 설정해주세요)")
@@ -436,14 +422,33 @@ with tab_summary:
             mult = 0.0 if (apply_timing and is_bad_market) else 1.0
             is_invested = mult > 0.0  
             
-            df_p = m['df_perf'].iloc[rank_p_start-1 : rank_p_end]
-            df_s = m['df_spec'].iloc[rank_s_start-1 : rank_s_end]
+            # 💡 슬라이더 % 값 반영하여 동적 필터링
+            df_k200_bt = m['df_k200']
+            q_perf = 1.0 - (perf_pct / 100.0)
+            q_spec = 1.0 - (spec_12m_pct / 100.0)
             
-            ret_p = (df_p['다음달수익률(%)'].mean() * mult) if not df_p.empty else 0.0
-            ret_s = (df_s['다음달수익률(%)'].mean() * mult) if not df_s.empty else 0.0
+            q_val_1 = df_k200_bt['1개월(%)'].quantile(q_perf)
+            q_val_3 = df_k200_bt['3개월(%)'].quantile(q_perf)
+            q_val_6 = df_k200_bt['6개월(%)'].quantile(q_perf)
+            q_val_12 = df_k200_bt['12개월(%)'].quantile(q_perf)
             
-            combined_tickers = list(set(df_p['종목코드'].tolist() + df_s['종목코드'].tolist()))
-            df_c = m['df_k200'][m['df_k200']['종목코드'].isin(combined_tickers)]
+            t_val_12 = df_k200_bt['12개월(%)'].quantile(q_spec)
+            t_val_1 = df_k200_bt['1개월(%)'].quantile(0.9) 
+            
+            cond_p = (df_k200_bt['1개월(%)']>=q_val_1)&(df_k200_bt['3개월(%)']>=q_val_3)&(df_k200_bt['6개월(%)']>=q_val_6)&(df_k200_bt['12개월(%)']>=q_val_12)&(df_k200_bt['1개월(%)']>0)&(df_k200_bt['3개월(%)']>0)&(df_k200_bt['6개월(%)']>0)&(df_k200_bt['12개월(%)']>0)
+            cond_s = (df_k200_bt['12개월(%)']>=t_val_12)&(df_k200_bt['1개월(%)']>=t_val_1)
+            
+            df_perf_all = df_k200_bt[cond_p].sort_values('3개월(%)', ascending=False)
+            df_spec_all = df_k200_bt[cond_s].sort_values('1개월(%)', ascending=False)
+            
+            target_p = df_perf_all.iloc[rank_p_start-1 : rank_p_end]
+            target_s = df_spec_all.iloc[rank_s_start-1 : rank_s_end]
+            
+            ret_p = (target_p['다음달수익률(%)'].mean() * mult) if not target_p.empty else 0.0
+            ret_s = (target_s['다음달수익률(%)'].mean() * mult) if not target_s.empty else 0.0
+            
+            combined_tickers = list(set(target_p['종목코드'].tolist() + target_s['종목코드'].tolist()))
+            df_c = df_k200_bt[df_k200_bt['종목코드'].isin(combined_tickers)]
             ret_combined = (df_c['다음달수익률(%)'].mean() * mult) if not df_c.empty else 0.0
             
             ret_ensemble = (ret_p + ret_s) / 2
@@ -540,7 +545,7 @@ with tab_custom:
     with c6:
         start_year_c, end_year_c = st.slider("📅 테스트 기간 (연도)", min_y, max_y, (min_y, max_y), key='k_yr3')
     with c_ma_c:
-        ma_months_t3 = st.slider("📉 마켓타이밍 (개월선)", 1, 12, 4, key='ma_t3')
+        ma_months_t3 = st.slider("📉 마켓타이밍 (개월선) ", 1, 12, 4, key='ma_t3')
     with c7:
         rank_c_start, rank_c_end = st.slider("🏅 매수 순위 범위", 1, 30, (1, 10), key='k_rnk3')
 
