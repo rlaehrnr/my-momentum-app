@@ -418,19 +418,27 @@ with tab_custom:
         apply_timing_custom = st.checkbox("🛑 마켓타이밍 적용 (S&P500 200일선 이탈시 현금 100%)", value=True, key='timing_tab3')
         st.markdown("</div>", unsafe_allow_html=True)
         
-    c1, c2, c3 = st.columns(3)
-    with c1: weight_1m = st.number_input("📉 1개월 수익률 가중치", value=-0.1, step=0.1, format="%.1f")
-    with c2: weight_3m = st.number_input("📈 3개월 수익률 가중치", value=0.7, step=0.1, format="%.1f")
-    with c3: weight_6m = st.number_input("📈 6개월 수익률 가중치", value=0.4, step=0.1, format="%.1f")
+    # 💡 1, 3, 6, 12개월 입력칸과 버튼을 폼(Form)으로 묶어서 한 줄로 처리
+    with st.form("custom_weight_form", border=False):
+        c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 0.8])
+        with c1: weight_1m = st.number_input("📉 1개월 가중치", value=-0.1, step=0.1, format="%.1f")
+        with c2: weight_3m = st.number_input("📈 3개월 가중치", value=0.7, step=0.1, format="%.1f")
+        with c3: weight_6m = st.number_input("📈 6개월 가중치", value=0.4, step=0.1, format="%.1f")
+        with c4: weight_12m = st.number_input("📈 12개월 가중치", value=0.0, step=0.1, format="%.1f")
+        with c5:
+            # 입력칸 높이 맞춤용 여백
+            st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+            apply_weights = st.form_submit_button("✅ 스코어 적용", use_container_width=True)
     
-    st.markdown("<hr style='margin: 10px 0px;'>", unsafe_allow_html=True)
+    st.markdown("<hr style='margin: 0px 0px 15px 0px;'>", unsafe_allow_html=True)
     
-    c4, c5, _ = st.columns([1, 1, 1])
-    with c4:
+    # 순위와 연도 슬라이더는 즉시 반응
+    c6, c7, _ = st.columns([1, 1, 1])
+    with c6:
         years_list = sorted(df_master['Year'].unique().astype(int))
         min_y, max_y = min(years_list), max(years_list)
         start_year_c, end_year_c = st.slider("📅 테스트 기간 (연도)", min_y, max_y, (min_y, max_y), key='year_tab3')
-    with c5:
+    with c7:
         rank_c_start, rank_c_end = st.slider("🏅 매수 순위 범위 (커스텀 스코어 기준)", 1, 30, (1, 10))
 
     if rank_c_start > rank_c_end:
@@ -439,7 +447,11 @@ with tab_custom:
         
     with st.spinner("커스텀 스코어 재계산 및 시뮬레이션 중..."):
         df_calc = df_master.copy()
-        df_calc['커스텀스코어'] = (df_calc['1개월(%)'] * weight_1m) + (df_calc['3개월(%)'] * weight_3m) + (df_calc['6개월(%)'] * weight_6m)
+        # 💡 사용자가 폼에서 입력한 가중치로 한 번에 계산
+        df_calc['커스텀스코어'] = (df_calc['1개월(%)'] * weight_1m) + \
+                                 (df_calc['3개월(%)'] * weight_3m) + \
+                                 (df_calc['6개월(%)'] * weight_6m) + \
+                                 (df_calc['12개월(%)'] * weight_12m)
         
         filtered_months_c = [m for m in sorted(df_calc['YearMonth'].unique()) if start_year_c <= int(m[:4]) <= end_year_c]
         records_c = []
@@ -506,7 +518,7 @@ with tab_custom:
             except AttributeError: styled_stats_c = df_stats_c.style.applymap(style_stats, subset=['CAGR (연평균)', '총 누적수익률', 'MDD (최대낙폭)'])
             st.dataframe(styled_stats_c, use_container_width=True, hide_index=True)
 
-            # 💡 바로 이 부분입니다! 커스텀 탭에도 상세 기록 표 추가 완료!
+            # 💡 빠트렸던 "상세 기록 열어보기" 부활!
             with st.expander(f"📝 {start_year_c}~{end_year_c}년 ({total_months}개월) 월별 수익률 상세 기록 열어보기"):
                 display_df_c = df_res_c.drop(columns=['invested']).set_index('YearMonth')
                 st.dataframe(display_df_c.style.format("{:.2f}%"), use_container_width=True)
