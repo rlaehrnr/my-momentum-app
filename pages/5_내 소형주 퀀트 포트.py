@@ -84,10 +84,12 @@ def load_config():
 def save_config(config_data):
     with open(CONFIG_PATH, 'w', encoding='utf-8') as f: json.dump(config_data, f)
 
+# 💡 더 강력해진 숫자 변환기 (콤마, 한글, 기호 무시)
 def parse_krw(val_str, default_val):
     try:
         if isinstance(val_str, str):
-            return int(val_str.replace(',', '').replace('₩', '').strip())
+            cleaned = ''.join(c for c in val_str if c.isdigit() or c == '-')
+            return int(cleaned) if cleaned else default_val
         return int(val_str)
     except:
         return default_val
@@ -144,7 +146,8 @@ def fetch_multi_prices(tickers):
         curr_val, prev_val = 0, 0
         code_str = str(t).zfill(6) if str(t).isdigit() else str(t)
         try:
-            df = fdr.DataReader(code_str, datetime.today() - timedelta(days=15))
+            # 💡 [핵심] 거래정지 종목을 위해 15일 -> 100일로 검색 기간 대폭 확장!
+            df = fdr.DataReader(code_str, datetime.today() - timedelta(days=100))
             if not df.empty:
                 curr_val = int(df['Close'].iloc[-1])
                 prev_val = int(df['Close'].iloc[-2]) if len(df) >= 2 else curr_val
@@ -179,7 +182,6 @@ def load_portfolio(path):
                 for c in ['매수단가', '수량']:
                     if c in df.columns: df[c] = pd.to_numeric(df[c].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce').fillna(0).astype(int)
                     else: df[c] = 0
-                # 💡 데이터를 불러올 때 딱 4가지 핵심 컬럼만 보장합니다.
                 return df[["종목명", "종목코드", "매수단가", "수량"]]
             except: continue
     return pd.DataFrame(columns=["종목명", "종목코드", "매수단가", "수량"])
@@ -224,7 +226,6 @@ def render_portfolio_tab(port_name, port_key, path, prices):
                     up_df.columns = up_df.columns.str.strip()
                     up_df['종목코드'] = up_df['종목코드'].astype(str).str.zfill(6)
                     
-                    # 업로드 시 불필요한 컬럼 정리
                     cols_to_keep = [c for c in ["종목명", "종목코드", "매수단가", "수량"] if c in up_df.columns]
                     st.session_state[f'df_{port_key}'] = up_df[cols_to_keep]
                     
@@ -235,7 +236,6 @@ def render_portfolio_tab(port_name, port_key, path, prices):
 
     st.markdown(f"### 📝 {port_name} 편집")
     
-    # 에디터에 표시하기 전에도 불필요한 컬럼이 있으면 잘라냅니다.
     clean_df = st.session_state[f'df_{port_key}'][["종목명", "종목코드", "매수단가", "수량"]]
     clean_df.index = range(1, len(clean_df) + 1)
     
@@ -358,7 +358,6 @@ with tabs[0]:
     summary_data, total_buy, total_profit, total_daily, total_since, total_prev_all = [], 0, 0, 0, 0, 0
 
     for p_name, p_key in [("또", "ddo"), ("쏘", "sso"), ("맘", "mom")]:
-        # 💡 [핵심 수정] .copy()를 사용하여 원본 데이터(편집 표)에 curr, prev가 오염되는 것을 완벽 차단!
         df = st.session_state[f'df_{p_key}'].copy()
         
         start_val = config[f'start_{p_key}']
