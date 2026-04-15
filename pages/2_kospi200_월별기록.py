@@ -226,7 +226,6 @@ if df_all.empty:
     st.error("🚨 `archive_kospi` 폴더에 데이터가 없습니다! 깃허브 저장소를 확인해주세요.")
     st.stop()
 
-# 💡 백테스트를 위한 데이터 사전 로드 및 연도 범위 산출
 with st.spinner("백테스트 데이터를 준비 중입니다... (최초 1회만)"):
     monthly_data = prep_backtest_data(df_all)
 
@@ -248,14 +247,16 @@ with tab_detail:
         
     years = sorted(list(set(v['year'] for v in date_map.values())), reverse=True)
     
-    # 💡 연도(드롭다운), 월(버튼형), 기준일(우측) UI 적용
-    col_y, col_info = st.columns([2, 8])
+    # 💡 [레이아웃 수정] 연도(드롭다운, 너비 축소), 월(라디오 버튼, 너비 확장), 기준일(우측) 가로 정렬 완벽 배치
+    col_y, col_m, col_info = st.columns([1.2, 7.3, 1.5])
+    
     with col_y:
         selected_year = st.selectbox("📅 투자 연도", years, format_func=lambda x: f"{x}년", key='y_detail')
     
     months_for_year = sorted(list(set(v['month'] for v in date_map.values() if v['year'] == selected_year)), reverse=False)
-    st.markdown("<div style='margin-bottom: 5px;'></div>", unsafe_allow_html=True)
-    selected_month = st.radio("🌙 투자 월", months_for_year, horizontal=True, key='m_detail', format_func=lambda x: f"{x}월")
+    
+    with col_m:
+        selected_month = st.radio("🌙 투자 월", months_for_year, horizontal=True, key='m_detail', format_func=lambda x: f"{x}월")
     
     selected_date = next(d for d, v in date_map.items() if v['year'] == selected_year and v['month'] == selected_month)
 
@@ -400,9 +401,9 @@ with tab_summary:
     # 💡 백테스트 상위 % 조절 슬라이더 추가
     c2, c3, c4, c5 = st.columns([1, 1, 1, 1])
     with c2: perf_pct = st.slider("🔥 퍼펙트 상승 (1,3,6,12M 상위 %)", 5, 50, 30, step=5)
-    with c3: rank_p_start, rank_p_end = st.slider("🔥 퍼펙트 상승 (매수 순위)", 1, 30, (1, 6))
+    with c3: rank_p_start, rank_p_end = st.slider("🔥 퍼펙트 상승 (매수 순위)", 1, 30, (1, 5))
     with c4: spec_12m_pct = st.slider("🐎 달리는 말 (12M 상위 %, 1M은 10%)", 5, 50, 30, step=5)
-    with c5: rank_s_start, rank_s_end = st.slider("🐎 달리는 말 (매수 순위)", 1, 30, (1, 2))
+    with c5: rank_s_start, rank_s_end = st.slider("🐎 달리는 말 (매수 순위)", 1, 30, (1, 5))
     
     if rank_p_start > rank_p_end or rank_s_start > rank_s_end:
         st.error("🚨 순위 범위가 잘못되었습니다. (예: 2~6위 형태로 설정해주세요)")
@@ -547,7 +548,7 @@ with tab_custom:
     with c_ma_c:
         ma_months_t3 = st.slider("📉 마켓타이밍 (개월선) ", 1, 12, 4, key='ma_t3')
     with c7:
-        rank_c_start, rank_c_end = st.slider("🏅 매수 순위 범위", 1, 30, (1, 10), key='k_rnk3')
+        rank_c_start, rank_c_end = st.slider("🏅 매수 순위 범위 ", 1, 30, (1, 10), key='k_rnk3')
 
     if rank_c_start > rank_c_end:
         st.error("🚨 순위 범위가 잘못되었습니다.")
