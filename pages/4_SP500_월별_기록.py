@@ -330,34 +330,40 @@ with tab_detail:
 # 탭 2: 장기 백테스트 (전략 검증)
 # ==========================================
 with tab_summary:
-    # 💡 1번 요청: 파란색 바탕 팁과 하얀 줄 삭제 완료
-    st.markdown("<div class='settings-box'>", unsafe_allow_html=True)
-    st.markdown("##### ⚙️ 시뮬레이션 설정")
+    # 💡 하얀 줄(박스 테두리)을 만드는 div 태그 완전 삭제 완료
     
-    c1, c2, c3 = st.columns([1.2, 1.2, 1])
+    # 타이틀과 마켓타이밍 체크박스를 한 줄에 나란히 배치
+    col_title, col_check = st.columns([1, 4])
+    with col_title:
+        st.markdown("<h4 style='margin-top: 5px; margin-bottom: 0px;'>⚙️ 시뮬레이션 설정</h4>", unsafe_allow_html=True)
+    with col_check:
+        st.markdown("<div style='margin-top: 10px;'>", unsafe_allow_html=True)
+        apply_timing = st.checkbox("🛑 마켓타이밍 적용 (S&P500 200일선 이탈시 현금 100%)", value=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+    st.markdown("<br>", unsafe_allow_html=True) # 살짝 여백 띄우기
+    
+    # 💡 테스트 기간과 전략 순위를 깔끔하게 3등분하여 한 줄에 배치
+    c1, c2, c3 = st.columns(3)
     with c1:
-        # 💡 3번 요청: 테스트 연도 선택 기능 추가
         years_list = sorted(df_master['Year'].unique().astype(int))
         min_y, max_y = min(years_list), max(years_list)
         start_year, end_year = st.slider("📅 테스트 기간 (연도)", min_y, max_y, (min_y, max_y))
         
     with c2:
-        # 💡 2번 요청: 1등부터가 아닌 특정 순위 대역 (예: 2~6등) 선택 기능 추가
-        rank_1_start, rank_1_end = st.slider("🔥 12M & 6M 강세 (매수 순위 범위)", 1, 30, (1, 5))
-        rank_2_start, rank_2_end = st.slider("⚡ 6M & 3M 강세 (매수 순위 범위)", 1, 30, (1, 5))
+        rank_1_start, rank_1_end = st.slider("🔥 12-1 & 6-1 전략 (매수 순위)", 1, 30, (1, 5))
         
     with c3:
-        st.markdown("<div style='margin-top:25px;'></div>", unsafe_allow_html=True)
-        apply_timing = st.checkbox("🛑 마켓타이밍 적용\n(S&P500 200일선 이탈시 현금)", value=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+        rank_2_start, rank_2_end = st.slider("⚡ 6-1 & 3-1 전략 (매수 순위)", 1, 30, (1, 5))
+        
+    st.markdown("<br>", unsafe_allow_html=True)
     
-    # 에러 방지: 시작 순위가 끝 순위보다 크면 에러 메시지 띄우기
+    # 에러 방지
     if rank_1_start > rank_1_end or rank_2_start > rank_2_end:
         st.error("🚨 순위 범위가 잘못되었습니다. (예: 2~6위 형태로 설정해주세요)")
         st.stop()
     
     with st.spinner("수익률 계산 중... (기간에 따라 수 초 소요될 수 있습니다)"):
-        # 선택한 연도에 해당하는 월만 필터링
         filtered_months = [m for m in sorted(df_master['YearMonth'].unique()) 
                            if start_year <= int(m[:4]) <= end_year]
         
@@ -372,12 +378,11 @@ with tab_summary:
             mult = 0.0 if is_bad else 1.0
             is_invested = mult > 0.0
             
-            # 교집합 전, 충분한 후보군 확보 (끝 순위의 3배수)
+            # 교집합 전 후보군 확보
             pool_size_1 = rank_1_end * 3
             top_12m = monthly_data.sort_values('12-1개월(%)', ascending=False).head(pool_size_1)
             top_6m = monthly_data.sort_values('6-1개월(%)', ascending=False).head(pool_size_1)
             
-            # 교집합 후 6-1개월 기준으로 정렬 -> 선택한 순위 대역만 슬라이싱 (인덱싱 속도 최적화)
             overlap_1_full = top_12m[top_12m['종목코드'].isin(top_6m['종목코드'])].sort_values('6-1개월(%)', ascending=False)
             overlap_1 = overlap_1_full.iloc[rank_1_start-1 : rank_1_end]
             
@@ -395,11 +400,12 @@ with tab_summary:
             combined_data = monthly_data[monthly_data['종목코드'].isin(combined_tickers)]
             ret_combined = (combined_data['다음달수익률(%)'].mean() * mult) if not combined_data.empty else 0.0
             
+            # 💡 전략 이름 명확하게 변경 완료
             records.append({
                 'YearMonth': m,
                 'invested': is_invested,
-                f'🔥 전략1 ({rank_1_start}~{rank_1_end}위)': ret_1,
-                f'⚡ 전략2 ({rank_2_start}~{rank_2_end}위)': ret_2,
+                f'🔥 12-1 & 6-1 전략 ({rank_1_start}~{rank_1_end}위)': ret_1,
+                f'⚡ 6-1 & 3-1 전략 ({rank_2_start}~{rank_2_end}위)': ret_2,
                 '앙상블 (전략 50:50)': (ret_1 + ret_2) / 2,
                 '통합 (모든종목 1/N)': ret_combined
             })
@@ -413,7 +419,6 @@ with tab_summary:
             strategy_cols = [c for c in df_res.columns if c not in ['YearMonth', 'invested']]
             df_cum = (1 + df_res.set_index('YearMonth')[strategy_cols] / 100).cumprod() * 100
             
-            # 그래프 시작점을 100으로 맞추기 위한 초기 세팅
             first_month = pd.to_datetime(df_res['YearMonth'].iloc[0]) - pd.DateOffset(months=1)
             first_m_str = first_month.strftime('%Y-%m')
             df_cum.loc[first_m_str] = 100
