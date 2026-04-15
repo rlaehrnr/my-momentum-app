@@ -16,8 +16,8 @@ st.markdown("""
     h1 { font-size: 2.2rem !important; font-weight: 800; margin-bottom: 10px; }
     .strategy-desc { font-size: 0.85rem; color: #9ca3af; margin-bottom: 10px; line-height: 1.2; }
     
-    /* 💡 가로형 라디오 버튼 간격 조절 */
-    div[role="radiogroup"] { gap: 15px !important; flex-wrap: wrap; }
+    /* 💡 가로형 라디오 버튼 간격 조절 및 줄바꿈 허용 */
+    div[role="radiogroup"] { gap: 10px !important; flex-wrap: wrap; }
     
     @media (max-width: 768px) {
         div[data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; }
@@ -185,36 +185,33 @@ if df_master.empty:
     st.info("데이터가 없습니다. archive 폴더에 'momentum_YYYY_MM.csv' 파일들을 넣어주세요.")
     st.stop()
 
+# 💡 전역 변수로 연도 범위 설정 (NameError 해결)
+years_list = sorted(df_master['투자연도'].unique().astype(int))
+min_y, max_y = min(years_list), max(years_list)
+
 tab_detail, tab_summary, tab_custom = st.tabs(["📅 월별 상세 분석", "📈 전략조합 장기 백테스트", "🏅 스코어 커스텀 백테스트"])
 
 # ==========================================
 # 탭 1: 월별 상세 분석
 # ==========================================
 with tab_detail:
-    sorted_years = sorted(df_master['투자연도'].unique().astype(str), reverse=True)
+    sorted_years_str = sorted(df_master['투자연도'].unique().astype(str), reverse=True)
     
-    # 💡 [핵심] 연도는 드롭다운(수정불가), 월은 가로형 라디오버튼으로 배치!
-    col_y, col_info = st.columns([2, 8])
+    # 💡 [레이아웃 수정] 연도(드롭다운), 월(가로버튼), 기준일(텍스트) 가로 정렬
+    col_y, col_m, col_info = st.columns([1.5, 6, 2.5])
+    
     with col_y: 
-        selected_year = st.selectbox("📅 투자 연도", sorted_years, key='y_detail', format_func=lambda x: f"{x}년")
+        selected_year = st.selectbox("📅 투자 연도", sorted_years_str, key='y_detail', format_func=lambda x: f"{x}년")
     
     available_months = sorted(df_master[df_master['투자연도'] == int(selected_year)]['투자월_숫자'].unique())
     
-    df_monthly = df_master[(df_master['투자연도'] == int(selected_year))].copy()
+    with col_m:
+        selected_month = st.radio("🌙 투자 월", available_months, horizontal=True, key='m_detail', format_func=lambda x: f"{x}월")
+
+    df_monthly = df_master[(df_master['투자연도'] == int(selected_year)) & (df_master['투자월_숫자'] == int(selected_month))].copy()
     
-    target_date_temp = df_monthly['YearMonth'].iloc[0]
-    with col_info:
-        # 날짜 임시 표기 (월 선택 후 정확해짐)
-        pass 
-        
-    st.markdown("<div style='margin-bottom: 5px;'></div>", unsafe_allow_html=True)
-    selected_month = st.radio("🌙 투자 월 선택", available_months, horizontal=True, key='m_detail', format_func=lambda x: f"{x}월")
-    
-    df_monthly = df_monthly[df_monthly['투자월_숫자'] == int(selected_month)].copy()
-    
-    # 💡 데이터 기준일 추출
     target_date_str = df_monthly['기준일(월말)'].iloc[0] if '기준일(월말)' in df_monthly.columns else (datetime(int(selected_year), int(selected_month), 1) - timedelta(days=1)).strftime('%Y-%m-%d')
-    
+        
     with col_info:
         st.markdown(f"<div style='margin-top: 32px; text-align: right; color: #9ca3af; font-size: 0.95rem;'>💡 <b>데이터 기준일:</b> {target_date_str}</div>", unsafe_allow_html=True)
 
@@ -240,7 +237,6 @@ with tab_detail:
     bad_months_this_year = PRESIDENTIAL_DANGEROUS_MONTHS.get(cycle_year, [])
     bad_m_str = ", ".join(f"{m}월" for m in bad_months_this_year) if bad_months_this_year else "없음"
 
-    # 💡 [핵심] 하락 개수 무시, 4개월선 위만 무조건 투자 진행!
     is_below_4m_ma = (kospi_curr > 0) and (kospi_curr < kospi_4m_ma)
 
     if is_below_4m_ma:
@@ -329,7 +325,6 @@ with tab_summary:
     st.markdown("<hr style='margin: 10px 0px;'>", unsafe_allow_html=True)
     st.markdown("##### 🔥 전략 상세 조건 필터")
     
-    # 💡 [핵심] 상위 % 조건을 마음대로 바꿀 수 있는 슬라이더 장착!
     c2, c3, c4, c5 = st.columns([1, 1, 1, 1])
     with c2: perf_pct = st.slider("🔥 퍼펙트 상승 (1,3,6,12M 상위 %)", 5, 50, 30, step=5)
     with c3: rank_1_start, rank_1_end = st.slider("🔥 퍼펙트 상승 (매수 순위)", 1, 30, (4, 9))
@@ -351,7 +346,6 @@ with tab_summary:
             is_below_ma = timing_df_t2.loc[m, 'is_below_ma'] if m in timing_df_t2.index else False
             mult = 0.0 if (apply_timing and is_below_ma) else 1.0
             
-            # 💡 [핵심] 설정된 상위 % 슬라이더 값을 동적으로 계산에 적용
             q_perf = 1.0 - (perf_pct / 100.0)
             q_spec = 1.0 - (spec_12m_pct / 100.0)
             
@@ -361,7 +355,7 @@ with tab_summary:
             q_val_12 = m_data['12개월(%)'].quantile(q_perf)
             
             t_val_12 = m_data['12개월(%)'].quantile(q_spec)
-            t_val_1 = m_data['1개월(%)'].quantile(0.9) # 1개월은 상위 10% 고정
+            t_val_1 = m_data['1개월(%)'].quantile(0.9) 
             
             cond_p = (m_data['1개월(%)']>=q_val_1)&(m_data['3개월(%)']>=q_val_3)&(m_data['6개월(%)']>=q_val_6)&(m_data['12개월(%)']>=q_val_12)&(m_data['1개월(%)']>0)
             cond_s = (m_data['12개월(%)']>=t_val_12)&(m_data['1개월(%)']>=t_val_1)
@@ -437,7 +431,6 @@ with tab_custom:
     
     with st.form("custom_weight_form", border=False):
         c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 0.8])
-        # 💡 [핵심복구] 소수점 1자리(%.1f) 표시
         with c1: w1 = st.number_input("📉 1M 가중치", value=0.2, step=0.1, format="%.1f")
         with c2: w3 = st.number_input("📈 3M 가중치", value=0.8, step=0.1, format="%.1f")
         with c3: w6 = st.number_input("📈 6M 가중치", value=0.0, step=0.1, format="%.1f")
@@ -460,17 +453,21 @@ with tab_custom:
         records_c = []
         for m in months_c:
             m_data = df_calc[df_calc['YearMonth'] == m]; inv_str = (pd.to_datetime(m) + pd.DateOffset(months=1)).strftime('%Y-%m')
+            
             is_below_ma = timing_df_t3.loc[m, 'is_below_ma'] if m in timing_df_t3.index else False
             mult = 0.0 if (apply_timing_c and is_below_ma) else 1.0
+            
             target_group = m_data.sort_values('CustomScore', ascending=False).iloc[rank_c_start-1 : rank_c_end]
-            records_c.append({'투자월': inv_str, 'invested': (mult > 0), f'🏅 커스텀 스코어 ({rank_c_start}~{rank_c_end}위)': (target_group['다음달수익률(%)'].mean() * mult) if not target_group.empty else 0.0})
+            ret_target = (target_group['다음달수익률(%)'].mean() * mult) if not target_group.empty else 0.0
+            records_c.append({'투자월': inv_str, 'invested': (mult > 0), f'🏅 커스텀 스코어 ({rank_c_start}~{rank_c_end}위)': ret_target})
             
         df_res_c = pd.DataFrame(records_c).fillna(0.0)
         if not df_res_c.empty:
             strategy_cols_c = [c for c in df_res_c.columns if c not in ['투자월', 'invested']]
             df_cum_c = (1 + df_res_c.set_index('투자월')[strategy_cols_c] / 100).cumprod() * 100
             df_cum_c.loc[(pd.to_datetime(df_res_c['투자월'].iloc[0]) - pd.DateOffset(months=1)).strftime('%Y-%m')] = 100
-            
+            df_cum_c = df_cum_c.sort_index()
+
             st.markdown(f"### 📈 커스텀 스코어 누적 수익률 (마켓타이밍: KOSPI {ma_months_t3}개월선)")
             df_melt_c = df_cum_c.reset_index().melt(id_vars='투자월', var_name='전략', value_name='누적수익률')
             fig_c = px.line(df_melt_c, x='투자월', y='누적수익률', color='전략', log_y=True) 
@@ -505,6 +502,6 @@ with tab_custom:
             except AttributeError: styled_stats_c = df_stats_c.style.applymap(style_stats, subset=['CAGR (연평균)', '총 누적수익률', 'MDD (최대낙폭)'])
             st.dataframe(styled_stats_c, use_container_width=True, hide_index=True)
 
-            with st.expander("📝 월별 상세 수익률 보기"):
+            with st.expander(f"📝 {start_year_c}~{end_year_c}년 ({total_months}개월) 월별 수익률 상세 기록 보기"):
                 display_df_c = df_res_c.drop(columns=['invested']).set_index('투자월')
                 st.dataframe(display_df_c.style.format("{:.2f}%"), use_container_width=True)
