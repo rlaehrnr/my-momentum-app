@@ -37,7 +37,7 @@ def load_all_archive_data():
         
         df['투자연도'] = int(year)
         df['투자월_숫자'] = int(month)
-        df['YearMonth'] = f"{year}-{month.zfill(2)}"
+        df['YearMonth'] = f"{year}-{month.zfill(2)}" # 기준월
         df['종목코드'] = df['종목코드'].astype(str).str.strip().str.zfill(6)
         
         num_cols = ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '다음달수익률(%)', '모멘텀스코어']
@@ -153,8 +153,13 @@ with tab_summary:
         for m in months:
             m_data = df_master[df_master['YearMonth'] == m]
             
+            # 💡 [명확한 분리] 기준월과 실제 투자월(차트에 찍힐 월) 분리
+            base_dt = pd.to_datetime(m)
+            inv_dt = base_dt + pd.DateOffset(months=1)
+            inv_str = inv_dt.strftime('%Y-%m')
+            
             is_below_ma = False
-            if m in timing_df_t2.index:
+            if m in timing_df_t2.index: # 판단은 기준월(m) 이평선으로 확인
                 is_below_ma = timing_df_t2.loc[m, 'is_below_ma']
                 
             mult = 0.0 if (apply_timing and is_below_ma) else 1.0
@@ -172,7 +177,7 @@ with tab_summary:
             ret_2 = (overlap_2['다음달수익률(%)'].mean() * mult) if not overlap_2.empty else 0.0
             
             records.append({
-                'YearMonth': m,
+                '투자월': inv_str, # YearMonth 대신 실제 투자월 기록
                 'invested': is_invested,
                 f'🔥 12-1 & 6-1 전략 ({rank_1_start}~{rank_1_end}위)': ret_1,
                 f'⚡ 6-1 & 3-1 전략 ({rank_2_start}~{rank_2_end}위)': ret_2,
@@ -183,21 +188,20 @@ with tab_summary:
         df_res.fillna(0.0, inplace=True)
         
         if not df_res.empty:
-            strategy_cols = [c for c in df_res.columns if c not in ['YearMonth', 'invested']]
-            df_cum = (1 + df_res.set_index('YearMonth')[strategy_cols] / 100).cumprod() * 100
+            strategy_cols = [c for c in df_res.columns if c not in ['투자월', 'invested']]
+            df_cum = (1 + df_res.set_index('투자월')[strategy_cols] / 100).cumprod() * 100
             
-            first_m_str = (pd.to_datetime(df_res['YearMonth'].iloc[0]) - pd.DateOffset(months=1)).strftime('%Y-%m')
+            first_m_str = (pd.to_datetime(df_res['투자월'].iloc[0]) - pd.DateOffset(months=1)).strftime('%Y-%m')
             df_cum.loc[first_m_str] = 100
             df_cum = df_cum.sort_index()
 
-            # 💡 Plotly 인터랙티브 차트 적용
-            st.markdown(f"### 📈 {start_year}~{end_year}년 누적 수익률 곡선 (마켓타이밍: KOSPI {ma_months_t2}개월선)")
-            df_melt = df_cum.reset_index().melt(id_vars='YearMonth', var_name='전략', value_name='누적수익률')
-            fig = px.line(df_melt, x='YearMonth', y='누적수익률', color='전략', log_y=True)
+            st.markdown(f"### 📈 {start_year}~{end_year}년 누적 수익률 곡선 (Log Scale)")
+            st.caption(f"💡 적용된 마켓타이밍: KOSPI {ma_months_t2}개월선 이탈 시 현금 100%")
+            df_melt = df_cum.reset_index().melt(id_vars='투자월', var_name='전략', value_name='누적수익률')
+            fig = px.line(df_melt, x='투자월', y='누적수익률', color='전략', log_y=True)
             fig.update_layout(hovermode="x unified", dragmode="pan", xaxis_title="투자 기준 월", yaxis_title="누적 자산 (초기 자본 = 100, 로그스케일)", legend_title_text="투자 전략", margin=dict(l=0, r=0, t=20, b=0))
             st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
             
-            # 💡 색상 통계표 적용
             st.markdown("#### 📊 전략별 핵심 통계 (초기 자본 100 기준)")
             stats = []
             total_months = len(df_res)
@@ -232,7 +236,7 @@ with tab_summary:
             st.dataframe(styled_stats, use_container_width=True, hide_index=True)
             
             with st.expander(f"📝 {start_year}~{end_year}년 ({total_months}개월) 월별 수익률 상세 기록 보기"):
-                display_df = df_res.drop(columns=['invested']).set_index('YearMonth')
+                display_df = df_res.drop(columns=['invested']).set_index('투자월')
                 st.dataframe(display_df.style.format("{:.2f}%"), use_container_width=True)
 
 # ==========================================
@@ -278,6 +282,11 @@ with tab_custom:
         for m in months_c:
             m_data = df_calc[df_calc['YearMonth'] == m]
             
+            # 💡 탭 3 역시 기준월(m)과 투자월(inv_str) 분리
+            base_dt = pd.to_datetime(m)
+            inv_dt = base_dt + pd.DateOffset(months=1)
+            inv_str = inv_dt.strftime('%Y-%m')
+            
             is_below_ma = False
             if m in timing_df_t3.index:
                 is_below_ma = timing_df_t3.loc[m, 'is_below_ma']
@@ -288,25 +297,23 @@ with tab_custom:
             target_group = m_data.sort_values('CustomScore', ascending=False).iloc[rank_c_start-1 : rank_c_end]
             ret_target = (target_group['다음달수익률(%)'].mean() * mult) if not target_group.empty else 0.0
             
-            records_c.append({'YearMonth': m, 'invested': is_invested, f'🏅 커스텀 스코어 ({rank_c_start}~{rank_c_end}위)': ret_target})
+            records_c.append({'투자월': inv_str, 'invested': is_invested, f'🏅 커스텀 스코어 ({rank_c_start}~{rank_c_end}위)': ret_target})
             
         df_res_c = pd.DataFrame(records_c).fillna(0.0)
         if not df_res_c.empty:
-            strategy_cols_c = [c for c in df_res_c.columns if c not in ['YearMonth', 'invested']]
-            df_cum_c = (1 + df_res_c.set_index('YearMonth')[strategy_cols_c] / 100).cumprod() * 100
+            strategy_cols_c = [c for c in df_res_c.columns if c not in ['투자월', 'invested']]
+            df_cum_c = (1 + df_res_c.set_index('투자월')[strategy_cols_c] / 100).cumprod() * 100
             
-            first_m_str_c = (pd.to_datetime(df_res_c['YearMonth'].iloc[0]) - pd.DateOffset(months=1)).strftime('%Y-%m')
+            first_m_str_c = (pd.to_datetime(df_res_c['투자월'].iloc[0]) - pd.DateOffset(months=1)).strftime('%Y-%m')
             df_cum_c.loc[first_m_str_c] = 100
             df_cum_c = df_cum_c.sort_index()
 
-            # 💡 Plotly 인터랙티브 차트 적용
             st.markdown(f"### 📈 커스텀 스코어 누적 수익률 (마켓타이밍: KOSPI {ma_months_t3}개월선)")
-            df_melt_c = df_cum_c.reset_index().melt(id_vars='YearMonth', var_name='전략', value_name='누적수익률')
-            fig_c = px.line(df_melt_c, x='YearMonth', y='누적수익률', color='전략', log_y=True) 
+            df_melt_c = df_cum_c.reset_index().melt(id_vars='투자월', var_name='전략', value_name='누적수익률')
+            fig_c = px.line(df_melt_c, x='투자월', y='누적수익률', color='전략', log_y=True) 
             fig_c.update_layout(hovermode="x unified", dragmode="pan", xaxis_title="투자 기준 월", yaxis_title="누적 자산 (초기 자본 = 100, 로그스케일)", margin=dict(l=0, r=0, t=20, b=0))
             st.plotly_chart(fig_c, use_container_width=True, config={'scrollZoom': True})
             
-            # 💡 색상 통계표 적용
             st.markdown("#### 📊 전략 핵심 통계")
             stats_c = []
             total_months = len(df_res_c)
@@ -331,15 +338,10 @@ with tab_custom:
             stats_c.append({"전략명": col_name, "CAGR (연평균)": f"{cagr:.1f}%", "총 누적수익률": f"{total_ret:,.1f}%", "MDD (최대낙폭)": f"{mdd:.1f}%", "투자월 비율": f"{invest_ratio:.1f}% ({invested_months}/{total_months}개월)", "월별 승률": f"{win_rate:.1f}% ({win_months}승)", "평균 수익률(투자월)": f"{avg_ret:.2f}%"})
             
             df_stats_c = pd.DataFrame(stats_c)
-            def style_stats(x):
-                if isinstance(x, str) and '%' in x:
-                    if '-' in x: return 'color: #1976D2; font-weight:bold;'
-                    elif x != '0.0%': return 'color: #D32F2F; font-weight:bold;'
-                return ''
             try: styled_stats_c = df_stats_c.style.map(style_stats, subset=['CAGR (연평균)', '총 누적수익률', 'MDD (최대낙폭)'])
             except AttributeError: styled_stats_c = df_stats_c.style.applymap(style_stats, subset=['CAGR (연평균)', '총 누적수익률', 'MDD (최대낙폭)'])
             st.dataframe(styled_stats_c, use_container_width=True, hide_index=True)
-            
+
             with st.expander("📝 월별 상세 수익률 보기"):
-                display_df_c = df_res_c.drop(columns=['invested']).set_index('YearMonth')
+                display_df_c = df_res_c.drop(columns=['invested']).set_index('투자월')
                 st.dataframe(display_df_c.style.format("{:.2f}%"), use_container_width=True)
