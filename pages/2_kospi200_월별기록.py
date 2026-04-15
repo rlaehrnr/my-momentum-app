@@ -91,6 +91,18 @@ def get_kospi_ma_status(target_date_str):
         return pd.DataFrame([ma_values])
     except: return pd.DataFrame()
 
+# 💡 [핵심] 백테스트용 코스피 이평선 실시간 계산기
+@st.cache_data(show_spinner=False)
+def get_kospi_timing_for_backtest(ma_months):
+    ks11 = fdr.DataReader('KS11', '2010-01-01')
+    ma_days = ma_months * 20 
+    ks11['MA'] = ks11['Close'].rolling(ma_days).mean()
+    ks11['YearMonth'] = ks11.index.to_period('M').astype(str)
+    
+    timing_df = ks11.resample('ME').last()
+    timing_df['is_below_ma'] = timing_df['Close'] < timing_df['MA']
+    return timing_df.set_index('YearMonth')
+
 def style_kospi_ma(df):
     def apply_color(row):
         price = row['base_price']
@@ -124,16 +136,9 @@ def load_historical_data(filepath):
     else: df['시가총액(억)'] = 0
     return df
 
-# 💡 [업데이트] 빠른 백테스트 슬라이싱을 위해 데이터프레임을 통째로 캐싱
+# 💡 [업데이트] KS11 4개월선은 분리, 하락종목(100개)만 백테스트 데이터에 고정 기록
 @st.cache_data
 def prep_backtest_data(df_all):
-    min_date = pd.to_datetime(df_all['기준일'].min()) - timedelta(days=400)
-    max_date = pd.to_datetime(df_all['기준일'].max()) + timedelta(days=31)
-    try:
-        ks11 = fdr.DataReader('KS11', min_date, max_date)
-        ks11['4MA'] = ks11['Close'].rolling(80).mean()
-    except: ks11 = pd.DataFrame()
-
     monthly_data = []
     dates = sorted(df_all['기준일'].unique())
 
@@ -157,24 +162,18 @@ def prep_backtest_data(df_all):
         df_perf = df_k200[cond_perf].sort_values('3개월(%)', ascending=False)
         df_spec = df_k200[(df_k200['12개월(%)']>=q30['12개월(%)']) & (df_k200['1개월(%)']>=t10_1m)].sort_values('1개월(%)', ascending=False)
 
-        is_bad = False
-        if not ks11.empty:
-            ks_sub = ks11.loc[ks11.index <= dt]
-            if not ks_sub.empty:
-                ks_row = ks_sub.iloc[-1]
-                kospi_curr = ks_row['Close']
-                kospi_4m = ks_row['4MA']
-                neg_1m = (df_k200['1개월(%)'] < 0).sum()
-                neg_3m = (df_k200['3개월(%)'] < 0).sum()
-                is_bad = (neg_1m >= 100 and neg_3m >= 100) or (pd.notna(kospi_4m) and kospi_curr < kospi_4m)
+        # 하락종목 100개 여부만 계산하여 저장 (이평선은 동적 계산됨)
+        neg_1m = (df_k200['1개월(%)'] < 0).sum()
+        neg_3m = (df_k200['3개월(%)'] < 0).sum()
+        is_bad_breadth = (neg_1m >= 100 and neg_3m >= 100)
 
         monthly_data.append({
             '투자월': inv_str,
             '투자연도': inv_year,
-            'is_bad': is_bad,
-            'df_perf': df_perf, # 필터링된 전체 리스트 (백테스트에서 슬라이싱용)
+            'is_bad_breadth': is_bad_breadth,
+            'df_perf': df_perf, 
             'df_spec': df_spec, 
-            'df_k200': df_k200  # KOSPI 200 전체 리스트 (커스텀 스코어용)
+            'df_k200': df_k200  
         })
     return monthly_data
 
@@ -214,7 +213,6 @@ if not os.path.exists(f_csv):
 
 df_all = load_historical_data(f_csv)
 
-# 💡 탭 3개로 구성 변경
 tab_detail, tab_summary, tab_custom = st.tabs(["📅 월별 상세 분석", "📈 전략 누적 성과 (백테스트)", "🏅 스코어 커스텀 백테스트"])
 
 # ==========================================
@@ -380,21 +378,25 @@ with tab_summary:
         st.markdown("<h4 style='margin-top: 5px; margin-bottom: 0px;'>⚙️ 시뮬레이션 설정</h4>", unsafe_allow_html=True)
     with col_check:
         st.markdown("<div style='margin-top: 8px;'>", unsafe_allow_html=True)
-        apply_timing = st.checkbox("🛑 마켓타이밍 적용 (조건 미달 시 현금 100%)", value=True, key='k_timing2')
+        # 💡 [핵심] 마켓타이밍 문구에 100개 규칙 명시
+        apply_timing = st.checkbox("🛑 마켓타이밍 적용 (선택 이평선 이탈 OR 1·3M 하락종목 100개↑ 시 현금 100%)", value=True, key='k_timing2')
         st.markdown("</div>", unsafe_allow_html=True)
         
     with st.spinner("백테스트 데이터를 준비 중입니다... (최초 1회만)"):
         monthly_data = prep_backtest_data(df_all)
         
-    c1, c2, c3 = st.columns(3)
+    # 💡 [업데이트] 이평선 슬라이더 추가
+    c1, c_ma, c2, c3 = st.columns([1, 0.8, 1, 1])
     with c1:
         years_list = sorted(list(set([m['투자연도'] for m in monthly_data])))
         min_y, max_y = min(years_list), max(years_list)
         start_year, end_year = st.slider("📅 테스트 기간 (연도)", min_y, max_y, (min_y, max_y), key='k_yr2')
+    with c_ma:
+        ma_months_t2 = st.slider("📉 마켓타이밍 (개월선)", 1, 12, 4, key='ma_t2')
     with c2:
-        rank_p_start, rank_p_end = st.slider("🔥 퍼펙트 상승 (매수 순위)", 1, 30, (1, 5))
+        rank_p_start, rank_p_end = st.slider("🔥 퍼펙트 상승 (순위)", 1, 30, (1, 5))
     with c3:
-        rank_s_start, rank_s_end = st.slider("🐎 달리는 말 (매수 순위)", 1, 30, (1, 5))
+        rank_s_start, rank_s_end = st.slider("🐎 달리는 말 (순위)", 1, 30, (1, 5))
         
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -403,14 +405,20 @@ with tab_summary:
         st.stop()
         
     with st.spinner("수익률 계산 중..."):
+        timing_df_t2 = get_kospi_timing_for_backtest(ma_months_t2)
         records = []
         for m in monthly_data:
             if not (start_year <= m['투자연도'] <= end_year): continue
             
-            mult = 0.0 if (apply_timing and m['is_bad']) else 1.0
+            # 💡 [핵심] 이평선 실시간 계산 + 100개 하락 규칙 결합
+            is_below_ma = False
+            if m['투자월'] in timing_df_t2.index:
+                is_below_ma = timing_df_t2.loc[m['투자월'], 'is_below_ma']
+                
+            is_bad_market = m['is_bad_breadth'] or is_below_ma
+            mult = 0.0 if (apply_timing and is_bad_market) else 1.0
             is_invested = mult > 0.0  
             
-            # 💡 슬라이싱 적용
             df_p = m['df_perf'].iloc[rank_p_start-1 : rank_p_end]
             df_s = m['df_spec'].iloc[rank_s_start-1 : rank_s_end]
             
@@ -496,7 +504,8 @@ with tab_custom:
         st.markdown("<h4 style='margin-top: 5px; margin-bottom: 0px;'>⚙️ 스코어 가중치 설정</h4>", unsafe_allow_html=True)
     with col_check:
         st.markdown("<div style='margin-top: 8px;'>", unsafe_allow_html=True)
-        apply_timing_c = st.checkbox("🛑 마켓타이밍 적용 (조건 미달 시 현금 100%)", value=True, key='k_timing3')
+        # 💡 [핵심] 동일하게 100개 하락 규칙 명시
+        apply_timing_c = st.checkbox("🛑 마켓타이밍 적용 (선택 이평선 이탈 OR 1·3M 하락종목 100개↑ 시 현금 100%)", value=True, key='k_timing3')
         st.markdown("</div>", unsafe_allow_html=True)
         
     with st.form("custom_weight_form_k200", border=False):
@@ -511,24 +520,32 @@ with tab_custom:
             
     st.markdown("<hr style='margin: 0px 0px 15px 0px;'>", unsafe_allow_html=True)
     
-    c6, c7, _ = st.columns([1, 1, 1])
+    # 💡 탭 3에도 이평선 슬라이더 장착
+    c6, c_ma_c, c7 = st.columns([1, 1, 1])
     with c6:
-        years_list = sorted(list(set([m['투자연도'] for m in monthly_data])))
-        min_y, max_y = min(years_list), max(years_list)
         start_year_c, end_year_c = st.slider("📅 테스트 기간 (연도)", min_y, max_y, (min_y, max_y), key='k_yr3')
+    with c_ma_c:
+        ma_months_t3 = st.slider("📉 마켓타이밍 (개월선)", 1, 12, 4, key='ma_t3')
     with c7:
-        rank_c_start, rank_c_end = st.slider("🏅 매수 순위 범위 (커스텀 스코어 기준)", 1, 30, (1, 10), key='k_rnk3')
+        rank_c_start, rank_c_end = st.slider("🏅 매수 순위 범위", 1, 30, (1, 10), key='k_rnk3')
 
     if rank_c_start > rank_c_end:
         st.error("🚨 순위 범위가 잘못되었습니다.")
         st.stop()
         
     with st.spinner("커스텀 스코어 재계산 및 시뮬레이션 중..."):
+        timing_df_t3 = get_kospi_timing_for_backtest(ma_months_t3)
         records_c = []
         for m in monthly_data:
             if not (start_year_c <= m['투자연도'] <= end_year_c): continue
             
-            mult = 0.0 if (apply_timing_c and m['is_bad']) else 1.0
+            # 💡 이평선 실시간 체크 + 하락종목수 100개
+            is_below_ma = False
+            if m['투자월'] in timing_df_t3.index:
+                is_below_ma = timing_df_t3.loc[m['투자월'], 'is_below_ma']
+                
+            is_bad_market = m['is_bad_breadth'] or is_below_ma
+            mult = 0.0 if (apply_timing_c and is_bad_market) else 1.0
             is_invested = mult > 0.0
             
             df_calc = m['df_k200'].copy()
@@ -554,7 +571,7 @@ with tab_custom:
             st.markdown(f"### 📈 {start_year_c}년 ~ {end_year_c}년 누적 자산 성장 곡선 (Log Scale)")
             df_melt_c = df_cum_c.reset_index().melt(id_vars='투자월', var_name='전략', value_name='누적수익률')
             fig_c = px.line(df_melt_c, x='투자월', y='누적수익률', color='전략', log_y=True) 
-            fig_c.update_layout(hovermode="x unified", dragmode="pan", xaxis_title="투자 기준 월", yaxis_title="누적 자산 (초기 자본 = 100)", margin=dict(l=0, r=0, t=20, b=0))
+            fig_c.update_layout(hovermode="x unified", dragmode="pan", xaxis_title="투자 기준 월", yaxis_title="누적 자산 (초기 자본 = 100, 로그스케일)", margin=dict(l=0, r=0, t=20, b=0))
             st.plotly_chart(fig_c, use_container_width=True, config={'scrollZoom': True})
 
             st.markdown("#### 📊 전략 핵심 통계")
