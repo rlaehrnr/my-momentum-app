@@ -501,9 +501,9 @@ with tab_custom:
         
     with st.form("custom_weight_form_k200", border=False):
         c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 0.8])
-        with c1: w1 = st.number_input("📉 1개월 가중치", value=-0.1, step=0.1, format="%.1f")
-        with c2: w3 = st.number_input("📈 3개월 가중치", value=0.7, step=0.1, format="%.1f")
-        with c3: w6 = st.number_input("📈 6개월 가중치", value=0.4, step=0.1, format="%.1f")
+        with c1: w1 = st.number_input("📉 1개월 가중치", value=0.2, step=0.1, format="%.1f")
+        with c2: w3 = st.number_input("📈 3개월 가중치", value=0.8, step=0.1, format="%.1f")
+        with c3: w6 = st.number_input("📈 6개월 가중치", value=0.0, step=0.1, format="%.1f")
         with c4: w12 = st.number_input("📈 12개월 가중치", value=0.0, step=0.1, format="%.1f")
         with c5:
             st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
