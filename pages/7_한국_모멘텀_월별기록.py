@@ -321,8 +321,8 @@ with tab_summary:
         min_y, max_y = min(years_list), max(years_list)
         start_year, end_year = st.slider("📅 테스트 기간", min_y, max_y, (min_y, max_y), key='year_tab2')
     with c_ma: ma_months_t2 = st.slider("📉 마켓타이밍 (개월선)", 1, 12, 4, key='ma_t2')
-    with c2: rank_1_start, rank_1_end = st.slider("🔥 12-1 & 6-1 전략 (순위)", 1, 30, (4, 9))
-    with c3: rank_2_start, rank_2_end = st.slider("⚡ 6-1 & 3-1 전략 (순위)", 1, 30, (5, 10))
+    with c2: rank_1_start, rank_1_end = st.slider("🔥 12-1 & 6-1 전략 (순위)", 1, 30, (4, 8))
+    with c3: rank_2_start, rank_2_end = st.slider("⚡ 6-1 & 3-1 전략 (순위)", 1, 30, (6, 10))
         
     if rank_1_start > rank_1_end or rank_2_start > rank_2_end:
         st.error("🚨 순위 범위가 잘못되었습니다.")
