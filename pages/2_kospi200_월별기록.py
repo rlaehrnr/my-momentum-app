@@ -16,7 +16,7 @@ st.markdown("""
     .strategy-desc { font-size: 0.85rem; color: #9ca3af; margin-bottom: 10px; line-height: 1.2; }
     
     /* 💡 가로형 라디오 버튼 간격 조절 및 줄바꿈 허용 */
-    div[role="radiogroup"] { gap: 10px !important; flex-wrap: wrap; }
+    div[role="radiogroup"] { gap: 10px !important; flex-wrap: wrap; margin-top: 4px;}
     
     @media (max-width: 768px) {
         div[data-testid="stHorizontalBlock"] {
@@ -173,12 +173,14 @@ def prep_backtest_data(df_all):
         base_str = f"{dt.year}-{dt.month:02d}"
         inv_year = inv_dt.year
 
+        # 💡 코스피 시가총액 상위 200위만 철저히 분리
         df_k200 = df_all[df_all['기준일(월말)'] == d].copy()
         df_k200 = df_k200.sort_values(by='시가총액(억)', ascending=False).head(200)
 
         for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '다음달수익률(%)']:
             if c in df_k200.columns: df_k200[c] = pd.to_numeric(df_k200[c], errors='coerce').fillna(0)
 
+        # 💡 KOSPI 200 전용 하락종목수 마켓타이밍 필터 산출 (기준월 데이터)
         neg_1m = (df_k200['1개월(%)'] < 0).sum()
         neg_3m = (df_k200['3개월(%)'] < 0).sum()
         is_bad_breadth = (neg_1m >= 100 and neg_3m >= 100)
@@ -248,13 +250,15 @@ with tab_detail:
         
     years = sorted(list(set(v['year'] for v in date_map.values())), reverse=True)
     
-    col_y, col_info = st.columns([2, 8])
+    # 💡 연도(드롭다운), 월(버튼형), 기준일(우측) UI 적용
+    col_y, col_m, col_info = st.columns([1.2, 7.3, 1.5])
     with col_y:
         selected_year = st.selectbox("📅 투자 연도", years, format_func=lambda x: f"{x}년", key='y_detail')
     
     months_for_year = sorted(list(set(v['month'] for v in date_map.values() if v['year'] == selected_year)), reverse=False)
-    st.markdown("<div style='margin-bottom: 5px;'></div>", unsafe_allow_html=True)
-    selected_month = st.radio("🌙 투자 월", months_for_year, horizontal=True, key='m_detail', format_func=lambda x: f"{x}월")
+    with col_m:
+        st.markdown("<div style='margin-bottom: 4px;'></div>", unsafe_allow_html=True)
+        selected_month = st.radio("🌙 투자 월", months_for_year, horizontal=True, key='m_detail', format_func=lambda x: f"{x}월")
     
     selected_date = next(d for d, v in date_map.items() if v['year'] == selected_year and v['month'] == selected_month)
 
@@ -292,6 +296,7 @@ with tab_detail:
     bad_months_this_year = PRESIDENTIAL_DANGEROUS_MONTHS.get(cycle_year, [])
     bad_m_str = ", ".join(f"{m}월" for m in bad_months_this_year) if bad_months_this_year else "없음"
 
+    # KOSPI 200 전용 듀얼 타이밍 필터
     is_bad_market = (neg_1m_cnt >= 100) and (neg_3m_cnt >= 100)
     is_below_4m_ma = (kospi_curr > 0) and (kospi_curr < kospi_4m_ma)
 
@@ -324,17 +329,17 @@ with tab_detail:
         if c in df_k200.columns:
             df_k200[c] = pd.to_numeric(df_k200[c], errors='coerce').fillna(0)
 
+    # 모두 0 이상 필터
     q30 = {c: df_k200[c].quantile(0.7) for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']}
     t10_1m = df_k200['1개월(%)'].quantile(0.9)
 
-    # 💡 퍼펙트 상승 (모두 0 이상)
     cond_perf = (df_k200['1개월(%)']>=q30['1개월(%)'])&(df_k200['3개월(%)']>=q30['3개월(%)'])&(df_k200['6개월(%)']>=q30['6개월(%)'])&(df_k200['12개월(%)']>=q30['12개월(%)']) & \
                 (df_k200['1개월(%)']>0)&(df_k200['3개월(%)']>0)&(df_k200['6개월(%)']>0)&(df_k200['12개월(%)']>0)
 
     df_perf = df_k200[cond_perf].sort_values('3개월(%)', ascending=False).copy()
     
-    # 💡 달리는 말 (0 이상 필터 제거, 원래 로직대로)
-    cond_spec = (df_k200['12개월(%)']>=q30['12개월(%)']) & (df_k200['1개월(%)']>=t10_1m)
+    cond_spec = (df_k200['12개월(%)']>=q30['12개월(%)']) & (df_k200['1개월(%)']>=t10_1m) & \
+                (df_k200['1개월(%)']>0)&(df_k200['12개월(%)']>0)
                 
     df_spec = df_k200[cond_spec].sort_values('1개월(%)', ascending=False).copy()
 
@@ -362,7 +367,7 @@ with tab_detail:
                      column_config=main_cfg)
     with c_right:
         st.markdown(get_perf_html("🐎 달리는 말", df_spec, target_month), unsafe_allow_html=True)
-        st.markdown('<p class="strategy-desc">KOSPI 200 중 12개월 수익률 상위 30% 이내, 1개월 수익률 상위 10% 이내인 종목 (1개월 수익률 순)</p>', unsafe_allow_html=True)
+        st.markdown('<p class="strategy-desc">KOSPI 200 중 12개월 수익률 상위 30% 이내, 1개월 수익률 상위 10% 이내이며 0보다 큰 종목 (1개월 수익률 순)</p>', unsafe_allow_html=True)
         st.dataframe(df_spec.style.apply(apply_k200_styling, highlight_codes=top5_spec, overlap_codes=overlap_top5, axis=1), 
                      use_container_width=True, 
                      column_order=['통합티커_L', '종목명_L', '1개월(%)', '12개월(%)', '다음달수익률(%)'], 
@@ -441,11 +446,12 @@ with tab_summary:
             t_val_12 = df_k200_bt['12개월(%)'].quantile(q_spec)
             t_val_1 = df_k200_bt['1개월(%)'].quantile(0.9) 
             
+            # 💡 탭 2 로직: 모두 0 이상이도록 깐깐한 조건 적용
             cond_p = (df_k200_bt['1개월(%)']>=q_val_1)&(df_k200_bt['3개월(%)']>=q_val_3)&(df_k200_bt['6개월(%)']>=q_val_6)&(df_k200_bt['12개월(%)']>=q_val_12) & \
                      (df_k200_bt['1개월(%)']>0)&(df_k200_bt['3개월(%)']>0)&(df_k200_bt['6개월(%)']>0)&(df_k200_bt['12개월(%)']>0)
                      
-            # 💡 달리는 말 (0 이상 필터 제거, 원래 로직대로)
-            cond_s = (df_k200_bt['12개월(%)']>=t_val_12)&(df_k200_bt['1개월(%)']>=t_val_1)
+            cond_s = (df_k200_bt['12개월(%)']>=t_val_12)&(df_k200_bt['1개월(%)']>=t_val_1) & \
+                     (df_k200_bt['1개월(%)']>0)&(df_k200_bt['12개월(%)']>0)
             
             df_perf_all = df_k200_bt[cond_p].sort_values('3개월(%)', ascending=False)
             df_spec_all = df_k200_bt[cond_s].sort_values('1개월(%)', ascending=False)
@@ -495,10 +501,13 @@ with tab_summary:
             fig.update_layout(hovermode="x unified", dragmode="pan", xaxis_title="투자 기준 월", yaxis_title="누적 자산 (초기 자본 = 100, 로그스케일)", legend_title_text="투자 전략", margin=dict(l=0, r=0, t=20, b=0))
             st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
             
+            # 💡 [핵심] 한글 깨짐 방지 utf-8-sig
             df_trades = pd.DataFrame(trade_logs_tab2)
+            csv_data_t2 = df_trades.to_csv(index=False).encode('utf-8-sig')
+            
             st.download_button(
                 label="📥 백테스트 매수 상세 내역 전체 다운로드 (CSV)",
-                data=df_trades.to_csv(index=False, encoding='utf-8-sig'),
+                data=csv_data_t2,
                 file_name=f"KOSPI200_백테스트_매수내역_{datetime.today().strftime('%Y%m%d')}.csv",
                 mime="text/csv",
                 use_container_width=True
@@ -632,9 +641,10 @@ with tab_custom:
             st.plotly_chart(fig_c, use_container_width=True, config={'scrollZoom': True})
 
             df_trades_c = pd.DataFrame(trade_logs_tab3)
+            csv_data_t3 = df_trades_c.to_csv(index=False).encode('utf-8-sig')
             st.download_button(
                 label="📥 커스텀 백테스트 매수 상세 내역 다운로드 (CSV)",
-                data=df_trades_c.to_csv(index=False, encoding='utf-8-sig'),
+                data=csv_data_t3,
                 file_name=f"KOSPI200_커스텀_백테스트_{datetime.today().strftime('%Y%m%d')}.csv",
                 mime="text/csv",
                 use_container_width=True
