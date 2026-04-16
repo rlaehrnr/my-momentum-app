@@ -401,9 +401,9 @@ with tab_summary:
     # 💡 백테스트 상위 % 조절 슬라이더 추가
     c2, c3, c4, c5 = st.columns([1, 1, 1, 1])
     with c2: perf_pct = st.slider("🔥 퍼펙트 상승 (1,3,6,12M 상위 %)", 5, 50, 30, step=5)
-    with c3: rank_p_start, rank_p_end = st.slider("🔥 퍼펙트 상승 (매수 순위)", 1, 30, (1, 5))
+    with c3: rank_p_start, rank_p_end = st.slider("🔥 퍼펙트 상승 (매수 순위)", 1, 30, (1, 6))
     with c4: spec_12m_pct = st.slider("🐎 달리는 말 (12M 상위 %, 1M은 10%)", 5, 50, 30, step=5)
-    with c5: rank_s_start, rank_s_end = st.slider("🐎 달리는 말 (매수 순위)", 1, 30, (1, 5))
+    with c5: rank_s_start, rank_s_end = st.slider("🐎 달리는 말 (매수 순위)", 1, 30, (1, 2))
     
     if rank_p_start > rank_p_end or rank_s_start > rank_s_end:
         st.error("🚨 순위 범위가 잘못되었습니다. (예: 2~6위 형태로 설정해주세요)")
