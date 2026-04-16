@@ -173,14 +173,12 @@ def prep_backtest_data(df_all):
         base_str = f"{dt.year}-{dt.month:02d}"
         inv_year = inv_dt.year
 
-        # 💡 코스피 시가총액 상위 200위만 철저히 분리
         df_k200 = df_all[df_all['기준일(월말)'] == d].copy()
         df_k200 = df_k200.sort_values(by='시가총액(억)', ascending=False).head(200)
 
         for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '다음달수익률(%)']:
             if c in df_k200.columns: df_k200[c] = pd.to_numeric(df_k200[c], errors='coerce').fillna(0)
 
-        # 💡 KOSPI 200 전용 하락종목수 마켓타이밍 필터 산출 (기준월 데이터)
         neg_1m = (df_k200['1개월(%)'] < 0).sum()
         neg_3m = (df_k200['3개월(%)'] < 0).sum()
         is_bad_breadth = (neg_1m >= 100 and neg_3m >= 100)
@@ -294,7 +292,6 @@ with tab_detail:
     bad_months_this_year = PRESIDENTIAL_DANGEROUS_MONTHS.get(cycle_year, [])
     bad_m_str = ", ".join(f"{m}월" for m in bad_months_this_year) if bad_months_this_year else "없음"
 
-    # 💡 KOSPI 200 전용: 듀얼 마켓타이밍 필터 반영 (하락 100개 + 이평선)
     is_bad_market = (neg_1m_cnt >= 100) and (neg_3m_cnt >= 100)
     is_below_4m_ma = (kospi_curr > 0) and (kospi_curr < kospi_4m_ma)
 
@@ -327,17 +324,17 @@ with tab_detail:
         if c in df_k200.columns:
             df_k200[c] = pd.to_numeric(df_k200[c], errors='coerce').fillna(0)
 
-    # 💡 탭 1 로직: 모두 0 이상이도록 깐깐한 조건 적용
     q30 = {c: df_k200[c].quantile(0.7) for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']}
     t10_1m = df_k200['1개월(%)'].quantile(0.9)
 
+    # 💡 퍼펙트 상승 (모두 0 이상)
     cond_perf = (df_k200['1개월(%)']>=q30['1개월(%)'])&(df_k200['3개월(%)']>=q30['3개월(%)'])&(df_k200['6개월(%)']>=q30['6개월(%)'])&(df_k200['12개월(%)']>=q30['12개월(%)']) & \
                 (df_k200['1개월(%)']>0)&(df_k200['3개월(%)']>0)&(df_k200['6개월(%)']>0)&(df_k200['12개월(%)']>0)
 
     df_perf = df_k200[cond_perf].sort_values('3개월(%)', ascending=False).copy()
     
-    cond_spec = (df_k200['12개월(%)']>=q30['12개월(%)']) & (df_k200['1개월(%)']>=t10_1m) & \
-                (df_k200['1개월(%)']>0) & (df_k200['12개월(%)']>0)
+    # 💡 달리는 말 (0 이상 필터 제거, 원래 로직대로)
+    cond_spec = (df_k200['12개월(%)']>=q30['12개월(%)']) & (df_k200['1개월(%)']>=t10_1m)
                 
     df_spec = df_k200[cond_spec].sort_values('1개월(%)', ascending=False).copy()
 
@@ -358,7 +355,6 @@ with tab_detail:
     c_left, c_right = st.columns(2)
     with c_left:
         st.markdown(get_perf_html("🔥 퍼펙트 상승", df_perf, target_month), unsafe_allow_html=True)
-        # 💡 요청하신 전략 설명 텍스트 추가
         st.markdown('<p class="strategy-desc">KOSPI 200 중 1, 3, 6, 12개월 수익률이 모두 상위 30% 이내이며 0보다 큰 종목 (3개월 수익률 순)</p>', unsafe_allow_html=True)
         st.dataframe(df_perf.style.apply(apply_k200_styling, highlight_codes=top5_perf, overlap_codes=overlap_top5, axis=1), 
                      use_container_width=True, 
@@ -366,8 +362,7 @@ with tab_detail:
                      column_config=main_cfg)
     with c_right:
         st.markdown(get_perf_html("🐎 달리는 말", df_spec, target_month), unsafe_allow_html=True)
-        # 💡 요청하신 전략 설명 텍스트 추가
-        st.markdown('<p class="strategy-desc">KOSPI 200 중 12개월 수익률 상위 30% 이내, 1개월 수익률 상위 10% 이내이며 0보다 큰 종목 (1개월 수익률 순)</p>', unsafe_allow_html=True)
+        st.markdown('<p class="strategy-desc">KOSPI 200 중 12개월 수익률 상위 30% 이내, 1개월 수익률 상위 10% 이내인 종목 (1개월 수익률 순)</p>', unsafe_allow_html=True)
         st.dataframe(df_spec.style.apply(apply_k200_styling, highlight_codes=top5_spec, overlap_codes=overlap_top5, axis=1), 
                      use_container_width=True, 
                      column_order=['통합티커_L', '종목명_L', '1개월(%)', '12개월(%)', '다음달수익률(%)'], 
@@ -426,12 +421,10 @@ with tab_summary:
         for m in monthly_data:
             if not (start_year <= m['투자연도'] <= end_year): continue
             
-            # 💡 [핵심] 미래참조 방지: 기준월(m['기준월'])로 이평선 상태 판단
             is_below_ma = False
             if m['기준월'] in timing_df_t2.index:
                 is_below_ma = timing_df_t2.loc[m['기준월'], 'is_below_ma']
                 
-            # 💡 듀얼 마켓타이밍 적용 (하락장 + 이평선)
             is_bad_market = m['is_bad_breadth'] or is_below_ma
             mult = 0.0 if (apply_timing and is_bad_market) else 1.0
             is_invested = mult > 0.0  
@@ -448,11 +441,11 @@ with tab_summary:
             t_val_12 = df_k200_bt['12개월(%)'].quantile(q_spec)
             t_val_1 = df_k200_bt['1개월(%)'].quantile(0.9) 
             
-            # 💡 탭 2 로직: 모두 0 이상이도록 깐깐한 조건 적용
             cond_p = (df_k200_bt['1개월(%)']>=q_val_1)&(df_k200_bt['3개월(%)']>=q_val_3)&(df_k200_bt['6개월(%)']>=q_val_6)&(df_k200_bt['12개월(%)']>=q_val_12) & \
                      (df_k200_bt['1개월(%)']>0)&(df_k200_bt['3개월(%)']>0)&(df_k200_bt['6개월(%)']>0)&(df_k200_bt['12개월(%)']>0)
                      
-            cond_s = (df_k200_bt['12개월(%)']>=t_val_12)&(df_k200_bt['1개월(%)']>=t_val_1) & (df_k200_bt['1개월(%)']>0)&(df_k200_bt['12개월(%)']>0)
+            # 💡 달리는 말 (0 이상 필터 제거, 원래 로직대로)
+            cond_s = (df_k200_bt['12개월(%)']>=t_val_12)&(df_k200_bt['1개월(%)']>=t_val_1)
             
             df_perf_all = df_k200_bt[cond_p].sort_values('3개월(%)', ascending=False)
             df_spec_all = df_k200_bt[cond_s].sort_values('1개월(%)', ascending=False)
@@ -486,8 +479,7 @@ with tab_summary:
                 for i, (_, row) in enumerate(target_s.iterrows()):
                     trade_logs_tab2.append({'투자월': m['투자월'], '전략': '🐎 달리는 말', '매수순위': f"{i + rank_s_start}위", '종목명': row['종목명'], '종목코드': row['종목코드'], '수익률(%)': row['다음달수익률(%)']})
             
-        df_summary = pd.DataFrame(records)
-        df_summary.fillna(0.0, inplace=True)
+        df_summary = pd.DataFrame(records).fillna(0.0)
         
         if not df_summary.empty:
             strategy_cols = [c for c in df_summary.columns if c not in ['투자월', 'invested']]
