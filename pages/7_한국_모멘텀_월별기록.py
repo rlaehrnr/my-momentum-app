@@ -16,6 +16,7 @@ st.markdown("""
     h1 { font-size: 2.2rem !important; font-weight: 800; margin-bottom: 10px; }
     .strategy-desc { font-size: 0.85rem; color: #9ca3af; margin-bottom: 10px; line-height: 1.2; }
     
+    /* 💡 가로형 라디오 버튼 간격 조절 및 줄바꿈 허용 */
     div[role="radiogroup"] { gap: 10px !important; flex-wrap: wrap; }
     
     @media (max-width: 768px) {
@@ -262,11 +263,12 @@ with tab_detail:
         n_url = f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드']}#{r['종목명']}"
         return pd.Series([t_url, n_url])
 
-    # 💡 탭 1 상세 분석: 고정된 상위 30% 기준으로 출력
-    q30 = df_monthly['모멘텀스코어'].quantile(0.7) 
-    
-    df_perf = df_monthly[(df_monthly['모멘텀스코어']>=q30) & (df_monthly['1개월(%)']>0)].sort_values('모멘텀스코어', ascending=False).copy()
-    df_spec = df_monthly[(df_monthly['모멘텀스코어']>=q30) & (df_monthly['1개월(%)']>0)].sort_values('1개월(%)', ascending=False).copy()
+    # 💡 탭 1 로직: "모두 상위 X% 이내" 완벽 복원
+    q30 = {c: df_monthly[c].quantile(0.7) for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']}
+    t10_1m = df_monthly['1개월(%)'].quantile(0.9)
+
+    df_perf = df_monthly[(df_monthly['1개월(%)']>=q30['1개월(%)'])&(df_monthly['3개월(%)']>=q30['3개월(%)'])&(df_monthly['6개월(%)']>=q30['6개월(%)'])&(df_monthly['12개월(%)']>=q30['12개월(%)']) & (df_monthly['1개월(%)']>0)].sort_values('3개월(%)', ascending=False).copy()
+    df_spec = df_monthly[(df_monthly['12개월(%)']>=q30['12개월(%)']) & (df_monthly['1개월(%)']>=t10_1m)].sort_values('1개월(%)', ascending=False).copy()
 
     top30_perf = df_perf.head(30)['종목코드'].tolist()
     top30_spec = df_spec.head(30)['종목코드'].tolist()
@@ -293,12 +295,12 @@ with tab_detail:
     c_left, c_right = st.columns(2)
     with c_left:
         st.markdown(get_perf_html("🔥 퍼펙트 상승", df_perf, target_month_num), unsafe_allow_html=True)
-        st.markdown('<p class="strategy-desc">전체 종목 중 모멘텀스코어 상위 30% 이내 (모멘텀 스코어 순)</p>', unsafe_allow_html=True)
-        st.dataframe(df_perf.style.apply(apply_kr_styling, highlight_codes=top30_perf, overlap_codes=overlap_30, axis=1), use_container_width=True, hide_index=True, column_order=['티커_L', '종목명_L', '모멘텀스코어', '1개월(%)', '3개월(%)', '다음달수익률(%)'], column_config=main_cfg)
+        st.markdown('<p class="strategy-desc">1, 3, 6, 12개월 수익률이 모두 상위 30% 이내이며 0보다 큰 종목 (3개월 수익률 순)</p>', unsafe_allow_html=True)
+        st.dataframe(df_perf.style.apply(apply_kr_styling, highlight_codes=top30_perf, overlap_codes=overlap_30, axis=1), use_container_width=True, hide_index=True, column_order=['티커_L', '종목명_L', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '다음달수익률(%)'], column_config=main_cfg)
     with c_right:
         st.markdown(get_perf_html("🐎 달리는 말", df_spec, target_month_num), unsafe_allow_html=True)
-        st.markdown('<p class="strategy-desc">전체 종목 중 모멘텀스코어 상위 30% 이내 (최근 1개월 수익률 순)</p>', unsafe_allow_html=True)
-        st.dataframe(df_spec.style.apply(apply_kr_styling, highlight_codes=top30_spec, overlap_codes=overlap_30, axis=1), use_container_width=True, hide_index=True, column_order=['티커_L', '종목명_L', '1개월(%)', '모멘텀스코어', '다음달수익률(%)'], column_config=main_cfg)
+        st.markdown('<p class="strategy-desc">12개월 수익률이 상위 30% 이내이며 1개월 수익률이 상위 10% 이내인 종목 (1개월 수익률 순)</p>', unsafe_allow_html=True)
+        st.dataframe(df_spec.style.apply(apply_kr_styling, highlight_codes=top30_spec, overlap_codes=overlap_30, axis=1), use_container_width=True, hide_index=True, column_order=['티커_L', '종목명_L', '1개월(%)', '12개월(%)', '다음달수익률(%)'], column_config=main_cfg)
 
     st.markdown("---")
     st.subheader("🏆 전체 종목 모멘텀 순위")
@@ -318,18 +320,21 @@ with tab_summary:
         apply_timing = st.checkbox("🛑 마켓타이밍 적용 (선택 이평선 이탈 시 현금 100%)", value=True, key='timing_tab2')
 
     st.markdown("<hr style='margin: 10px 0px;'>", unsafe_allow_html=True)
-    st.markdown("##### 🔥 전략 상세 조건 필터 (모멘텀 스코어 기반)")
+    st.markdown("##### 🔥 전략 상세 조건 필터 (엄격한 다중 필터)")
     
     c2, c3, c4, c5 = st.columns([1, 1, 1, 1])
-    with c2: perf_pct = st.slider("🔥 퍼펙트 상승 (스코어 상위 %)", 5, 50, 30, step=5)
-    with c3: rank_1_start, rank_1_end = st.slider("🔥 퍼펙트 상승 (스코어 순위)", 1, 30, (4, 9))
-    with c4: spec_12m_pct = st.slider("🐎 달리는 말 (스코어 상위 %)", 5, 50, 30, step=5)
-    with c5: rank_2_start, rank_2_end = st.slider("🐎 달리는 말 (1M 수익률 순위)", 1, 30, (5, 10))
+    with c2: perf_pct = st.slider("🔥 퍼펙트 상승 (1,3,6,12M 상위 %)", 5, 50, 30, step=5)
+    with c3: rank_1_start, rank_1_end = st.slider("🔥 퍼펙트 상승 (매수 순위)", 1, 30, (5, 10))
+    with c4: spec_12m_pct = st.slider("🐎 달리는 말 (12M 상위 %, 1M은 10%)", 5, 50, 30, step=5)
+    with c5: rank_2_start, rank_2_end = st.slider("🐎 달리는 말 (매수 순위)", 1, 30, (10, 13))
         
     if rank_1_start > rank_1_end or rank_2_start > rank_2_end:
         st.error("🚨 순위 범위가 잘못되었습니다.")
         st.stop()
     
+    # 💡 엑셀 내역을 담을 리스트
+    trade_logs_tab2 = []
+
     with st.spinner("수익률 계산 중..."):
         timing_df_t2 = get_kospi_timing(ma_months_t2)
         months = [m for m in sorted(df_master['YearMonth'].unique()) if start_year <= int(m[:4]) <= end_year]
@@ -341,15 +346,23 @@ with tab_summary:
             is_below_ma = timing_df_t2.loc[m, 'is_below_ma'] if m in timing_df_t2.index else False
             mult = 0.0 if (apply_timing and is_below_ma) else 1.0
             
-            # 💡 [엔진 수정] 한국 모멘텀 스코어(0.2/0.8) 기반으로 필터링
+            # 💡 [엔진 완벽 복원] 1,3,6,12개월 모두 지정 % 이내 만족!
             q_perf = 1.0 - (perf_pct / 100.0)
             q_spec = 1.0 - (spec_12m_pct / 100.0)
             
-            q_val_perf = m_data['모멘텀스코어'].quantile(q_perf)
-            q_val_spec = m_data['모멘텀스코어'].quantile(q_spec)
+            q_val_1 = m_data['1개월(%)'].quantile(q_perf)
+            q_val_3 = m_data['3개월(%)'].quantile(q_perf)
+            q_val_6 = m_data['6개월(%)'].quantile(q_perf)
+            q_val_12 = m_data['12개월(%)'].quantile(q_perf)
             
-            df_p = m_data[(m_data['모멘텀스코어']>=q_val_perf) & (m_data['1개월(%)']>0)].sort_values('모멘텀스코어', ascending=False)
-            df_s = m_data[(m_data['모멘텀스코어']>=q_val_spec) & (m_data['1개월(%)']>0)].sort_values('1개월(%)', ascending=False)
+            t_val_12 = m_data['12개월(%)'].quantile(q_spec)
+            t_val_1 = m_data['1개월(%)'].quantile(0.9) # 1개월은 10% 고정
+            
+            cond_p = (m_data['1개월(%)']>=q_val_1)&(m_data['3개월(%)']>=q_val_3)&(m_data['6개월(%)']>=q_val_6)&(m_data['12개월(%)']>=q_val_12) & (m_data['1개월(%)']>0)
+            cond_s = (m_data['12개월(%)']>=t_val_12)&(m_data['1개월(%)']>=t_val_1) & (m_data['1개월(%)']>0)
+            
+            df_p = m_data[cond_p].sort_values('3개월(%)', ascending=False)
+            df_s = m_data[cond_s].sort_values('1개월(%)', ascending=False)
             
             overlap_1 = df_p.iloc[rank_1_start-1 : rank_1_end]
             overlap_2 = df_s.iloc[rank_2_start-1 : rank_2_end]
@@ -358,6 +371,15 @@ with tab_summary:
             ret_2 = (overlap_2['다음달수익률(%)'].mean() * mult) if not overlap_2.empty else 0.0
             
             records.append({'투자월': inv_str, 'invested': (mult > 0), f'🔥 퍼펙트 상승 ({rank_1_start}~{rank_1_end}위)': ret_1, f'🐎 달리는 말 ({rank_2_start}~{rank_2_end}위)': ret_2, '앙상블 (전략 50:50)': (ret_1 + ret_2) / 2})
+            
+            # 💡 [신규] 엑셀 다운로드를 위한 매수 내역 기록
+            if mult == 0.0:
+                trade_logs_tab2.append({'투자월': inv_str, '전략': '마켓타이밍 작동', '매수순위': '-', '종목명': '현금 (투자중지)', '종목코드': '-', '수익률(%)': 0.0})
+            else:
+                for i, (_, row) in enumerate(overlap_1.iterrows()):
+                    trade_logs_tab2.append({'투자월': inv_str, '전략': '🔥 퍼펙트 상승', '매수순위': f"{i + rank_1_start}위", '종목명': row['종목명'], '종목코드': row['종목코드'], '수익률(%)': row['다음달수익률(%)']})
+                for i, (_, row) in enumerate(overlap_2.iterrows()):
+                    trade_logs_tab2.append({'투자월': inv_str, '전략': '🐎 달리는 말', '매수순위': f"{i + rank_2_start}위", '종목명': row['종목명'], '종목코드': row['종목코드'], '수익률(%)': row['다음달수익률(%)']})
             
         df_res = pd.DataFrame(records).fillna(0.0)
         if not df_res.empty:
@@ -371,6 +393,16 @@ with tab_summary:
             fig = px.line(df_melt, x='투자월', y='누적수익률', color='전략', log_y=True)
             fig.update_layout(hovermode="x unified", dragmode="pan", xaxis_title="투자 기준 월", yaxis_title="누적 자산 (로그스케일)", margin=dict(l=0, r=0, t=20, b=0))
             st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True})
+            
+            # 💡 [신규] 엑셀 다운로드 버튼
+            df_trades = pd.DataFrame(trade_logs_tab2)
+            st.download_button(
+                label="📥 백테스트 매수 상세 내역 전체 다운로드 (CSV)",
+                data=df_trades.to_csv(index=False, encoding='utf-8-sig'),
+                file_name=f"다중조건_백테스트_매수내역_{datetime.today().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
             
             st.markdown("#### 📊 전략별 핵심 통계 (초기 자본 100 기준)")
             stats = []
@@ -427,7 +459,6 @@ with tab_custom:
             
     st.markdown("<hr style='margin: 0px 0px 15px 0px;'>", unsafe_allow_html=True)
     
-    # 💡 탭 3 커스텀 탭에도 상위 % 필터 슬라이더 추가
     c6, c_ma_c, c7, c8 = st.columns([1, 0.8, 1, 1])
     with c6: start_year_c, end_year_c = st.slider("📅 테스트 기간 (연도)", min_y, max_y, (min_y, max_y), key='year_tab3')
     with c_ma_c: ma_months_t3 = st.slider("📉 마켓타이밍 (개월선) ", 1, 12, 4, key='ma_t3')
@@ -437,6 +468,8 @@ with tab_custom:
     if rank_c_start > rank_c_end:
         st.error("🚨 순위 범위가 잘못되었습니다.")
         st.stop()
+
+    trade_logs_tab3 = []
 
     with st.spinner("계산 중..."):
         timing_df_t3 = get_kospi_timing(ma_months_t3)
@@ -452,7 +485,6 @@ with tab_custom:
             is_below_ma = timing_df_t3.loc[m, 'is_below_ma'] if m in timing_df_t3.index else False
             mult = 0.0 if (apply_timing_c and is_below_ma) else 1.0
             
-            # 💡 상위 % 슬라이더 적용
             q_c = 1.0 - (custom_pct / 100.0)
             q_val_c = m_data['CustomScore'].quantile(q_c)
             
@@ -460,6 +492,13 @@ with tab_custom:
             
             ret_target = (target_group['다음달수익률(%)'].mean() * mult) if not target_group.empty else 0.0
             records_c.append({'투자월': inv_str, 'invested': (mult > 0), f'🏅 커스텀 스코어 ({rank_c_start}~{rank_c_end}위)': ret_target})
+            
+            # 💡 [신규] 엑셀 다운로드를 위한 매수 내역 기록
+            if mult == 0.0:
+                trade_logs_tab3.append({'투자월': inv_str, '전략': '마켓타이밍 작동', '매수순위': '-', '종목명': '현금 (투자중지)', '종목코드': '-', '수익률(%)': 0.0})
+            else:
+                for i, (_, row) in enumerate(target_group.iterrows()):
+                    trade_logs_tab3.append({'투자월': inv_str, '전략': '커스텀 스코어', '매수순위': f"{i + rank_c_start}위", '종목명': row['종목명'], '종목코드': row['종목코드'], '수익률(%)': row['다음달수익률(%)']})
             
         df_res_c = pd.DataFrame(records_c).fillna(0.0)
         if not df_res_c.empty:
@@ -473,6 +512,16 @@ with tab_custom:
             fig_c = px.line(df_melt_c, x='투자월', y='누적수익률', color='전략', log_y=True) 
             fig_c.update_layout(hovermode="x unified", dragmode="pan", xaxis_title="투자 기준 월", yaxis_title="누적 자산 (로그스케일)", margin=dict(l=0, r=0, t=20, b=0))
             st.plotly_chart(fig_c, use_container_width=True, config={'scrollZoom': True})
+            
+            # 💡 [신규] 엑셀 다운로드 버튼
+            df_trades_c = pd.DataFrame(trade_logs_tab3)
+            st.download_button(
+                label="📥 커스텀 백테스트 매수 상세 내역 다운로드 (CSV)",
+                data=df_trades_c.to_csv(index=False, encoding='utf-8-sig'),
+                file_name=f"커스텀_백테스트_매수내역_{datetime.today().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
             
             st.markdown("#### 📊 전략 핵심 통계")
             stats_c = []
