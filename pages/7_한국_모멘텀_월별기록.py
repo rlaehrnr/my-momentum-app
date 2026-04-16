@@ -207,7 +207,6 @@ with tab_detail:
     
     available_months = sorted(df_master[df_master['투자연도'] == int(selected_year)]['투자월_숫자'].unique())
     with col_m:
-        st.markdown("<div style='margin-bottom: 4px;'></div>", unsafe_allow_html=True)
         selected_month = st.radio("🌙 투자 월", available_months, horizontal=True, key='m_detail', format_func=lambda x: f"{x}월")
 
     df_monthly = df_master[(df_master['투자연도'] == int(selected_year)) & (df_master['투자월_숫자'] == int(selected_month))].copy()
