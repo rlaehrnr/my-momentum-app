@@ -327,9 +327,9 @@ with tab_summary:
     
     c2, c3, c4, c5 = st.columns([1, 1, 1, 1])
     with c2: perf_pct = st.slider("🔥 퍼펙트 상승 (1,3,6,12M 상위 %)", 5, 50, 30, step=5)
-    with c3: rank_1_start, rank_1_end = st.slider("🔥 퍼펙트 상승 (매수 순위)", 1, 30, (5, 9))
+    with c3: rank_1_start, rank_1_end = st.slider("🔥 퍼펙트 상승 (매수 순위)", 1, 30, (5, 10))
     with c4: spec_12m_pct = st.slider("🐎 달리는 말 (12M 상위 %, 1M은 10%)", 5, 50, 30, step=5)
-    with c5: rank_2_start, rank_2_end = st.slider("🐎 달리는 말 (매수 순위)", 1, 30, (3, 12))
+    with c5: rank_2_start, rank_2_end = st.slider("🐎 달리는 말 (매수 순위)", 1, 30, (10, 13))
         
     if rank_1_start > rank_1_end or rank_2_start > rank_2_end:
         st.error("🚨 순위 범위가 잘못되었습니다.")
