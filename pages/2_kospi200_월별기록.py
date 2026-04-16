@@ -1,31 +1,28 @@
 import streamlit as st
 import pandas as pd
 import FinanceDataReader as fdr
-from datetime import datetime, timedelta
 import os
 import glob
+from datetime import datetime, timedelta
 import plotly.express as px
+import numpy as np
 
-# --- [1. 페이지 설정] ---
-st.set_page_config(page_title="KOSPI 200 월별 기록", layout="wide")
+# --- [1. 페이지 설정 및 CSS] ---
+st.set_page_config(page_title="한국 모멘텀 기록보관소", layout="wide")
 
 st.markdown("""
     <style>
     .block-container { padding-top: 2.8rem !important; padding-bottom: 1rem !important; }
-    .main-title { font-size: 1.5rem !important; font-weight: bold; margin-bottom: 0.5rem; }
+    h1 { font-size: 2.2rem !important; font-weight: 800; margin-bottom: 10px; }
     .strategy-desc { font-size: 0.85rem; color: #9ca3af; margin-bottom: 10px; line-height: 1.2; }
     
-    /* 💡 가로형 라디오 버튼 간격 조절 및 줄바꿈 허용 */
-    div[role="radiogroup"] { gap: 10px !important; flex-wrap: wrap; }
+    /* 💡 라디오 버튼 간격 조절 및 가로 정렬 미세 조정 */
+    div[role="radiogroup"] { gap: 12px !important; flex-wrap: wrap; margin-top: 4px; }
     
     @media (max-width: 768px) {
-        div[data-testid="stHorizontalBlock"] {
-            flex-wrap: wrap !important;
-        }
+        div[data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; }
         div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-            min-width: 45% !important; 
-            flex: 1 1 45% !important;
-            margin-bottom: 5px !important;
+            min-width: 45% !important; flex: 1 1 45% !important; margin-bottom: 5px !important;
         }
     }
     
@@ -33,7 +30,7 @@ st.markdown("""
     .title-link:hover { opacity: 0.7; transition: 0.2s; }
     th[data-testid="stTableColumnHeader"] div { white-space: pre-wrap !important; text-align: center !important; }
     </style>
-""", unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
 PRESIDENTIAL_DANGEROUS_MONTHS = {
     1: [2, 9], 2: [2, 4, 6, 9, 12], 3: [8, 9], 4: [3],
@@ -44,7 +41,7 @@ def get_cycle_year(year):
     return ((year - 2021) % 8) + 1
 
 # --- [2. 헬퍼 함수] ---
-def apply_k200_styling(row, highlight_codes=None, overlap_codes=None):
+def apply_kr_styling(row, highlight_codes=None, overlap_codes=None):
     styles = [''] * len(row)
     if '다음달수익률(%)' in row.index:
         col_idx = row.index.get_loc('다음달수익률(%)')
@@ -58,6 +55,48 @@ def apply_k200_styling(row, highlight_codes=None, overlap_codes=None):
         if overlap_codes and code in overlap_codes: styles[name_idx] = 'background-color: #FFF59D; color: #D84315; font-weight: bold;'
         elif highlight_codes and code in highlight_codes: styles[name_idx] = 'background-color: #E8F5E9; color: #2E7D32; font-weight: bold;'
     return styles
+
+def get_perf_html(title, df, target_month):
+    if df.empty: return f"### {title} <span style='font-size: 15px; color: gray; font-weight: normal;'>(해당 종목 없음)</span>"
+    all_avg = df['다음달수익률(%)'].mean()
+    top5_avg = df.head(5)['다음달수익률(%)'].mean()
+    top10_avg = df.head(10)['다음달수익률(%)'].mean()
+    
+    def format_val(v):
+        if pd.isna(v): return "0.00%", "gray"
+        color = "#D32F2F" if v > 0 else ("#1976D2" if v < 0 else "#555")
+        return f"{v:+.2f}%", color
+        
+    a_str, a_col = format_val(all_avg)
+    t5_str, t5_col = format_val(top5_avg)
+    t10_str, t10_col = format_val(top10_avg)
+    return f"### {title} <span style='font-size: 15px; font-weight: normal; color: #666;'> &nbsp; | &nbsp; 📊 {target_month}월 성적 ➔ Top5: <span style='color:{t5_col}; font-weight:bold;'>{t5_str}</span> &nbsp; Top10: <span style='color:{t10_col}; font-weight:bold;'>{t10_str}</span> &nbsp; 모두매수: <span style='color:{a_col}; font-weight:bold;'>{a_str}</span></span>"
+
+@st.cache_data(show_spinner=False)
+def load_all_archive_data():
+    folder, prefix = "archive", "momentum_"
+    files = glob.glob(f"{folder}/{prefix}*.csv")
+    if not files: return pd.DataFrame()
+    
+    all_dfs = []
+    for f in files:
+        df = pd.read_csv(f, dtype={'종목코드': str})
+        fname = os.path.basename(f)
+        date_part = fname.replace(prefix, "").replace(".csv", "")
+        year, month = date_part.split('_')
+        
+        df['투자연도'] = int(year)
+        df['투자월_숫자'] = int(month)
+        df['YearMonth'] = f"{year}-{month.zfill(2)}"
+        if '종목코드' in df.columns:
+            df['종목코드'] = df['종목코드'].astype(str).str.strip().str.zfill(6)
+        
+        num_cols = ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '다음달수익률(%)', '모멘텀스코어']
+        for c in num_cols:
+            if c in df.columns:
+                df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0.0)
+        all_dfs.append(df)
+    return pd.concat(all_dfs, ignore_index=True)
 
 @st.cache_data(ttl=3600)
 def get_idx_kr(target_date_str):
@@ -82,11 +121,10 @@ def get_kospi_ma_status(target_date_str):
         df = fdr.DataReader('KS11', start_date, target_date)
         if df.empty: return pd.DataFrame()
         curr_price = df['Close'].iloc[-1]
-        url_name = "https://m.stock.naver.com/domestic/index/KOSPI/total#KOSPI"
-        url_price = f"https://m.stock.naver.com/fchart/domestic/index/KOSPI#{curr_price:,.2f}"
-        
         ma_values = {
-            '지수_L': url_name, '현재가_L': url_price, 'base_price': round(curr_price, 2),
+            '지수_L': "https://m.stock.naver.com/domestic/index/KOSPI/total#KOSPI", 
+            '현재가_L': f"https://m.stock.naver.com/fchart/domestic/index/KOSPI#{curr_price:,.2f}", 
+            'base_price': round(curr_price, 2),
             '4개월선': round(df['Close'].rolling(80).mean().iloc[-1], 2),
             '5개월선': round(df['Close'].rolling(100).mean().iloc[-1], 2),
             '6개월선': round(df['Close'].rolling(120).mean().iloc[-1], 2),
@@ -97,12 +135,11 @@ def get_kospi_ma_status(target_date_str):
     except: return pd.DataFrame()
 
 @st.cache_data(show_spinner=False)
-def get_kospi_timing_for_backtest(ma_months):
-    ks11 = fdr.DataReader('KS11', '2010-01-01')
+def get_kospi_timing(ma_months):
+    ks11 = fdr.DataReader('KS11', '2005-01-01') 
     ma_days = ma_months * 20 
     ks11['MA'] = ks11['Close'].rolling(ma_days).mean()
     ks11['YearMonth'] = ks11.index.to_period('M').astype(str)
-    
     timing_df = ks11.resample('ME').last()
     timing_df['is_below_ma'] = timing_df['Close'] < timing_df['MA']
     return timing_df.set_index('YearMonth')
@@ -114,9 +151,8 @@ def style_kospi_ma(df):
         for i, col in enumerate(row.index):
             if '개월선' in col:
                 val = row[col]
-                if pd.notna(val):
-                    if price > val: styles[i] = 'color: #EF4444; font-weight: bold;' 
-                    elif price < val: styles[i] = 'color: #3B82F6; font-weight: bold;' 
+                if pd.notna(val) and price > val: styles[i] = 'color: #EF4444; font-weight: bold;' 
+                elif pd.notna(val) and price < val: styles[i] = 'color: #3B82F6; font-weight: bold;' 
         return styles
     return df.style.apply(apply_color, axis=1)
 
@@ -131,137 +167,52 @@ kospi_ma_config = {
     "base_price": None 
 }
 
-@st.cache_data(show_spinner=False)
-def load_archive_data():
-    folder = 'archive_kospi'
-    files = glob.glob(f"{folder}/*.csv")
-    if not files:
-        return pd.DataFrame()
-        
-    dfs = []
-    for f in files:
-        df = pd.read_csv(f, encoding='utf-8-sig')
-        df.columns = df.columns.str.replace(' ', '')
-        if '종목코드' in df.columns:
-            df['종목코드'] = df['종목코드'].astype(str).str.zfill(6)
-        if '시가총액' in df.columns and '시가총액(억)' not in df.columns:
-            df['시가총액(억)'] = (df['시가총액'] / 100000000).fillna(0).astype(int)
-        elif '시가총액(억)' not in df.columns:
-            df['시가총액(억)'] = 0
-        dfs.append(df)
-        
-    df_all = pd.concat(dfs, ignore_index=True)
-    
-    if '기준일' in df_all.columns and '기준일(월말)' not in df_all.columns:
-        df_all.rename(columns={'기준일': '기준일(월말)'}, inplace=True)
-        
-    if '기준일(월말)' in df_all.columns:
-        df_all['기준일(월말)'] = pd.to_datetime(df_all['기준일(월말)']).dt.strftime('%Y-%m-%d')
-        
-    return df_all
-
-@st.cache_data
-def prep_backtest_data(df_all):
-    monthly_data = []
-    dates = sorted(df_all['기준일(월말)'].dropna().unique())
-
-    for d in dates:
-        dt = pd.to_datetime(d)
-        inv_dt = dt + pd.DateOffset(months=1)
-        
-        inv_str = f"{inv_dt.year}-{inv_dt.month:02d}"
-        base_str = f"{dt.year}-{dt.month:02d}"
-        inv_year = inv_dt.year
-
-        df_k200 = df_all[df_all['기준일(월말)'] == d].copy()
-        df_k200 = df_k200.sort_values(by='시가총액(억)', ascending=False).head(200)
-
-        for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '다음달수익률(%)']:
-            if c in df_k200.columns: df_k200[c] = pd.to_numeric(df_k200[c], errors='coerce').fillna(0)
-
-        neg_1m = (df_k200['1개월(%)'] < 0).sum()
-        neg_3m = (df_k200['3개월(%)'] < 0).sum()
-        is_bad_breadth = (neg_1m >= 100 and neg_3m >= 100)
-
-        monthly_data.append({
-            '투자월': inv_str,
-            '기준월': base_str,  
-            '투자연도': inv_year,
-            'is_bad_breadth': is_bad_breadth,
-            'df_k200': df_k200  
-        })
-    return monthly_data
-
-def get_perf_html(title, df, target_month):
-    if df.empty: return f"### {title} <span style='font-size: 15px; color: gray; font-weight: normal;'>(해당 종목 없음)</span>"
-    all_avg = df['다음달수익률(%)'].mean()
-    top5_avg = df.head(5)['다음달수익률(%)'].mean()
-    top10_avg = df.head(10)['다음달수익률(%)'].mean()
-    
-    def format_val(v):
-        if pd.isna(v): return "0.00%", "gray"
-        color = "#D32F2F" if v > 0 else ("#1976D2" if v < 0 else "#555")
-        return f"{v:+.2f}%", color
-        
-    a_str, a_col = format_val(all_avg)
-    t5_str, t5_col = format_val(top5_avg)
-    t10_str, t10_col = format_val(top10_avg)
-    return f"### {title} <span style='font-size: 15px; font-weight: normal; color: #666;'> &nbsp; | &nbsp; 📊 {target_month}월 성적 ➔ Top5: <span style='color:{t5_col}; font-weight:bold;'>{t5_str}</span> &nbsp; Top10: <span style='color:{t10_col}; font-weight:bold;'>{t10_str}</span> &nbsp; 모두매수: <span style='color:{a_col}; font-weight:bold;'>{a_str}</span></span>"
-
-
-# --- [3. 메인 화면 구성] ---
+# --- [3. 메인 앱 시작] ---
 st.markdown('''
     <div style="margin-bottom: 20px;">
         <a href="https://stock.naver.com/" target="_blank" class="title-link" style="text-decoration: none; color: inherit;">
             <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 12px;">
-                <h1 style="margin: 0; padding: 0; font-size: 2.2rem; font-weight: 800; line-height: 1.2; word-break: keep-all;">🎯 KOSPI 200 강세 종목 월별 기록</h1>
+                <h1 style="margin: 0; padding: 0; font-size: 2.2rem; font-weight: 800; line-height: 1.2; word-break: keep-all;">📁 한국 전체 모멘텀 월별 기록</h1>
                 <span style="font-size: 0.95rem; color: #3b82f6; background-color: #eff6ff; padding: 4px 10px; border-radius: 6px; border: 1px solid #bfdbfe; white-space: nowrap;">🔗 네이버 증권 이동</span>
             </div>
         </a>
     </div>
 ''', unsafe_allow_html=True)
 
-df_all = load_archive_data()
+df_master = load_all_archive_data()
 
-if df_all.empty:
-    st.error("🚨 `archive_kospi` 폴더에 데이터가 없습니다! 깃허브 저장소를 확인해주세요.")
+if df_master.empty:
+    st.info("데이터가 없습니다. archive 폴더에 'momentum_YYYY_MM.csv' 파일들을 넣어주세요.")
     st.stop()
 
-with st.spinner("백테스트 데이터를 준비 중입니다... (최초 1회만)"):
-    monthly_data = prep_backtest_data(df_all)
+years_list = sorted(df_master['투자연도'].unique().astype(int))
+min_y, max_y = min(years_list), max(years_list)
 
-years_list_global = sorted(list(set([m['투자연도'] for m in monthly_data])))
-min_y, max_y = min(years_list_global), max(years_list_global)
-
-tab_detail, tab_summary, tab_custom = st.tabs(["📅 월별 상세 분석", "📈 전략 누적 성과 (백테스트)", "🏅 스코어 커스텀 백테스트"])
+tab_detail, tab_summary, tab_custom = st.tabs(["📅 월별 상세 분석", "📈 전략조합 장기 백테스트", "🏅 스코어 커스텀 백테스트"])
 
 # ==========================================
 # 탭 1: 월별 상세 분석
 # ==========================================
 with tab_detail:
-    dates = sorted(df_all['기준일(월말)'].dropna().unique(), reverse=True)
-    date_map = {}
-    for d in dates:
-        dt = pd.to_datetime(d)
-        inv_dt = dt + pd.DateOffset(months=1)
-        date_map[d] = {'year': inv_dt.year, 'month': inv_dt.month, 'base_date': d}
+    sorted_years_str = sorted(df_master['투자연도'].unique().astype(str), reverse=True)
+    
+    # 💡 [레이아웃 완벽 조정] 1.5 : 7 : 1.5 비율로 연도, 월버튼, 기준일 정렬
+    col_y, col_m, col_info = st.columns([1.5, 7, 1.5])
+    with col_y: 
+        selected_year = st.selectbox("📅 투자 연도", sorted_years_str, key='y_detail', format_func=lambda x: f"{x}년")
+    
+    available_months = sorted(df_master[df_master['투자연도'] == int(selected_year)]['투자월_숫자'].unique())
+    with col_m:
+        selected_month = st.radio("🌙 투자 월", available_months, horizontal=True, key='m_detail', format_func=lambda x: f"{x}월")
+
+    df_monthly = df_master[(df_master['투자연도'] == int(selected_year)) & (df_master['투자월_숫자'] == int(selected_month))].copy()
+    
+    target_date_str = df_monthly['기준일(월말)'].iloc[0] if '기준일(월말)' in df_monthly.columns else (datetime(int(selected_year), int(selected_month), 1) - timedelta(days=1)).strftime('%Y-%m-%d')
         
-    years = sorted(list(set(v['year'] for v in date_map.values())), reverse=True)
-    
-    col_y, col_info = st.columns([2, 8])
-    with col_y:
-        selected_year = st.selectbox("📅 투자 연도", years, format_func=lambda x: f"{x}년", key='y_detail')
-    
-    months_for_year = sorted(list(set(v['month'] for v in date_map.values() if v['year'] == selected_year)), reverse=False)
-    st.markdown("<div style='margin-bottom: 5px;'></div>", unsafe_allow_html=True)
-    selected_month = st.radio("🌙 투자 월", months_for_year, horizontal=True, key='m_detail', format_func=lambda x: f"{x}월")
-    
-    selected_date = next(d for d, v in date_map.items() if v['year'] == selected_year and v['month'] == selected_month)
-
     with col_info:
-        st.markdown(f"<div style='margin-top: 32px; text-align: right; color: #9ca3af; font-size: 0.95rem;'>💡 <b>데이터 기준일:</b> {selected_date}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='margin-top: 32px; text-align: right; color: #9ca3af; font-size: 0.95rem;'>💡 <b>데이터 기준일:</b> {target_date_str}</div>", unsafe_allow_html=True)
 
-    kospi_ma_df = get_kospi_ma_status(selected_date)
+    kospi_ma_df = get_kospi_ma_status(target_date_str)
     kospi_curr = kospi_ma_df['base_price'].iloc[0] if not kospi_ma_df.empty else 0
     kospi_4m_ma = kospi_ma_df['4개월선'].iloc[0] if not kospi_ma_df.empty else 0
 
@@ -272,41 +223,27 @@ with tab_detail:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    df_k200 = df_all[df_all['기준일(월말)'] == selected_date].copy()
-    df_k200['통합티커_L'] = df_k200.apply(lambda r: f"https://finance.naver.com/item/main.naver?code={r['종목코드']}#KOSPI:{r['종목코드']}", axis=1)
-    df_k200['종목명_L'] = df_k200.apply(lambda r: f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드']}#{r['종목명']}", axis=1)
-    df_k200 = df_k200.sort_values(by='시가총액(억)', ascending=False).head(200)
-    df_k200['시총순위'] = range(1, len(df_k200) + 1)
-    df_k200 = df_k200.set_index('시총순위')
+    kospi_1m, kospi_3m = get_idx_kr(target_date_str)
+    neg_1m_cnt = (df_monthly['1개월(%)'] < 0).sum()
+    neg_3m_cnt = (df_monthly['3개월(%)'] < 0).sum()
 
-    kospi_1m, kospi_3m = get_idx_kr(selected_date)
-    neg_1m_cnt = (df_k200['1개월(%)'] < 0).sum()
-    neg_3m_cnt = (df_k200['3개월(%)'] < 0).sum()
-
-    base_dt = pd.to_datetime(selected_date)
-    target_dt = base_dt + pd.DateOffset(months=1)
-    target_year = target_dt.year
-    target_month = target_dt.month
-
+    base_dt = pd.to_datetime(target_date_str)
+    target_year = int(selected_year)
+    target_month_num = int(selected_month)
     cycle_year = get_cycle_year(target_year)
     bad_months_this_year = PRESIDENTIAL_DANGEROUS_MONTHS.get(cycle_year, [])
     bad_m_str = ", ".join(f"{m}월" for m in bad_months_this_year) if bad_months_this_year else "없음"
 
-    is_bad_market = (neg_1m_cnt >= 100) and (neg_3m_cnt >= 100)
     is_below_4m_ma = (kospi_curr > 0) and (kospi_curr < kospi_4m_ma)
 
-    reasons = []
-    if is_bad_market: reasons.append("하락장(1,3M 100개↑)")
-    if is_below_4m_ma: reasons.append("4개월선 이탈")
-
-    if reasons:
+    if is_below_4m_ma:
         invest_status = "🛑 투자 중지"
         box_color, text_color = "#FFEBEE", "#C62828"
-        status_desc = " + ".join(reasons)
+        status_desc = "4개월선 이탈"
     else:
         invest_status = "✅ 투자 진행"
         box_color, text_color = "#E8F5E9", "#2E7D32"
-        status_desc = "상승장 & 4개월선 위"
+        status_desc = "4개월선 위"
 
     col1, col2, col3, col4, col5, col6 = st.columns([0.9, 0.9, 1.0, 1.0, 1.4, 1.6])
     with col1: st.metric(label="📈 KOSPI 1M", value=f"{kospi_1m}%")
@@ -314,200 +251,171 @@ with tab_detail:
     with col3: st.metric(label="📉 1개월 하락", value=f"{neg_1m_cnt}개")
     with col4: st.metric(label="📉 3개월 하락", value=f"{neg_3m_cnt}개")
     with col5:
-        st.markdown(f'<div style="background-color: #f0f2f6; padding: 10px; border-radius: 10px; text-align: center; border: 1px solid #d1d5db; height: 100%; min-height: 95px; display: flex; flex-direction: column; justify-content: center;"><div style="font-size: 13px; font-weight: bold; color: #333; margin-bottom: 4px;">🇺🇸대통령 <span style="color:#0047AB; font-size:14px;">{cycle_year}년차</span> ({target_year}년)</div><div style="font-size: 13px; font-weight: bold; color: #D84315;">위험달: {bad_m_str}</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="background-color: #f0f2f6; padding: 10px; border-radius: 10px; text-align: center; border: 1px solid #d1d5db; height: 100%; min-height: 95px; display: flex; flex-direction: column; justify-content: center;"><div style="font-size: 13px; font-weight: bold; color: #333; margin-bottom: 4px;">🇺🇸대통령 <span style="color:#0047AB; font-size:14px;">{get_cycle_year(int(selected_year))}년차</span> ({selected_year}년)</div><div style="font-size: 13px; font-weight: bold; color: #D84315;">위험달: {bad_m_str}</div></div>', unsafe_allow_html=True)
     with col6:
         st.markdown(f'<div style="background-color: {box_color}; padding: 10px; border-radius: 10px; text-align: center; border: 1px solid {text_color}; display: flex; flex-direction: column; justify-content: center; height: 100%; min-height: 95px;"><p style="margin: 0; font-size: 12px; color: {text_color}; font-weight: bold;">당시 최종 판단 ({status_desc})</p><div style="margin: 4px 0 0 0; font-size: 1.5rem; font-weight: 900; color: {text_color};">{invest_status}</div></div>', unsafe_allow_html=True)
         
     st.markdown("<hr style='margin: 1rem 0;'>", unsafe_allow_html=True)
 
-    for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']:
-        if c in df_k200.columns:
-            df_k200[c] = pd.to_numeric(df_k200[c], errors='coerce').fillna(0)
+    def make_links(r):
+        m = str(r.get('시장', 'KOSPI'))
+        m_tag = "KOSDAQ" if "코스닥" in m or "KOSDAQ" in m.upper() else "KOSPI"
+        t_url = f"https://finance.naver.com/item/main.naver?code={r['종목코드']}#{m_tag}:{r['종목코드']}"
+        n_url = f"https://m.stock.naver.com/fchart/domestic/stock/{r['종목코드']}#{r['종목명']}"
+        return pd.Series([t_url, n_url])
 
-    q30 = {c: df_k200[c].quantile(0.7) for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']}
-    t10_1m = df_k200['1개월(%)'].quantile(0.9)
+    q30 = {c: df_monthly[c].quantile(0.7) for c in ['1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)']}
+    t10_1m = df_monthly['1개월(%)'].quantile(0.9)
 
-    # 💡 퍼펙트 상승 (모두 0 이상)
-    cond_perf = (df_k200['1개월(%)']>=q30['1개월(%)'])&(df_k200['3개월(%)']>=q30['3개월(%)'])&(df_k200['6개월(%)']>=q30['6개월(%)'])&(df_k200['12개월(%)']>=q30['12개월(%)']) & \
-                (df_k200['1개월(%)']>0)&(df_k200['3개월(%)']>0)&(df_k200['6개월(%)']>0)&(df_k200['12개월(%)']>0)
+    df_perf = df_monthly[(df_monthly['1개월(%)']>=q30['1개월(%)'])&(df_monthly['3개월(%)']>=q30['3개월(%)'])&(df_monthly['6개월(%)']>=q30['6개월(%)'])&(df_monthly['12개월(%)']>=q30['12개월(%)']) & (df_monthly['1개월(%)']>0)&(df_monthly['3개월(%)']>0)&(df_monthly['6개월(%)']>0)&(df_monthly['12개월(%)']>0)].sort_values('3개월(%)', ascending=False).copy()
+    df_spec = df_monthly[(df_monthly['12개월(%)']>=q30['12개월(%)']) & (df_monthly['1개월(%)']>=t10_1m) & (df_monthly['1개월(%)']>0)&(df_monthly['12개월(%)']>0)].sort_values('1개월(%)', ascending=False).copy()
 
-    df_perf = df_k200[cond_perf].sort_values('3개월(%)', ascending=False).copy()
+    top30_perf = df_perf.head(30)['종목코드'].tolist()
+    top30_spec = df_spec.head(30)['종목코드'].tolist()
+    overlap_30 = set(top30_perf).intersection(set(top30_spec))
+
+    df_monthly[['티커_L', '종목명_L']] = df_monthly.apply(make_links, axis=1)
+    df_perf[['티커_L', '종목명_L']] = df_perf.apply(make_links, axis=1)
+    df_spec[['티커_L', '종목명_L']] = df_spec.apply(make_links, axis=1)
     
-    # 💡 달리는 말 (0 이상 필터 제거, 원래 로직대로)
-    cond_spec = (df_k200['12개월(%)']>=q30['12개월(%)']) & (df_k200['1개월(%)']>=t10_1m)
-                
-    df_spec = df_k200[cond_spec].sort_values('1개월(%)', ascending=False).copy()
-
-    top5_perf = df_perf.head(5)['종목코드'].tolist()
-    top5_spec = df_spec.head(5)['종목코드'].tolist()
-    overlap_top5 = set(top5_perf).intersection(set(top5_spec))
-
+    df_monthly.index = range(1, len(df_monthly) + 1)
+    
     main_cfg = {
-        "통합티커_L": st.column_config.LinkColumn("티커", display_text=r"#(.+)"), 
-        "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"), 
-        "1개월(%)": st.column_config.NumberColumn(format="%.1f"), 
-        "3개월(%)": st.column_config.NumberColumn(format="%.1f"), 
-        "6개월(%)": st.column_config.NumberColumn(format="%.1f"), 
-        "12개월(%)": st.column_config.NumberColumn(format="%.1f"),
-        "다음달수익률(%)": st.column_config.NumberColumn(f"{target_month}월 수익률(%)", format="%.2f") 
+        "티커_L": st.column_config.LinkColumn("티커", display_text=r"#(.+)"),
+        "종목명_L": st.column_config.LinkColumn("종목명", display_text=r"#(.+)"),
+        "기준가": st.column_config.NumberColumn(format="%,d"),
+        "모멘텀스코어": st.column_config.NumberColumn("모멘텀스코어", format="%.2f"),
+        "1개월(%)": st.column_config.NumberColumn(format="%.2f"),
+        "3개월(%)": st.column_config.NumberColumn(format="%.2f"),
+        "6개월(%)": st.column_config.NumberColumn(format="%.2f"),
+        "12개월(%)": st.column_config.NumberColumn(format="%.2f"),
+        "다음달수익률(%)": st.column_config.NumberColumn(f"{target_month_num}월 수익률(%)", format="%.2f %%")
     }
 
     c_left, c_right = st.columns(2)
     with c_left:
-        st.markdown(get_perf_html("🔥 퍼펙트 상승", df_perf, target_month), unsafe_allow_html=True)
-        st.markdown('<p class="strategy-desc">KOSPI 200 중 1, 3, 6, 12개월 수익률이 모두 상위 30% 이내이며 0보다 큰 종목 (3개월 수익률 순)</p>', unsafe_allow_html=True)
-        st.dataframe(df_perf.style.apply(apply_k200_styling, highlight_codes=top5_perf, overlap_codes=overlap_top5, axis=1), 
-                     use_container_width=True, 
-                     column_order=['통합티커_L', '종목명_L', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '다음달수익률(%)'], 
-                     column_config=main_cfg)
+        st.markdown(get_perf_html("🔥 퍼펙트 상승", df_perf, target_month_num), unsafe_allow_html=True)
+        st.markdown('<p class="strategy-desc">1, 3, 6, 12개월 수익률이 모두 상위 30% 이내이며 0보다 큰 종목 (3개월 수익률 순)</p>', unsafe_allow_html=True)
+        st.dataframe(df_perf.style.apply(apply_kr_styling, highlight_codes=top30_perf, overlap_codes=overlap_30, axis=1), use_container_width=True, hide_index=True, column_order=['티커_L', '종목명_L', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '다음달수익률(%)'], column_config=main_cfg)
     with c_right:
-        st.markdown(get_perf_html("🐎 달리는 말", df_spec, target_month), unsafe_allow_html=True)
-        st.markdown('<p class="strategy-desc">KOSPI 200 중 12개월 수익률 상위 30% 이내, 1개월 수익률 상위 10% 이내인 종목 (1개월 수익률 순)</p>', unsafe_allow_html=True)
-        st.dataframe(df_spec.style.apply(apply_k200_styling, highlight_codes=top5_spec, overlap_codes=overlap_top5, axis=1), 
-                     use_container_width=True, 
-                     column_order=['통합티커_L', '종목명_L', '1개월(%)', '12개월(%)', '다음달수익률(%)'], 
-                     column_config=main_cfg)
+        st.markdown(get_perf_html("🐎 달리는 말", df_spec, target_month_num), unsafe_allow_html=True)
+        st.markdown('<p class="strategy-desc">12개월 수익률이 상위 30% 이내이며 1개월 수익률이 상위 10% 이내인 종목 (1개월 수익률 순)</p>', unsafe_allow_html=True)
+        st.dataframe(df_spec.style.apply(apply_kr_styling, highlight_codes=top30_spec, overlap_codes=overlap_30, axis=1), use_container_width=True, hide_index=True, column_order=['티커_L', '종목명_L', '1개월(%)', '12개월(%)', '다음달수익률(%)'], column_config=main_cfg)
 
     st.markdown("---")
-    st.subheader("🏆 KOSPI 200 전체 순위 (과거)")
-
-    def get_ref_str(m):
-        ref_dt = (base_dt.replace(day=1) - pd.DateOffset(months=m-1)) - timedelta(days=1)
-        return ref_dt.strftime('%y.%m.%d')
-
-    full_cfg = main_cfg.copy()
-    full_cfg['1개월(%)'] = st.column_config.NumberColumn(f"1개월(%)\n({get_ref_str(1)})", format="%.1f")
-    full_cfg['3개월(%)'] = st.column_config.NumberColumn(f"3개월(%)\n({get_ref_str(3)})", format="%.1f")
-    full_cfg['6개월(%)'] = st.column_config.NumberColumn(f"6개월(%)\n({get_ref_str(6)})", format="%.1f")
-    full_cfg['12개월(%)'] = st.column_config.NumberColumn(f"12개월(%)\n({get_ref_str(12)})", format="%.1f")
-
-    st.dataframe(df_k200.style.apply(apply_k200_styling, axis=1), 
-                 use_container_width=True, height=600, 
-                 column_order=['통합티커_L', '종목명_L', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '다음달수익률(%)'], 
-                 column_config=full_cfg)
-
+    st.subheader("🏆 전체 종목 모멘텀 순위")
+    st.dataframe(df_monthly.sort_values('모멘텀스코어', ascending=False).style.map(lambda x: 'color: #FF4B4B; font-weight: bold;' if x > 0 else ('color: #3182CE; font-weight: bold;' if x < 0 else ''), subset=['다음달수익률(%)']), use_container_width=True, height=500, hide_index=True, column_order=['시장', '티커_L', '종목명_L', '기준가', '모멘텀스코어', '1개월(%)', '3개월(%)', '6개월(%)', '12개월(%)', '다음달수익률(%)'], column_config=main_cfg)
 
 # ==========================================
-# 탭 2: 전략 누적 성과 (백테스트)
+# 탭 2: 전략조합 장기 백테스트
 # ==========================================
 with tab_summary:
     st.markdown("<h4 style='margin-top: 5px; margin-bottom: 0px;'>⚙️ 시뮬레이션 설정</h4>", unsafe_allow_html=True)
-        
+    
     c1, c_ma, c_chk = st.columns([1, 1, 1.5])
-    with c1: start_year, end_year = st.slider("📅 테스트 기간 (연도)", min_y, max_y, (min_y, max_y), key='k_yr2')
+    with c1: start_year, end_year = st.slider("📅 테스트 기간 (연도)", min_y, max_y, (min_y, max_y), key='year_tab2')
     with c_ma: ma_months_t2 = st.slider("📉 마켓타이밍 (개월선)", 1, 12, 4, key='ma_t2')
     with c_chk:
         st.markdown("<div style='margin-top: 35px;'></div>", unsafe_allow_html=True)
-        apply_timing = st.checkbox("🛑 마켓타이밍 적용 (선택 이평선 이탈 OR 1·3M 하락종목 100개↑ 시 현금 100%)", value=True, key='k_timing2')
-        
+        apply_timing = st.checkbox("🛑 마켓타이밍 적용 (선택 이평선 이탈 시 현금 100%)", value=True, key='timing_tab2')
+
     st.markdown("<hr style='margin: 10px 0px;'>", unsafe_allow_html=True)
-    st.markdown("##### 🔥 전략 상세 조건 필터")
+    st.markdown("##### 🔥 전략 상세 조건 필터 (엄격한 다중 필터)")
     
     c2, c3, c4, c5 = st.columns([1, 1, 1, 1])
     with c2: perf_pct = st.slider("🔥 퍼펙트 상승 (1,3,6,12M 상위 %)", 5, 50, 30, step=5)
-    with c3: rank_p_start, rank_p_end = st.slider("🔥 퍼펙트 상승 (매수 순위)", 1, 30, (1, 5))
+    with c3: rank_1_start, rank_1_end = st.slider("🔥 퍼펙트 상승 (매수 순위)", 1, 30, (4, 9))
     with c4: spec_12m_pct = st.slider("🐎 달리는 말 (12M 상위 %, 1M은 10%)", 5, 50, 30, step=5)
-    with c5: rank_s_start, rank_s_end = st.slider("🐎 달리는 말 (매수 순위)", 1, 30, (1, 5))
-    
-    if rank_p_start > rank_p_end or rank_s_start > rank_s_end:
-        st.error("🚨 순위 범위가 잘못되었습니다. (예: 2~6위 형태로 설정해주세요)")
+    with c5: rank_2_start, rank_2_end = st.slider("🐎 달리는 말 (매수 순위)", 1, 30, (5, 10))
+        
+    if rank_1_start > rank_1_end or rank_2_start > rank_2_end:
+        st.error("🚨 순위 범위가 잘못되었습니다.")
         st.stop()
         
+    # 💡 [핵심] 마이너스 수익률 허용 토글 추가
+    allow_negative = st.checkbox("🔥 퍼펙트 상승: 마이너스(-) 수익률 종목도 허용 (절대수익 0% 조건 무시, 오직 상위 %만 판단)", value=False)
+    
     trade_logs_tab2 = []
 
     with st.spinner("수익률 계산 중..."):
-        timing_df_t2 = get_kospi_timing_for_backtest(ma_months_t2)
+        timing_df_t2 = get_kospi_timing(ma_months_t2)
+        months = [m for m in sorted(df_master['YearMonth'].unique()) if start_year <= int(m[:4]) <= end_year]
         records = []
-        for m in monthly_data:
-            if not (start_year <= m['투자연도'] <= end_year): continue
+        for m in months:
+            m_data = df_master[df_master['YearMonth'] == m]
+            base_dt = pd.to_datetime(m); inv_dt = base_dt + pd.DateOffset(months=1); inv_str = inv_dt.strftime('%Y-%m')
             
-            is_below_ma = False
-            if m['기준월'] in timing_df_t2.index:
-                is_below_ma = timing_df_t2.loc[m['기준월'], 'is_below_ma']
-                
-            is_bad_market = m['is_bad_breadth'] or is_below_ma
-            mult = 0.0 if (apply_timing and is_bad_market) else 1.0
-            is_invested = mult > 0.0  
+            is_below_ma = timing_df_t2.loc[m, 'is_below_ma'] if m in timing_df_t2.index else False
+            mult = 0.0 if (apply_timing and is_below_ma) else 1.0
             
-            df_k200_bt = m['df_k200']
             q_perf = 1.0 - (perf_pct / 100.0)
             q_spec = 1.0 - (spec_12m_pct / 100.0)
             
-            q_val_1 = df_k200_bt['1개월(%)'].quantile(q_perf)
-            q_val_3 = df_k200_bt['3개월(%)'].quantile(q_perf)
-            q_val_6 = df_k200_bt['6개월(%)'].quantile(q_perf)
-            q_val_12 = df_k200_bt['12개월(%)'].quantile(q_perf)
+            q_val_1 = m_data['1개월(%)'].quantile(q_perf)
+            q_val_3 = m_data['3개월(%)'].quantile(q_perf)
+            q_val_6 = m_data['6개월(%)'].quantile(q_perf)
+            q_val_12 = m_data['12개월(%)'].quantile(q_perf)
             
-            t_val_12 = df_k200_bt['12개월(%)'].quantile(q_spec)
-            t_val_1 = df_k200_bt['1개월(%)'].quantile(0.9) 
+            t_val_12 = m_data['12개월(%)'].quantile(q_spec)
+            t_val_1 = m_data['1개월(%)'].quantile(0.9) 
             
-            cond_p = (df_k200_bt['1개월(%)']>=q_val_1)&(df_k200_bt['3개월(%)']>=q_val_3)&(df_k200_bt['6개월(%)']>=q_val_6)&(df_k200_bt['12개월(%)']>=q_val_12) & \
-                     (df_k200_bt['1개월(%)']>0)&(df_k200_bt['3개월(%)']>0)&(df_k200_bt['6개월(%)']>0)&(df_k200_bt['12개월(%)']>0)
-                     
-            # 💡 달리는 말 (0 이상 필터 제거, 원래 로직대로)
-            cond_s = (df_k200_bt['12개월(%)']>=t_val_12)&(df_k200_bt['1개월(%)']>=t_val_1)
+            # 💡 [핵심] 토글에 따른 퍼펙트 상승 조건 분기 처리
+            cond_p_base = (m_data['1개월(%)']>=q_val_1)&(m_data['3개월(%)']>=q_val_3)&(m_data['6개월(%)']>=q_val_6)&(m_data['12개월(%)']>=q_val_12)
+            if allow_negative:
+                cond_p = cond_p_base
+            else:
+                cond_p = cond_p_base & (m_data['1개월(%)']>0)&(m_data['3개월(%)']>0)&(m_data['6개월(%)']>0)&(m_data['12개월(%)']>0)
+                
+            cond_s = (m_data['12개월(%)']>=t_val_12)&(m_data['1개월(%)']>=t_val_1) & (m_data['1개월(%)']>0)&(m_data['12개월(%)']>0)
             
-            df_perf_all = df_k200_bt[cond_p].sort_values('3개월(%)', ascending=False)
-            df_spec_all = df_k200_bt[cond_s].sort_values('1개월(%)', ascending=False)
+            df_p = m_data[cond_p].sort_values('3개월(%)', ascending=False)
+            df_s = m_data[cond_s].sort_values('1개월(%)', ascending=False)
             
-            target_p = df_perf_all.iloc[rank_p_start-1 : rank_p_end]
-            target_s = df_spec_all.iloc[rank_s_start-1 : rank_s_end]
+            overlap_1 = df_p.iloc[rank_1_start-1 : rank_1_end]
+            overlap_2 = df_s.iloc[rank_2_start-1 : rank_2_end]
             
-            ret_p = (target_p['다음달수익률(%)'].mean() * mult) if not target_p.empty else 0.0
-            ret_s = (target_s['다음달수익률(%)'].mean() * mult) if not target_s.empty else 0.0
+            ret_1 = (overlap_1['다음달수익률(%)'].mean() * mult) if not overlap_1.empty else 0.0
+            ret_2 = (overlap_2['다음달수익률(%)'].mean() * mult) if not overlap_2.empty else 0.0
             
-            combined_tickers = list(set(target_p['종목코드'].tolist() + target_s['종목코드'].tolist()))
-            df_c = df_k200_bt[df_k200_bt['종목코드'].isin(combined_tickers)]
-            ret_combined = (df_c['다음달수익률(%)'].mean() * mult) if not df_c.empty else 0.0
-            
-            ret_ensemble = (ret_p + ret_s) / 2
-            
-            records.append({
-                '투자월': m['투자월'],
-                'invested': is_invested,
-                f'🔥 퍼펙트상승 ({rank_p_start}~{rank_p_end}위)': ret_p,
-                f'🐎 달리는말 ({rank_s_start}~{rank_s_end}위)': ret_s,
-                '앙상블 (전략 50:50)': ret_ensemble,
-                '통합 (모든종목 동일비중)': ret_combined
-            })
+            records.append({'투자월': inv_str, 'invested': (mult > 0), f'🔥 퍼펙트 상승 ({rank_1_start}~{rank_1_end}위)': ret_1, f'🐎 달리는 말 ({rank_2_start}~{rank_2_end}위)': ret_2, '앙상블 (전략 50:50)': (ret_1 + ret_2) / 2})
             
             if mult == 0.0:
-                trade_logs_tab2.append({'투자월': m['투자월'], '전략': '마켓타이밍 작동', '매수순위': '-', '종목명': '현금 (투자중지)', '종목코드': '-', '수익률(%)': 0.0})
+                trade_logs_tab2.append({'투자월': inv_str, '전략': '마켓타이밍 작동', '매수순위': '-', '종목명': '현금 (투자중지)', '종목코드': '-', '수익률(%)': 0.0})
             else:
-                for i, (_, row) in enumerate(target_p.iterrows()):
-                    trade_logs_tab2.append({'투자월': m['투자월'], '전략': '🔥 퍼펙트 상승', '매수순위': f"{i + rank_p_start}위", '종목명': row['종목명'], '종목코드': row['종목코드'], '수익률(%)': row['다음달수익률(%)']})
-                for i, (_, row) in enumerate(target_s.iterrows()):
-                    trade_logs_tab2.append({'투자월': m['투자월'], '전략': '🐎 달리는 말', '매수순위': f"{i + rank_s_start}위", '종목명': row['종목명'], '종목코드': row['종목코드'], '수익률(%)': row['다음달수익률(%)']})
+                for i, (_, row) in enumerate(overlap_1.iterrows()):
+                    trade_logs_tab2.append({'투자월': inv_str, '전략': '🔥 퍼펙트 상승', '매수순위': f"{i + rank_1_start}위", '종목명': row['종목명'], '종목코드': row['종목코드'], '수익률(%)': row['다음달수익률(%)']})
+                for i, (_, row) in enumerate(overlap_2.iterrows()):
+                    trade_logs_tab2.append({'투자월': inv_str, '전략': '🐎 달리는 말', '매수순위': f"{i + rank_2_start}위", '종목명': row['종목명'], '종목코드': row['종목코드'], '수익률(%)': row['다음달수익률(%)']})
             
-        df_summary = pd.DataFrame(records).fillna(0.0)
-        
-        if not df_summary.empty:
-            strategy_cols = [c for c in df_summary.columns if c not in ['투자월', 'invested']]
-            df_cum = (1 + df_summary.set_index('투자월')[strategy_cols] / 100).cumprod() * 100
-            
-            first_m_str = (pd.to_datetime(df_summary['투자월'].iloc[0]) - pd.DateOffset(months=1)).strftime('%Y-%m')
-            df_cum.loc[first_m_str] = 100
+        df_res = pd.DataFrame(records).fillna(0.0)
+        if not df_res.empty:
+            strategy_cols = [c for c in df_res.columns if c not in ['투자월', 'invested']]
+            df_cum = (1 + df_res.set_index('투자월')[strategy_cols] / 100).cumprod() * 100
+            df_cum.loc[(pd.to_datetime(df_res['투자월'].iloc[0]) - pd.DateOffset(months=1)).strftime('%Y-%m')] = 100
             df_cum = df_cum.sort_index()
 
-            st.markdown(f"### 📈 {start_year}년 ~ {end_year}년 누적 자산 성장 곡선 (Log Scale)")
+            st.markdown(f"### 📈 누적 수익률 곡선 (마켓타이밍: KOSPI {ma_months_t2}개월선)")
             df_melt = df_cum.reset_index().melt(id_vars='투자월', var_name='전략', value_name='누적수익률')
             fig = px.line(df_melt, x='투자월', y='누적수익률', color='전략', log_y=True)
-            fig.update_layout(hovermode="x unified", dragmode="pan", xaxis_title="투자 기준 월", yaxis_title="누적 자산 (초기 자본 = 100, 로그스케일)", legend_title_text="투자 전략", margin=dict(l=0, r=0, t=20, b=0))
-            st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
+            fig.update_layout(hovermode="x unified", dragmode="pan", xaxis_title="투자 기준 월", yaxis_title="누적 자산 (로그스케일)", margin=dict(l=0, r=0, t=20, b=0))
+            st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True})
             
+            # 💡 [핵심] 한글 깨짐 방지 utf-8-sig 명시적 인코딩 적용!
             df_trades = pd.DataFrame(trade_logs_tab2)
+            csv_data_t2 = df_trades.to_csv(index=False).encode('utf-8-sig')
+            
             st.download_button(
                 label="📥 백테스트 매수 상세 내역 전체 다운로드 (CSV)",
-                data=df_trades.to_csv(index=False, encoding='utf-8-sig'),
-                file_name=f"KOSPI200_백테스트_매수내역_{datetime.today().strftime('%Y%m%d')}.csv",
+                data=csv_data_t2,
+                file_name=f"전체시장_다중조건_백테스트_{datetime.today().strftime('%Y%m%d')}.csv",
                 mime="text/csv",
                 use_container_width=True
             )
             
             st.markdown("#### 📊 전략별 핵심 통계 (초기 자본 100 기준)")
             stats = []
-            total_months = len(df_summary)
-            invested_months = df_summary['invested'].sum()
+            total_months = len(df_res)
+            invested_months = df_res['invested'].sum()
             invest_ratio = (invested_months / total_months) * 100 if total_months > 0 else 0
 
             for col in strategy_cols:
@@ -517,9 +425,9 @@ with tab_summary:
                 cagr = ((final_val / 100) ** (1 / years) - 1) * 100 if final_val > 0 else -100.0
                 
                 if invested_months > 0:
-                    win_months = (df_summary.loc[df_summary['invested'], col] > 0).sum()
+                    win_months = (df_res.loc[df_res['invested'], col] > 0).sum()
                     win_rate = (win_months / invested_months) * 100
-                    avg_ret = df_summary.loc[df_summary['invested'], col].mean()
+                    avg_ret = df_res.loc[df_res['invested'], col].mean()
                 else: win_months = 0; win_rate = 0.0; avg_ret = 0.0
                 
                 roll_max = df_cum[col].cummax()
@@ -538,7 +446,7 @@ with tab_summary:
             st.dataframe(styled_stats, use_container_width=True, hide_index=True)
             
             with st.expander(f"📝 {start_year}~{end_year}년 ({total_months}개월) 월별 수익률 상세 기록 보기"):
-                display_df = df_summary.drop(columns=['invested']).set_index('투자월')
+                display_df = df_res.drop(columns=['invested']).set_index('투자월')
                 st.dataframe(display_df.style.format("{:.2f}%"), use_container_width=True)
 
 # ==========================================
@@ -546,100 +454,83 @@ with tab_summary:
 # ==========================================
 with tab_custom:
     col_title, col_check = st.columns([1, 4])
-    with col_title:
-        st.markdown("<h4 style='margin-top: 5px; margin-bottom: 0px;'>⚙️ 스코어 가중치 설정</h4>", unsafe_allow_html=True)
-    with col_check:
-        st.markdown("<div style='margin-top: 8px;'>", unsafe_allow_html=True)
-        apply_timing_c = st.checkbox("🛑 마켓타이밍 적용 (선택 이평선 이탈 OR 1·3M 하락종목 100개↑ 시 현금 100%)", value=True, key='k_timing3')
-        st.markdown("</div>", unsafe_allow_html=True)
-        
-    with st.form("custom_weight_form_k200", border=False):
+    with col_title: st.markdown("<h4 style='margin-top: 5px; margin-bottom: 0px;'>⚙️ 스코어 가중치</h4>", unsafe_allow_html=True)
+    with col_check: st.markdown("<div style='margin-top: 8px;'>", unsafe_allow_html=True); apply_timing_c = st.checkbox("🛑 마켓타이밍 적용", value=True, key='timing_tab3'); st.markdown("</div>", unsafe_allow_html=True)
+    
+    with st.form("custom_weight_form", border=False):
         c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 0.8])
-        with c1: w1 = st.number_input("📉 1개월 가중치", value=0.2, step=0.1, format="%.1f")
-        with c2: w3 = st.number_input("📈 3개월 가중치", value=0.8, step=0.1, format="%.1f")
-        with c3: w6 = st.number_input("📈 6개월 가중치", value=0.0, step=0.1, format="%.1f")
-        with c4: w12 = st.number_input("📈 12개월 가중치", value=0.0, step=0.1, format="%.1f")
-        with c5:
-            st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
-            apply_weights = st.form_submit_button("✅ 스코어 적용", use_container_width=True)
+        with c1: w1 = st.number_input("📉 1M 가중치", value=0.2, step=0.1, format="%.1f")
+        with c2: w3 = st.number_input("📈 3M 가중치", value=0.8, step=0.1, format="%.1f")
+        with c3: w6 = st.number_input("📈 6M 가중치", value=0.0, step=0.1, format="%.1f")
+        with c4: w12 = st.number_input("📈 12M 가중치", value=0.0, step=0.1, format="%.1f")
+        with c5: st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True); apply_weights = st.form_submit_button("✅ 스코어 적용", use_container_width=True)
             
     st.markdown("<hr style='margin: 0px 0px 15px 0px;'>", unsafe_allow_html=True)
     
     c6, c_ma_c, c7, c8 = st.columns([1, 0.8, 1, 1])
-    with c6:
-        start_year_c, end_year_c = st.slider("📅 테스트 기간 (연도)", min_y, max_y, (min_y, max_y), key='k_yr3')
-    with c_ma_c:
-        ma_months_t3 = st.slider("📉 마켓타이밍 (개월선) ", 1, 12, 4, key='ma_t3')
-    with c7: 
-        custom_pct = st.slider("🏅 커스텀 스코어 상위 %", 5, 50, 30, step=5)
-    with c8:
-        rank_c_start, rank_c_end = st.slider("🏅 매수 순위 범위 ", 1, 30, (1, 10), key='k_rnk3')
+    with c6: start_year_c, end_year_c = st.slider("📅 테스트 기간 (연도)", min_y, max_y, (min_y, max_y), key='year_tab3')
+    with c_ma_c: ma_months_t3 = st.slider("📉 마켓타이밍 (개월선) ", 1, 12, 4, key='ma_t3')
+    with c7: custom_pct = st.slider("🏅 커스텀 스코어 상위 %", 5, 50, 30, step=5)
+    with c8: rank_c_start, rank_c_end = st.slider("🏅 매수 순위 범위 ", 1, 50, (1, 10))
 
     if rank_c_start > rank_c_end:
         st.error("🚨 순위 범위가 잘못되었습니다.")
         st.stop()
-        
+
     trade_logs_tab3 = []
 
-    with st.spinner("커스텀 스코어 재계산 및 시뮬레이션 중..."):
-        timing_df_t3 = get_kospi_timing_for_backtest(ma_months_t3)
+    with st.spinner("계산 중..."):
+        timing_df_t3 = get_kospi_timing(ma_months_t3)
+        df_calc = df_master.copy()
+        df_calc['CustomScore'] = (df_calc['1개월(%)']*w1) + (df_calc['3개월(%)']*w3) + (df_calc['6개월(%)']*w6) + (df_calc['12개월(%)']*w12)
+        
+        months_c = [m for m in sorted(df_calc['YearMonth'].unique()) if start_year_c <= int(m[:4]) <= end_year_c]
         records_c = []
-        for m in monthly_data:
-            if not (start_year_c <= m['투자연도'] <= end_year_c): continue
+        for m in months_c:
+            m_data = df_calc[df_calc['YearMonth'] == m]
+            inv_str = (pd.to_datetime(m) + pd.DateOffset(months=1)).strftime('%Y-%m')
             
-            is_below_ma = False
-            if m['기준월'] in timing_df_t3.index:
-                is_below_ma = timing_df_t3.loc[m['기준월'], 'is_below_ma']
-                
-            is_bad_market = m['is_bad_breadth'] or is_below_ma
-            mult = 0.0 if (apply_timing_c and is_bad_market) else 1.0
-            is_invested = mult > 0.0
-            
-            df_calc = m['df_k200'].copy()
-            df_calc['커스텀스코어'] = (df_calc['1개월(%)']*w1) + (df_calc['3개월(%)']*w3) + (df_calc['6개월(%)']*w6) + (df_calc['12개월(%)']*w12)
+            is_below_ma = timing_df_t3.loc[m, 'is_below_ma'] if m in timing_df_t3.index else False
+            mult = 0.0 if (apply_timing_c and is_below_ma) else 1.0
             
             q_c = 1.0 - (custom_pct / 100.0)
-            q_val_c = df_calc['커스텀스코어'].quantile(q_c)
+            q_val_c = m_data['CustomScore'].quantile(q_c)
             
-            target_group = df_calc[(df_calc['커스텀스코어']>=q_val_c) & (df_calc['1개월(%)']>0)].sort_values('커스텀스코어', ascending=False).iloc[rank_c_start-1 : rank_c_end]
+            target_group = m_data[(m_data['CustomScore']>=q_val_c) & (m_data['1개월(%)']>0)].sort_values('CustomScore', ascending=False).iloc[rank_c_start-1 : rank_c_end]
             
             ret_target = (target_group['다음달수익률(%)'].mean() * mult) if not target_group.empty else 0.0
-            
-            records_c.append({
-                '투자월': m['투자월'], 'invested': is_invested,
-                f'🏅 커스텀 스코어 ({rank_c_start}~{rank_c_end}위)': ret_target
-            })
+            records_c.append({'투자월': inv_str, 'invested': (mult > 0), f'🏅 커스텀 스코어 ({rank_c_start}~{rank_c_end}위)': ret_target})
             
             if mult == 0.0:
-                trade_logs_tab3.append({'투자월': m['투자월'], '전략': '마켓타이밍 작동', '매수순위': '-', '종목명': '현금 (투자중지)', '종목코드': '-', '수익률(%)': 0.0})
+                trade_logs_tab3.append({'투자월': inv_str, '전략': '마켓타이밍 작동', '매수순위': '-', '종목명': '현금 (투자중지)', '종목코드': '-', '수익률(%)': 0.0})
             else:
                 for i, (_, row) in enumerate(target_group.iterrows()):
-                    trade_logs_tab3.append({'투자월': m['투자월'], '전략': '커스텀 스코어', '매수순위': f"{i + rank_c_start}위", '종목명': row['종목명'], '종목코드': row['종목코드'], '수익률(%)': row['다음달수익률(%)']})
+                    trade_logs_tab3.append({'투자월': inv_str, '전략': '커스텀 스코어', '매수순위': f"{i + rank_c_start}위", '종목명': row['종목명'], '종목코드': row['종목코드'], '수익률(%)': row['다음달수익률(%)']})
             
         df_res_c = pd.DataFrame(records_c).fillna(0.0)
-        
         if not df_res_c.empty:
             strategy_cols_c = [c for c in df_res_c.columns if c not in ['투자월', 'invested']]
             df_cum_c = (1 + df_res_c.set_index('투자월')[strategy_cols_c] / 100).cumprod() * 100
-            first_m_str_c = (pd.to_datetime(df_res_c['투자월'].iloc[0]) - pd.DateOffset(months=1)).strftime('%Y-%m')
-            df_cum_c.loc[first_m_str_c] = 100
+            df_cum_c.loc[(pd.to_datetime(df_res_c['투자월'].iloc[0]) - pd.DateOffset(months=1)).strftime('%Y-%m')] = 100
             df_cum_c = df_cum_c.sort_index()
 
-            st.markdown(f"### 📈 {start_year_c}년 ~ {end_year_c}년 누적 자산 성장 곡선 (Log Scale)")
+            st.markdown(f"### 📈 커스텀 스코어 누적 수익률 (마켓타이밍: KOSPI {ma_months_t3}개월선 적용)")
             df_melt_c = df_cum_c.reset_index().melt(id_vars='투자월', var_name='전략', value_name='누적수익률')
             fig_c = px.line(df_melt_c, x='투자월', y='누적수익률', color='전략', log_y=True) 
-            fig_c.update_layout(hovermode="x unified", dragmode="pan", xaxis_title="투자 기준 월", yaxis_title="누적 자산 (초기 자본 = 100, 로그스케일)", margin=dict(l=0, r=0, t=20, b=0))
+            fig_c.update_layout(hovermode="x unified", dragmode="pan", xaxis_title="투자 기준 월", yaxis_title="누적 자산 (로그스케일)", margin=dict(l=0, r=0, t=20, b=0))
             st.plotly_chart(fig_c, use_container_width=True, config={'scrollZoom': True})
-
+            
             df_trades_c = pd.DataFrame(trade_logs_tab3)
+            csv_data_t3 = df_trades_c.to_csv(index=False).encode('utf-8-sig')
+            
             st.download_button(
                 label="📥 커스텀 백테스트 매수 상세 내역 다운로드 (CSV)",
-                data=df_trades_c.to_csv(index=False, encoding='utf-8-sig'),
-                file_name=f"KOSPI200_커스텀_백테스트_{datetime.today().strftime('%Y%m%d')}.csv",
+                data=csv_data_t3,
+                file_name=f"전체시장_커스텀_백테스트_{datetime.today().strftime('%Y%m%d')}.csv",
                 mime="text/csv",
                 use_container_width=True
             )
-
+            
             st.markdown("#### 📊 전략 핵심 통계")
             stats_c = []
             total_months = len(df_res_c)
@@ -668,6 +559,6 @@ with tab_custom:
             except AttributeError: styled_stats_c = df_stats_c.style.applymap(style_stats, subset=['CAGR (연평균)', '총 누적수익률', 'MDD (최대낙폭)'])
             st.dataframe(styled_stats_c, use_container_width=True, hide_index=True)
 
-            with st.expander(f"📝 {start_year_c}~{end_year_c}년 ({total_months}개월) 월별 수익률 상세 기록 보기"):
+            with st.expander("📝 월별 상세 수익률 보기"):
                 display_df_c = df_res_c.drop(columns=['invested']).set_index('투자월')
                 st.dataframe(display_df_c.style.format("{:.2f}%"), use_container_width=True)
