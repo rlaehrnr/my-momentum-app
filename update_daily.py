@@ -1,184 +1,152 @@
-import FinanceDataReader as fdr
 import pandas as pd
+import FinanceDataReader as fdr
 from datetime import datetime, timedelta
 import os
+import glob
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# 폴더 생성
-folders = ['data', 'archive', 'archive_us', 'archive_sp500']
-for d in folders:
-    if not os.path.exists(d): os.makedirs(d)
-
-# 💡 [새로 추가된 핵심 기능] 소형주 포함 2,500여개 전 종목 시가총액 마스터 파일 생성
-def update_krx_master():
-    print("📈 KRX 전체 종목 마스터 데이터(시가총액 포함) 업데이트 중...")
+# 가장 최근 미국장 영업일 구하기 (SPY 기준)
+def get_last_business_day_us():
     try:
-        df = fdr.StockListing('KRX')
-        ticker_col = 'Symbol' if 'Symbol' in df.columns else 'Code'
-        df[ticker_col] = df[ticker_col].astype(str).str.zfill(6)
-        
-        if 'Marcap' in df.columns:
-            df['시가총액(억)'] = (pd.to_numeric(df['Marcap'], errors='coerce').fillna(0) / 100000000).astype(int)
-        else:
-            df['시가총액(억)'] = 0
-            
-        master_df = df[[ticker_col, 'Name', 'Market', '시가총액(억)']].copy()
-        master_df.rename(columns={ticker_col: '종목코드', 'Name': '종목명', 'Market': '시장구분'}, inplace=True)
-        
-        master_df.to_csv('data/krx_stock_master.csv', index=False, encoding='utf-8-sig')
-        print("✅ data/krx_stock_master.csv 업데이트 완료! (소형주 포함 전 종목 시가총액 탑재)")
-    except Exception as e:
-        print(f"❌ 마스터 데이터 업데이트 실패: {e}")
+        df = fdr.DataReader('SPY', datetime.today() - timedelta(days=14))
+        valid_days = df[df['Volume'] > 1000] 
+        if not valid_days.empty:
+            return valid_days.index[-1].strftime('%Y-%m-%d')
+    except: pass
+    return datetime.today().strftime('%Y-%m-%d')
 
-def get_top_stocks(market, limit=150):
-    """시가총액 상위 종목 추출 및 시가총액 데이터 포함"""
+# N개월 전 월말 날짜 구하기
+def get_end_of_month(dt, months_ago):
+    first_of_current = dt.replace(day=1)
+    target_month = first_of_current - pd.DateOffset(months=months_ago - 1)
+    return target_month - timedelta(days=1)
+
+# 지정된 날짜 기준 과거 수익률 계산
+def calculate_return_unified(df_hist, target_date, current_price):
     try:
-        if market in ['KOSPI', 'KOSDAQ']:
-            # 💡 KRX 전체 리스트를 가져와서 시가총액 정보 확보
-            df = fdr.StockListing('KRX')
-            mkt_col = [c for c in df.columns if 'market' in c.lower() or '시장' in c][0]
-            df = df[df[mkt_col].astype(str).str.upper().str.contains(market.upper())]
-            
-            # 한국 시장 우선주 차단 및 코드 6자리 유지
-            code_col = 'Code' if 'Code' in df.columns else 'Symbol'
-            df = df[df[code_col].astype(str).str.endswith('0')]
-            df[code_col] = df[code_col].astype(str).str.zfill(6)
-        else:
-            # 미국 시장 시가총액 포함 리스트
-            df = fdr.StockListing(market)
+        past_df = df_hist[df_hist.index <= pd.to_datetime(target_date)]
+        if past_df.empty: return 0.0
+        base_price = past_df['Close'].iloc[-1]
+        if base_price <= 0: return 0.0
+        return round(((current_price / base_price) - 1) * 100, 2)
+    except: return 0.0
 
-        if df.empty: return pd.DataFrame()
-        
-        # 시가총액 컬럼 찾기 및 표준화
-        cap_col = [c for c in df.columns if '시가총액' in c or ('mar' in c.lower() and 'cap' in c.lower())]
-        if cap_col:
-            target_col = cap_col[0]
-            df['시가총액_raw'] = pd.to_numeric(df[target_col].astype(str).str.replace(r'[^0-9.eE+-]', '', regex=True), errors='coerce').fillna(0)
-            
-            # 한국 시장이면 '억' 단위로 미리 변환하여 저장 (선택 사항, 여기선 원본 유지 후 나중에 처리)
-            if market in ['KOSPI', 'KOSDAQ']:
-                df['시가총액'] = (df['시가총액_raw'] / 100000000).astype(int)
-            else:
-                df['시가총액'] = df['시가총액_raw'] # 미국은 보통 달러 단위 그대로 유지
-                
-            df = df.sort_values('시가총액_raw', ascending=False)
-
-        symbol_col = 'Symbol' if 'Symbol' in df.columns else 'Code'
-        # 중복 제거 및 상위 종목 제한
-        df = df.drop_duplicates(subset=[symbol_col])
-        return df.head(limit)
-        
-    except Exception as e:
-        print(f"❌ {market} 리스트 가져오기 실패: {e}")
-        return pd.DataFrame()
-
-def process_stock(row, mkt_name, market_type, today, prev_rank_map):
-    """개별 종목 데이터 분석 (시가총액 정보 유지)"""
-    try:
-        code = str(row.get('Code', row.get('Symbol', '')))
-        # 한국 종목 6자리 강제 고정
-        if market_type == 'KR': code = code.zfill(6)
-        
-        clean_code = code.replace('.', '-') if market_type in ['US', 'SP500'] else code
-        
-        df = fdr.DataReader(clean_code, today - pd.DateOffset(months=16), today)
-        if df.empty: return None
-        
-        curr_price = df['Close'].iloc[-1]
-        curr_volume = int(df['Volume'].iloc[-1]) if 'Volume' in df.columns else 0
-        last_date = df.index[-1].strftime('%Y-%m-%d')
-        
-        def get_ret(m):
-            ref = (today.replace(day=1) - pd.DateOffset(months=m-1)) - timedelta(days=1)
-            past = df[df.index <= ref]
-            if past.empty: return 0.0
-            return (curr_price - past['Close'].iloc[-1]) / past['Close'].iloc[-1] * 100
-        
-        r1, r3, r6, r12 = get_ret(1), get_ret(3), get_ret(6), get_ret(12)
-        
-        # 💡 시장별로 모멘텀 스코어 수식 다르게 적용
-        if market_type == 'KR':
-            # 한국 수식: 1개월 20% + 3개월 80%
-            score = round((r1 * 0.2) + (r3 * 0.8), 1)
-        elif market_type in ['US', 'SP500']:
-            # 미국 수식: 1개월 -80% + 3개월 20% + 6개월 70% + 12개월 90%
-            score = round((r1 * -0.1) + (r3 * 0.7) + (r6 * 0.4), 1)
-        else:
-            score = 0.0
-        
-        display_mkt = row.get('Exchange', 'NYSE') if market_type == 'SP500' else mkt_name
-        
-        # 💡 시가총액 정보 결과에 포함
-        marcap = row.get('시가총액', 0)
-
-        return {
-            '기준일': last_date, '시장': display_mkt, '종목명': row['Name'], 
-            '종목코드': code, '시가총액': marcap, '기준가': round(curr_price, 2), '전일거래량': curr_volume,
-            '1개월(%)': round(r1, 1), '3개월(%)': round(r3, 1), '6개월(%)': round(r6, 1),
-            '12개월(%)': round(r12, 1), '모멘텀스코어': score, 
-            '전달순위': prev_rank_map.get(code.upper(), None) 
-        }
-    except Exception as e:
-        return None
-
-def run_daily(market_type='KR'):
-    conf = {
-        'KR': ("한국", 'data/momentum_data_daily.csv', 'data/momentum_data.csv', ['KOSPI', 'KOSDAQ'], 150),
-        'US': ("미국", 'data/momentum_data_daily_us.csv', 'data/momentum_data_us.csv', ['NYSE', 'NASDAQ'], 150),
-        'SP500': ("S&P 500", 'data/momentum_data_daily_sp500.csv', 'data/momentum_data_sp500.csv', ['S&P500'], 505)
-    }
+# 🌟 핵심: 이미 정해진 300개 명단(row)에 대해 오늘 기준 모멘텀 계산
+def process_ticker_us(row, start_date, today, dates, real_base_date_str):
+    code = str(row['종목코드']).strip()
+    name = row['종목명']
+    market = row['시장']
+    marcap = row['시가총액_raw'] if '시가총액_raw' in row else row.get('시가총액', 0)
     
-    name_tag, file_path, p_path, market_list, limit = conf[market_type]
-
-    prev_rank_map = {}
-    if os.path.exists(p_path):
-        try:
-            df_p = pd.read_csv(p_path, dtype={'종목코드': str})
-            df_p = df_p.sort_values('모멘텀스코어', ascending=False).reset_index(drop=True)
-            for i, r in df_p.iterrows():
-                prev_rank_map[str(r['종목코드'])] = i + 1
-        except Exception: pass
-
-    today = datetime.today()
-    print(f"🕒 {name_tag} 데일리 데이터 수집 시작... (기준일: {today.strftime('%Y-%m-%d')})")
-    res = []
-
-    for mkt_name in market_list:
-        current_limit = 200 if mkt_name == 'KOSPI' else limit
-        target_stocks = get_top_stocks(mkt_name, current_limit)
+    try:
+        # 오늘까지의 주가 데이터를 쭉 당겨옵니다.
+        df_hist = fdr.DataReader(code, start_date, today)
+        if df_hist.empty: return None
         
-        if target_stocks.empty: continue
+        if df_hist.index.tz is not None: df_hist.index = df_hist.index.tz_localize(None)
+        
+        curr_p = df_hist['Close'].iloc[-1]
+        
+        ret_1m = calculate_return_unified(df_hist, dates[1], curr_p)
+        ret_3m = calculate_return_unified(df_hist, dates[3], curr_p)
+        ret_6m = calculate_return_unified(df_hist, dates[6], curr_p)
+        ret_12m = calculate_return_unified(df_hist, dates[12], curr_p)
+        
+        return {
+            '기준일': real_base_date_str,
+            '시장': market,
+            '종목명': name,
+            '종목코드': code,
+            '시가총액': marcap,
+            '종가': curr_p,
+            '1개월(%)': ret_1m,
+            '3개월(%)': ret_3m,
+            '6개월(%)': ret_6m,
+            '12개월(%)': ret_12m,
+        }
+    except: return None
+
+# 🌟 핵심: 이달 초 생성된 아카이브 파일의 '이번달수익률'을 실제 최신 수익률로 업데이트
+def sync_archive_returns_us(archive_folder):
+    archive_files = sorted(glob.glob(f'{archive_folder}/usa300_*.csv'))
+    if not archive_files: return
+    latest_file = archive_files[-1]
+    
+    df_latest = pd.read_csv(latest_file)
+    if '종목선정일' in df_latest.columns:
+        csv_base_date = pd.to_datetime(df_latest['종목선정일'].iloc[0])
+        today = datetime.today()
+        
+        updates = 0
+        for idx, row in df_latest.iterrows():
+            code = str(row['종목코드'])
+            try:
+                df_h = fdr.DataReader(code, csv_base_date, today)
+                if not df_h.empty:
+                    curr_p = df_h['Close'].iloc[-1]
+                    base_p = df_h['Close'].iloc[0]
+                    if base_p > 0:
+                        df_latest.at[idx, '이번달수익률'] = round(((curr_p / base_p) - 1) * 100, 2)
+                        updates += 1
+            except: pass
             
-        print(f"🔎 {mkt_name} {len(target_stocks)}개 종목 분석 중 (병렬 처리)...")
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = [executor.submit(process_stock, row, mkt_name, market_type, today, prev_rank_map) for _, row in target_stocks.iterrows()]
-            for future in as_completed(futures):
-                result = future.result()
-                if result: res.append(result)
-                    
-    if res:
-        final_df = pd.DataFrame(res)
+        if updates > 0:
+            df_latest.to_csv(latest_file, index=False, encoding='utf-8-sig')
+            print(f"✅ 월간 파일({latest_file})의 '이번달수익률' 실시간 동기화 완료!")
+
+def main():
+    archive_folder = 'archive_usa'
+    output_file = 'data/momentum_data_daily_usa300.csv'
+    os.makedirs('data', exist_ok=True)
+    
+    # 1. 이번 달 모멘텀 대상인 300개 유니버스 확정 명단을 불러옵니다.
+    archive_files = sorted(glob.glob(f'{archive_folder}/usa300_*.csv'))
+    if not archive_files:
+        print(f"🚨 {archive_folder} 폴더에 아카이브 파일이 없습니다. update_monthly_usa.py를 먼저 실행하세요.")
+        return
         
-        # 종목코드 문자열 보정 (한국 종목 0 누락 방지)
-        if market_type == 'KR':
-            final_df['종목코드'] = final_df['종목코드'].astype(str).str.zfill(6)
-
-        denom = (1 + final_df['1개월(%)'] / 100) + 1e-9
-        final_df['3-1개월(%)'] = round(((1 + final_df['3개월(%)']/100) / denom - 1) * 100, 2)
-        final_df['6-1개월(%)'] = round(((1 + final_df['6개월(%)']/100) / denom - 1) * 100, 2)
-        final_df['12-1개월(%)'] = round(((1 + final_df['12개월(%)']/100) / denom - 1) * 100, 2)
-
-        final_df = final_df.sort_values('모멘텀스코어', ascending=False)
-        final_df.to_csv(file_path, index=False, encoding='utf-8-sig')
-        print(f"✅ {name_tag} 데일리 업데이트 완료! (시가총액 데이터 포함됨)")
+    latest_file = archive_files[-1]
+    print(f"📌 이번 달 기준 USA 300 유니버스 로드 완료 (출처: {latest_file})")
+    
+    df_latest = pd.read_csv(latest_file)
+    # 필요한 컬럼만 추출하여 유니버스 확정 (시가총액 유지)
+    cols_to_extract = ['종목코드', '종목명', '시장']
+    if '시가총액_raw' in df_latest.columns: cols_to_extract.append('시가총액_raw')
+    elif '시가총액' in df_latest.columns: cols_to_extract.append('시가총액')
+        
+    universe = df_latest[cols_to_extract].drop_duplicates(subset=['종목코드'])
+    
+    # 2. 오늘 날짜 기준으로 모멘텀 계산 세팅
+    today = datetime.today()
+    real_base_date_str = get_last_business_day_us()
+    real_base_date = pd.to_datetime(real_base_date_str)
+    
+    dates = {
+        1: get_end_of_month(real_base_date, 1),
+        3: get_end_of_month(real_base_date, 3),
+        6: get_end_of_month(real_base_date, 6),
+        12: get_end_of_month(real_base_date, 12)
+    }
+    start_date = get_end_of_month(real_base_date, 13)
+    
+    results = []
+    print(f"🚀 총 {len(universe)}개 종목 데일리 모멘텀 계산 중... (기준일: {real_base_date_str})")
+    
+    # 3. 고속 병렬 처리
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        futures = [executor.submit(process_ticker_us, row, start_date, today, dates, real_base_date_str) for _, row in universe.iterrows()]
+        for future in as_completed(futures):
+            res = future.result()
+            if res: results.append(res)
+            
+    if results:
+        pd.DataFrame(results).to_csv(output_file, index=False, encoding='utf-8-sig')
+        print(f"🎉 데일리 데이터 저장 완료: {output_file}")
+        
+        # 4. 데일리 계산이 끝난 후, 월간 아카이브 파일의 수익률 빵꾸를 메워줍니다.
+        sync_archive_returns_us(archive_folder)
+    else:
+        print("🚨 데일리 데이터 수집 실패")
 
 if __name__ == "__main__":
-    # 💡 최우선 작업: 포트폴리오를 위한 전 종목 시가총액 마스터 파일 만들기
-    update_krx_master()
-    
-    # 데이터 수집 순서: KR -> US -> SP500
-    for m in ['KR', 'US', 'SP500']:
-        try:
-            run_daily(m)
-        except Exception as e:
-            print(f"🔥 {m} 실행 중 치명적 오류: {e}")
+    main()
